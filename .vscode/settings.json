@@ -1,0 +1,4 @@
+{
+  "npm.packageManager": "pnpm",
+  "typescript.tsserver.log": "verbose"
+}

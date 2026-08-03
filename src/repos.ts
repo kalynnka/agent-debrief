@@ -1,0 +1,83 @@
+import * as path from "path";
+
+import { Git } from "./git";
+import { Lane, resolveLane } from "./lanes";
+import { Store } from "./state";
+
+/** One repository under review — more precisely, one *lane* of one repository:
+ * the checked-out branch of the worktree a workspace folder resolves to. Its
+ * snapshot plumbing and review state live under the clone's common dir. */
+export class Repo {
+  readonly git: Git;
+  readonly store: Store;
+
+  constructor(readonly lane: Lane) {
+    this.git = new Git(lane.root);
+    this.store = new Store(lane);
+  }
+
+  get root(): string {
+    return this.lane.root;
+  }
+
+  get name(): string {
+    return path.basename(this.lane.root);
+  }
+}
+
+/** The repositories the workspace folders resolve to.
+ *
+ * A workspace routinely holds several clones — and several folders inside one
+ * clone, since a `.vscode` directory can be added as a folder of its own — so
+ * folders are mapped to git roots and deduped. The unit of review is the
+ * repository, not the folder. */
+export class Repos {
+  private byRoot = new Map<string, Repo>();
+
+  get all(): Repo[] {
+    return [...this.byRoot.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** Resolve folders to repos and load their review state. A repo already known
+   * is kept only while its lane is unchanged — switching branches starts a new
+   * lane, and the Repo follows it. */
+  async discover(folders: string[]): Promise<void> {
+    const roots = new Set<string>();
+    for (const folder of folders) {
+      const root = await Git.discoverRoot(folder);
+      if (root !== undefined) {
+        roots.add(root);
+      }
+    }
+    const next = new Map<string, Repo>();
+    for (const root of roots) {
+      const lane = await resolveLane(root);
+      const existing = this.byRoot.get(root);
+      next.set(
+        root,
+        existing !== undefined && existing.lane.name === lane.name ? existing : new Repo(lane),
+      );
+    }
+    this.byRoot = next;
+    await Promise.all(this.all.map((repo) => repo.store.load()));
+  }
+
+  /** The repo an absolute path belongs to, and the path relative to its root.
+   *
+   * Longest root wins, so a clone nested inside another folder resolves to the
+   * inner one. Revision URIs carry an absolute path for exactly this reason: one
+   * rule then resolves both them and working-tree files. */
+  locate(absPath: string): { repo: Repo; rel: string } | undefined {
+    let found: { repo: Repo; rel: string } | undefined;
+    for (const repo of this.byRoot.values()) {
+      const rel = path.relative(repo.root, absPath);
+      if (rel.startsWith("..") || path.isAbsolute(rel)) {
+        continue;
+      }
+      if (found === undefined || repo.root.length > found.repo.root.length) {
+        found = { repo, rel };
+      }
+    }
+    return found;
+  }
+}
