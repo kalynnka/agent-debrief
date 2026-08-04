@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as vscode from "vscode";
 
 import { Comments, SCHEME } from "./comments";
-import { RevisionContentProvider, openDiff } from "./diff";
+import { RevisionContentProvider, openDiff, openStackedDiff } from "./diff";
 import { Repos } from "./repos";
 import { snapshotTurn } from "./review";
 import { FileNode, TurnsProvider } from "./turns";
@@ -19,8 +19,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const comments = new Comments(repos);
   context.subscriptions.push(comments);
 
+  const view = vscode.window.createTreeView("octoview.turns", { treeDataProvider: turns });
   context.subscriptions.push(
-    vscode.window.createTreeView("octoview.turns", { treeDataProvider: turns }),
+    view,
+    view.onDidChangeCheckboxState((event) => {
+      for (const [node, state] of event.items) {
+        if (node.kind === "turn") {
+          turns.setChecked(node, state === vscode.TreeItemCheckboxState.Checked);
+        }
+      }
+    }),
     vscode.workspace.registerTextDocumentContentProvider(
       SCHEME,
       new RevisionContentProvider(repos),
@@ -125,6 +133,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   register("octoview.openDiff", async (node: FileNode) => {
     await openDiff(node.repo, node);
+  });
+
+  register("octoview.stackedDiff", async () => {
+    let opened = 0;
+    for (const repo of repos.all) {
+      const checked = turns.checkedTurns(repo);
+      if (checked.length > 0) {
+        await openStackedDiff(repo, checked);
+        opened++;
+      }
+    }
+    if (opened === 0) {
+      vscode.window.showInformationMessage(
+        "Octoview: check one or more turns first — the stacked diff reads them as a series.",
+      );
+    }
   });
 
   register("octoview.markReviewed", async (node: FileNode) => {

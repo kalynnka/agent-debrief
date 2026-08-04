@@ -1,24 +1,27 @@
 # Octoview — Executor Handoff
 
-**Status:** ready for M1 · **Last updated:** 2026-08-04
+**Status:** M1 landed at `e80fae7` (2026-08-04, TypeScript end to end) · next:
+hands-on verification, the §1 gate answer, then M2 planning
 
-You are picking up implementation. [PRD.md](PRD.md) is what and why,
-[PLAN.md](PLAN.md) is the order. This is everything else you would otherwise
-have to rediscover.
+You are picking up after M1. [PRD.md](PRD.md) is what and why, [PLAN.md](PLAN.md)
+is the order it landed in (with per-step **Landed** notes). This is everything
+else you would otherwise have to rediscover.
 
 **Read in this order:** PRD §1 (the problem) → PRD §4 (the review model) → PRD
-§5 (architecture) → PLAN §2 (the decision gate) → PLAN §3 (your first code step).
-The PRD appendix is the list of things already verified by hand; trust it and do
-not re-derive it.
+§5 (architecture) → PLAN's per-step Landed notes → §7 below (what is actually
+next). The PRD appendix is the list of things already verified by hand; trust it
+and do not re-derive it.
 
 ---
 
-## 1. Do not start with code
+## 1. The still-open decision gate
 
-PLAN §2 is a decision gate, and it is not optional. If a locally-run Claude Code
-session already appears in VS Code's Agents Window with Changes and *Add
-Feedback*, M1 and M2 need rewriting before anything is built. **Report the answer
-and stop.** Do not proceed to Step 1 on your own judgement.
+PLAN §2's question was never answered: does a locally-run Claude Code session
+appear in VS Code's Agents Window with Changes and *Add Feedback*? The owner
+consciously deferred it and had M1 built anyway; what survives a "yes" —
+durability, the index invariant, PR review, cross-repo, plans — is what M1
+mostly is. But the gate still decides how M2 is scoped. It is an owner-only,
+hands-on check. Do not re-defer it silently into M2.
 
 ---
 
@@ -40,12 +43,15 @@ These come from the repo owner's `AGENTS.md` and are not negotiable.
   "tests pass". State plainly what you did not check. A pre-existing failure is
   the headline, never background noise.
 
-**Python conventions** (the CLI is Python): `ruff format` and `ruff check` must
-pass on touched files, passed explicitly by path — never format the whole tree.
-Pyright clean at `basic`. No `typing.Any` or `object`. No `cast` or
-`type: ignore` to silence a true positive. Helpers need an owner and real reuse;
-no single-call `_private` helpers. Prefer fail-fast errors over fallback control
-flow.
+**TypeScript conventions** (owner decision 2026-08-04: no Python — one language
+for core, CLI and extension): strict `tsc` is the gate — `pnpm run compile` and
+`npx tsc -p ./ --noEmit` must be clean. No `any`, written or implicit; narrow
+`unknown` at dynamic boundaries (see `src/transcript.ts` for the pattern). Git
+executes only in `src/git.ts`; the UI modules (`extension`, `turns`, `comments`,
+`diff`) are the only ones allowed to import `vscode`. Helpers need an owner and
+real reuse. Prefer fail-fast errors over fallback control flow. Package manager
+is pnpm with `nodeLinker: hoisted` (`pnpm-workspace.yaml`) — do not reintroduce
+an npm lockfile or the symlinked layout.
 
 ---
 
@@ -53,21 +59,18 @@ flow.
 
 | Path | What it is |
 |---|---|
-| `~/Projects/octoverse/octoview` | This repo. TypeScript POC extension + these docs |
-| `~/Projects/octoverse/kraken` | Clone of octomate at `3707d51`, venv synced. **The test subject** |
-| `~/Projects/octoverse/inky` | The octomate working repo. Do not experiment here |
+| `~/Projects/octoverse/octoview` | This repo: core + CLI + extension (TypeScript) + these docs. History starts at `e80fae7` |
+| `~/Projects/octoverse/kraken` | Clone of octomate at `3707d51`, venv synced. **The test subject.** Stop hook installed via `.claude/settings.local.json`, kept out of `git status` by `.git/info/exclude` |
+| `~/Projects/octoverse/inky` | The octomate working repo. Do not experiment here — but it is hooked the same way, so real work there snapshots itself |
 | `~/Projects/octoverse/nautilus` | An older octomate clone, unrelated |
 
-Toolchain as verified: VS Code 1.131.0, Node v25.2.1, uv 0.8.13, Python 3.13.7.
+Toolchain as verified: VS Code 1.131.0, Node v25.2.1, pnpm 10.32.1
+(`packageManager` is pinned in package.json).
 
-**`octoview` has no commits at all** — `main` is unborn, every file untracked.
-Consequence you will hit immediately: the POC cannot snapshot its own repo,
-because `commit-tree -p` needs a parent. That is one of the two bugs Step 2 fixes.
-
-**Build and test the extension:** `npx tsc -p ./` then `npm test`. Current state
-is **30 assertions across 9 check groups, all passing**, entirely headless —
-`git.ts`, `state.ts` and `repos.ts` deliberately avoid importing `vscode` so they
-can be tested from Node. Preserve that property in whatever replaces them.
+**Build and test:** `pnpm install`, `pnpm run compile`, `pnpm test`. Current
+state is **109 assertions across 26 check groups, all passing**, entirely
+headless — every module except the four UI ones avoids importing `vscode` so
+the whole review core is testable from Node. Preserve that property.
 
 **The Extension Development Host** launches with `F5`, opening `../kraken`
 (`.vscode/launch.json`). Anything involving the tree view, comment widgets or
@@ -77,7 +80,8 @@ diff rendering can only be checked there, by a human.
 
 ## 4. Existing state you will encounter
 
-`kraken` has two real turns from a live exercise:
+`kraken` has two real turns from a live POC exercise, under the **old unscoped
+ref scheme** the M1 code no longer reads:
 
 ```
 refs/octoview/turns/1  843c628   tests reproducing a strip_markdown bug
@@ -88,19 +92,23 @@ Its working tree is **clean** — the owner reverted that change after reviewing
 it. The turns survive anyway, which is the model working as intended: a turn
 records what the tree was, not what it still is.
 
-`inky` has one turn, `c269621`, taken with the pre-fix build. It carries a
-phantom `D .python-version` from the virgin-index bug. Leave it alone; it is a
-before-and-after specimen, not something to migrate.
+`inky` has one POC turn, `c269621`, with a phantom `D .python-version` from the
+virgin-index bug — a before-and-after specimen. Both repos also carry POC-era
+top-level files (`.git/octoview/{index,state.json}`) beside the new per-lane
+dirs (`.git/octoview/<lane>/`). **All POC state is ignored, not migrated** —
+the decision stands. Do not write migration code, and leave the specimens be.
 
-**PLAN §7 decides that all POC state is discarded rather than migrated** when the
-extension becomes a client. Do not write migration code.
+Per-repo ownership is a stated principle now (PRD §4.3): everything octoview
+records about a repo lives in that repo's own `.git`; the tool has no central
+store.
 
 ---
 
 ## 5. Traps already paid for
 
-Each of these cost real debugging. They are in the PRD appendix; this is the
-executable summary.
+Each of these cost real debugging. **All are fixed in M1 and pinned by
+regression tests** (`test/smoke.js`, `test/cli.js`); the table stays because it
+explains why the code looks the way it does.
 
 | Trap | What happens | What to do |
 |---|---|---|
@@ -125,36 +133,33 @@ before N snapshots        after N snapshots
   git branch --list         unchanged
 ```
 
-`test/smoke.js` already asserts exactly this against a temp repo with a staged
-file. Port it; do not weaken it.
+`test/smoke.js` group 1 and `test/cli.js` group 9 assert exactly this — the
+CLI-level check includes a staged file surviving snapshots byte-for-byte. Do
+not weaken either.
 
 ---
 
-## 7. First deliverable
+## 7. What is actually next
 
-PLAN §3, Step 1: the CLI package, the JSON envelope, `--repo` / `--lane`
-resolution, and `octoview status` returning a valid empty result.
+M1's code is done; what remains is the part no test can do:
 
-Done when: the envelope shape is tested; lane resolution is tested in a main
-tree, a linked worktree and on a detached HEAD; `ruff format` and `ruff check`
-pass on the new files; and `octoview status --json` runs against `kraken` and
-prints its two existing turns' lane correctly.
-
-Then stop and report. Do not continue into Step 2 without review.
+1. **The §1 gate answer** — owner, in the Agents Window, under an hour.
+2. **A full editor-host review loop** — F5 opens `../kraken`; drive a turn,
+   read the diff, batch comments, submit. M1 exit criterion 2.
+3. **A live hook-driven turn appearing unprompted** — both inky and kraken are
+   hooked; finish any real Claude turn there and watch the view. Criterion 5.
+4. Then **M2 planning** (PRD §9): feedback round-trip via `--resume`, inline
+   consult, plan artifacts, edit provenance — reordered by whatever M1's real
+   use teaches. M2 gets its own plan document; do not grow this one.
 
 ---
 
 ## 8. Open decisions — do not invent answers
 
-PRD §12 lists five. Two land inside M1 and have recommendations in PLAN, but the
-owner has not ratified them:
-
-1. **Concurrent writers** (§12.1) — PLAN §5 recommends an advisory lock file
-   around every read-modify-write. Confirm before implementing.
-2. **How the UI learns a turn happened** (§12.2) — PLAN §8 recommends a file
-   watch on `state.json`. Confirm before implementing.
-
-The other three are empirical and answered by using M1, not by deciding now.
+Both M1 decisions were ratified and built on 2026-08-04: the advisory lock file
+(PRD §12, resolved) and the state-file watch (same). What is still open is
+empirical — label quality from transcripts, snapshot cost at scale — and is
+answered by using M1, not by deciding now.
 
 If you hit a question these documents do not answer, ask. Do not resolve
 ambiguity by picking the option that is easiest to build.

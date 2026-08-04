@@ -8,7 +8,7 @@ const path = require("path");
 
 const { Git } = require("../out/git");
 const { resolveLane } = require("../out/lanes");
-const { hashLines } = require("../out/review");
+const { hashLines, stackedBase } = require("../out/review");
 const { Store } = require("../out/state");
 
 const cliPath = path.join(__dirname, "..", "out", "cli.js");
@@ -304,6 +304,40 @@ async function main() {
   assert.strictEqual(hp.turn.session, "sess-123");
   assert.strictEqual(hp.turn.label, "I fixed strip_markdown to keep code fences.");
   console.log("stop hook: repo/session/label        ok");
+
+  // 18. Stacked history base: the original line plus every superseded
+  //     intermediate, in order, so diffing it against the final content renders
+  //     the flow (-aaa -bbb +ccc) inside one file's diff view.
+  const stack = path.join(parent, "stack");
+  fs.mkdirSync(stack);
+  git(["init", "-q", "-b", "main", "."], stack);
+  git(["config", "user.email", "t@t"], stack);
+  git(["config", "user.name", "t"], stack);
+  fs.writeFileSync(path.join(stack, "f.txt"), "x\naaa\ny\n");
+  git(["add", "."], stack);
+  git(["commit", "-qm", "base"], stack);
+  const stackHead = git(["rev-parse", "HEAD"], stack).trim();
+  fs.writeFileSync(path.join(stack, "f.txt"), "x\nbbb\ny\n");
+  const s1 = JSON.parse(octoview(["turn", "snapshot", "--label", "t1", "--json"], stack).stdout);
+  fs.writeFileSync(path.join(stack, "f.txt"), "x\nn\nccc\ny\n");
+  const s2 = JSON.parse(octoview(["turn", "snapshot", "--label", "t2", "--json"], stack).stdout);
+  const stackGit = new Git(stack);
+  assert.strictEqual(
+    await stackedBase(stackGit, "f.txt", [stackHead, s1.turn.sha]),
+    "x\naaa\ny\n",
+    "a single transition must reproduce the origin exactly",
+  );
+  assert.strictEqual(
+    await stackedBase(stackGit, "f.txt", [stackHead, s1.turn.sha, s2.turn.sha]),
+    "x\naaa\nbbb\ny\n",
+    "superseded intermediates must stack in chronological order",
+  );
+  assert.strictEqual(
+    await stackGit.fileAt(s2.turn.sha, "f.txt"),
+    "x\nn\nccc\ny\n",
+    "the right-hand side is the plain final content",
+  );
+  console.log("stacked history base                 ok");
 
   fs.rmSync(parent, { recursive: true, force: true });
   console.log("\nall checks passed");

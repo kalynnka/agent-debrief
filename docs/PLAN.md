@@ -1,9 +1,18 @@
 # Octoview — Landing Plan
 
-**Status:** draft · **Covers:** M0 → M1 · **Last updated:** 2026-08-04
+**Status:** M1 landed at `e80fae7` · **Covers:** M0 → M1 · **Last updated:** 2026-08-04
 
 Companion to [PRD.md](PRD.md). The PRD says what to build and why; this says in
 what order it lands, and how each landing is verified.
+
+**After landing (2026-08-04):** the owner switched implementation to TypeScript
+end to end — one language with the extension, pnpm as the package manager — so
+the Python-specific details below became TypeScript ones. The step order was
+followed as written; each step carries a **Landed** note saying what shipped
+and where reality deviated. The biggest deviation is Step 5: with one language
+nothing was deleted — the POC modules were reworked *into* the core. The §2
+gate was consciously deferred by the owner; it now governs M2 re-scoping
+rather than M1's start.
 
 ---
 
@@ -44,15 +53,13 @@ Cost: under an hour. Everything downstream is cheaper than getting this wrong.
 
 ## 3. Step 1 — CLI skeleton and the JSON contract
 
-**Lands:** a Python package that resolves where it is and prints valid JSON.
+**Lands:** a CLI that resolves where it is and prints valid JSON.
 
 ```
 octoview/
-  cli/
-    pyproject.toml
-    src/octoview/{__init__,lanes,cli}.py
-    tests/
-  src/  test/  docs/          # extension, untouched
+  src/lanes.ts     # repo + lane resolution (core)
+  src/cli.ts       # bin entry, envelope, exit codes
+  test/cli.js      # lane resolution + CLI contract
 ```
 
 - The envelope every command returns: `schemaVersion`, payload on stdout,
@@ -69,6 +76,9 @@ command and the extension at once.
 and on a detached HEAD. **Not verified:** nothing yet reads real turns.
 
 **Size:** small.
+
+**Landed:** as written (in TS, after a false start in Python the owner redirected).
+An unborn-HEAD lane resolves too — octoview's own pre-first-commit state forced it.
 
 ---
 
@@ -99,6 +109,10 @@ and on a detached HEAD. **Not verified:** nothing yet reads real turns.
 **Size:** medium, and the densest step. If it reads long, the split is
 lanes-and-paths first, then snapshot-and-diff.
 
+**Landed:** reworked `src/git.ts` in place (plumbing verbs only — policy moved
+to `src/review.ts`). Every row of the table above is a passing check in
+`test/smoke.js` or `test/cli.js`.
+
 ---
 
 ## 5. Step 3 — Store, review state, and the locking decision
@@ -121,6 +135,11 @@ real, not simulated); state round-trips; reviewed state resets on a later turn.
 
 **Size:** medium.
 
+**Landed:** as recommended — `Store.withLock` in `src/state.ts` wraps every
+read-modify-write including the whole snapshot (which also serializes the shared
+private index). Two racing snapshots produce exactly one turn, asserted with two
+real processes.
+
 ---
 
 ## 6. Step 4 — Comments, anchoring, batch
@@ -139,6 +158,11 @@ when its lines change; a batch round-trips through disk.
 **Size:** medium-to-large — **the most likely step to need splitting.** The split
 is (a) anchor model and carry-forward, (b) submit and batch. Anchoring is where
 the fuzzy matching lives and deserves to be read on its own.
+
+**Landed:** anchors in `src/state.ts`, carry-forward and `makeAnchor` in
+`src/review.ts` — a thread also follows a rename to its new path. Matching is
+exact-block, nearest occurrence to the old position; anything less than exact
+goes `outdated` rather than guessed.
 
 ---
 
@@ -167,6 +191,13 @@ a human. Step 5 is where hands-on checking is mandatory, not optional.
 
 **Size:** medium, weighted toward deletion.
 
+**Landed differently:** nothing was deleted — with one language the POC modules
+*became* the core, and "the extension becomes a client" means the UI modules
+(`extension`, `turns`, `comments`, `diff`) execute no git and mutate state only
+through the locked store. The CLI-finding decision dissolved (same package); the
+no-migration decision stood: POC state in inky and kraken is simply ignored by
+the lane-scoped scheme. The editor-host gap above remains real and open.
+
 ---
 
 ## 8. Step 6 — Auto-snapshot, and how the UI finds out
@@ -188,6 +219,14 @@ demonstrated.
 
 **Size:** small in code, and the first moment the product feels like itself.
 
+**Landed:** `--from-stop-hook` on `turn snapshot` (payload from stdin, label
+from the transcript's last assistant text, `turn <n>` fallback); the watch is a
+debounced `fs.watch` on each lane's state dir, as recommended. Hook installed
+for kraken via `.claude/settings.local.json` (kept out of `git status` by
+`.git/info/exclude`) and for inky the same way. The headless suite covers the
+hook path with a synthetic transcript; **the live unprompted-appearance demo is
+still owed.**
+
 ---
 
 ## 9. Step 7 — The `prepare-change-review` skill
@@ -201,31 +240,40 @@ checking deliberately, because it is the boundary §5.5 rests on.
 
 **Size:** small.
 
+**Landed:** `skills/prepare-change-review/SKILL.md` canonical; delivery is a
+`~/.claude/skills` symlink to it — the in-repo `.claude/skills/` wrapper was
+dropped because it only reached octoview's own sessions (PRD §5.5). The
+verified-clause above is behavioral and gets its check the first time an agent
+actually runs the workflow.
+
 ---
 
 ## 10. M1 is done when
 
-1. The extension contains no git logic — `grep` for `execFile.*git` in `src/`
-   returns nothing.
-2. A full turn is reviewed end to end without invoking the CLI by hand.
-3. Two worktrees of one clone are reviewed independently, with separate numbering.
-4. Snapshotting still leaves index, HEAD and branches untouched, asserted by test.
-5. A Claude turn snapshots itself and appears in the view unprompted.
+1. ✅ The extension contains no git logic of its own — with one language the
+   criterion became: git executes only in the core's `git` module, never in the
+   UI modules.
+2. ⏳ A full turn is reviewed end to end without invoking the CLI by hand —
+   needs the editor host and a human.
+3. ✅ Two worktrees of one clone are reviewed independently, with separate
+   numbering — asserted by test.
+4. ✅ Snapshotting still leaves index, HEAD and branches untouched — asserted by
+   test, staged file included.
+5. ⏳ A Claude turn snapshots itself and appears in the view unprompted — hook
+   path tested headlessly; the live demonstration is still owed.
 
 ---
 
 ## 11. Risks specific to landing
 
-- **Step 5 is the irreversible one.** Everything before it is additive and the POC
-  keeps working; Step 5 removes the TypeScript implementation. It should not land
-  until Steps 1–4 are reviewed and the CLI has been driven by hand against
-  `kraken`.
+- **~~Step 5 is the irreversible one~~** — dissolved by the single-language
+  decision: nothing was removed, the POC was reworked in place, and the whole of
+  M1 landed as one reviewable tree at `e80fae7`.
 - **Editor-host testing stays manual.** Nothing in this plan fixes that. It is
   survivable at this size and would be the first thing to reconsider if the
   extension grows.
-- **Two languages, briefly duplicated.** Between Steps 2 and 5 the same git logic
-  exists in Python and TypeScript. That window is intentional and bounded; it
-  must not be extended by adding features to the TypeScript side during it.
+- **~~Two languages, briefly duplicated~~** — closed outright on 2026-08-04:
+  core, CLI and extension are all TypeScript.
 - **Scope creep from M2.** Plans, provenance and the round-trip are all designed
   and tempting. None of them land in M1.
 

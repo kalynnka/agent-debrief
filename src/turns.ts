@@ -13,6 +13,7 @@ export class TurnNode {
   constructor(
     readonly repo: Repo,
     readonly turn: Turn,
+    readonly checked: boolean,
   ) {}
 }
 
@@ -36,10 +37,34 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
   private changed = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.changed.event;
 
+  /** Checked turn numbers per repo root — the selection for a stacked diff. */
+  private checked = new Map<string, Set<number>>();
+
   constructor(private readonly repos: Repos) {}
 
   refresh(): void {
     this.changed.fire(undefined);
+  }
+
+  setChecked(node: TurnNode, on: boolean): void {
+    const set = this.checked.get(node.repo.root) ?? new Set<number>();
+    if (on) {
+      set.add(node.turn.n);
+    } else {
+      set.delete(node.turn.n);
+    }
+    this.checked.set(node.repo.root, set);
+  }
+
+  /** The checked turns that still exist, in turn order. Gaps are fine: each
+   * turn's diff is self-contained (parent → sha), so a non-contiguous
+   * selection reads as exactly those turns' history. */
+  checkedTurns(repo: Repo): Turn[] {
+    const set = this.checked.get(repo.root);
+    if (set === undefined) {
+      return [];
+    }
+    return repo.store.data.turns.filter((t) => set.has(t.n));
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
@@ -68,6 +93,9 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
       item.description = new Date(node.turn.at).toLocaleTimeString();
       item.iconPath = new vscode.ThemeIcon("git-commit");
       item.contextValue = "turn";
+      item.checkboxState = node.checked
+        ? vscode.TreeItemCheckboxState.Checked
+        : vscode.TreeItemCheckboxState.Unchecked;
       return item;
     }
 
@@ -96,7 +124,10 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
       return this.repos.all.map((repo) => new RepoNode(repo));
     }
     if (node.kind === "repo") {
-      return [...node.repo.store.data.turns].reverse().map((t) => new TurnNode(node.repo, t));
+      const set = this.checked.get(node.repo.root);
+      return node.repo.store.data.turns.map(
+        (t) => new TurnNode(node.repo, t, set?.has(t.n) ?? false),
+      );
     }
     if (node.kind === "file") {
       return [];

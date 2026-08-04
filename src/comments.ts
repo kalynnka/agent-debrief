@@ -15,6 +15,12 @@ export function revisionUri(sha: string, absPath: string): vscode.Uri {
   return vscode.Uri.from({ scheme: SCHEME, path: absPath, query: sha });
 }
 
+/** The URI for a file's stacked-history base: the revisions whose pairwise
+ * changes are interleaved into one left-hand document (see `stackedBase`). */
+export function stackUri(states: string[], absPath: string): vscode.Uri {
+  return vscode.Uri.from({ scheme: SCHEME, path: absPath, query: `stack:${states.join(",")}` });
+}
+
 /** The absolute path a URI names, for both schemes we read. */
 export function pathOf(uri: vscode.Uri): string {
   return uri.scheme === "file" ? uri.fsPath : uri.path;

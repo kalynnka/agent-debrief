@@ -52,6 +52,12 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "octoview.stackedDiff",
+        "title": "Open Stacked Diff of Checked Turns",
+        "category": "Octoview",
+        "icon": "$(diff-multiple)"
+      },
+      {
         "command": "octoview.submit",
         "title": "Submit Review",
         "category": "Octoview",
@@ -99,9 +105,14 @@
           "group": "navigation@2"
         },
         {
-          "command": "octoview.refresh",
+          "command": "octoview.stackedDiff",
           "when": "view == octoview.turns",
           "group": "navigation@3"
+        },
+        {
+          "command": "octoview.refresh",
+          "when": "view == octoview.turns",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [

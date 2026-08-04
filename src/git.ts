@@ -35,6 +35,14 @@ export interface ChangedFile {
   oldPath?: string;
 }
 
+export interface Hunk {
+  /** 1-based first replaced line in the old file; the line *after* which to
+   * insert when `oldCount` is 0 (unified-diff convention, 0 = at the top). */
+  oldStart: number;
+  oldCount: number;
+  newLines: string[];
+}
+
 export class Git {
   constructor(readonly root: string) {}
 
@@ -132,6 +140,27 @@ export class Git {
       }
     }
     return files;
+  }
+
+  /** One change region of a file between two revisions, from `-U0` unified
+   * output: which old lines it replaces and the new lines' text. Enough to
+   * replay a file's evolution without reimplementing a diff algorithm. */
+  async diffHunks(from: string, to: string, filePath: string): Promise<Hunk[]> {
+    const out = await this.run(["diff", "-U0", "--no-renames", from, to, "--", filePath]);
+    const hunks: Hunk[] = [];
+    for (const line of out.split("\n")) {
+      const header = /^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@/.exec(line);
+      if (header !== null) {
+        hunks.push({
+          oldStart: Number(header[1]),
+          oldCount: header[2] === undefined ? 1 : Number(header[2]),
+          newLines: [],
+        });
+      } else if (line.startsWith("+") && !line.startsWith("+++") && hunks.length > 0) {
+        hunks[hunks.length - 1].newLines.push(line.slice(1));
+      }
+    }
+    return hunks;
   }
 
   /** File content at a revision, or empty string when the file did not exist

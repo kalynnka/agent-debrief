@@ -50,7 +50,8 @@ from the work it describes.
    go-to-definition all work while you read.
 5. Comment on any line. Drafts accumulate.
 6. **Octoview: Submit Review** writes the batch to
-   `.git/octoview/submitted/<timestamp>.json` and marks the drafts submitted.
+   `.git/octoview/<lane>/batches/<timestamp>.json` in the reviewed repo and
+   marks the drafts submitted. Agents read it back with `octoview review batch`.
 
 Marking a file reviewed records the turn you reviewed it at. A later turn touching that
 file makes it unreviewed again — the rule is just `reviewed[file] >= turn`.
@@ -67,6 +68,8 @@ pnpm test       # headless: git plumbing + store, no editor needed
 
 ## Status
 
-POC. Comments land as a JSON file on disk; the intended home is an Octomate review
-batch so they can be resumed into a run and shared through the gateway. The web UI is
-meant to render the same batch once its design settles.
+M1: lane-scoped core + CLI + extension client, TypeScript end to end — see
+[docs/PRD.md](docs/PRD.md) and [docs/PLAN.md](docs/PLAN.md). Comments land as a
+JSON batch in the reviewed repo's own `.git`; the intended home for sharing is
+an Octomate review batch (M5). The web UI is meant to render the same batch
+once its design settles.

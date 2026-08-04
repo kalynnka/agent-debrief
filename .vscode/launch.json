@@ -7,10 +7,10 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "${workspaceFolder}/../kraken"
+        "${workspaceFolder}/../octoverse.code-workspace"
       ],
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
-      "preLaunchTask": "npm: compile"
+      "preLaunchTask": "npm: watch"
     }
   ]
 }

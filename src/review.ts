@@ -1,6 +1,6 @@
 import * as crypto from "crypto";
 
-import { ChangedFile, Git, Turn, turnRef } from "./git";
+import { ChangedFile, Git, Hunk, Turn, turnRef } from "./git";
 import { Anchor, State, Store } from "./state";
 
 export interface SnapshotOptions {
@@ -127,6 +127,91 @@ async function carryForward(
       contentHash: thread.anchor.contentHash,
     };
   }
+}
+
+interface StackEntry {
+  text: string;
+  /** Still present in the newest state; dead lines were superseded en route. */
+  live: boolean;
+  /** Came from the oldest state rather than being added by a later one. */
+  fromBase: boolean;
+}
+
+/** The left-hand document for a stacked history diff of one file.
+ *
+ * `states` is the file's evolution — the base revision, then each turn's sha.
+ * Every pairwise change is replayed; a line that gets replaced stays in place,
+ * dead, so the result holds the original lines plus every superseded
+ * intermediate, in chronological order. Diffing it against the final content
+ * makes the editor render the flow itself: origin and intermediates as
+ * consecutive deletions, the surviving values as additions, untouched lines as
+ * context. Lines added mid-series that survive are excluded here so they show
+ * as additions rather than context. */
+export async function stackedBase(git: Git, file: string, states: string[]): Promise<string> {
+  const origin = await git.fileAt(states[0], file);
+  const entries: StackEntry[] = splitLines(origin).map((text) => ({
+    text,
+    live: true,
+    fromBase: true,
+  }));
+  for (let i = 1; i < states.length; i++) {
+    const hunks = await git.diffHunks(states[i - 1], states[i], file);
+    // Hunk positions refer to the pre-state; applying back to front keeps the
+    // earlier positions valid while later ones mutate the entry list.
+    for (const hunk of [...hunks].reverse()) {
+      applyHunk(entries, hunk);
+    }
+  }
+  const kept = entries.filter((entry) => !entry.live || entry.fromBase);
+  return kept.length === 0 ? "" : kept.map((entry) => entry.text).join("\n") + "\n";
+}
+
+function applyHunk(entries: StackEntry[], hunk: Hunk): void {
+  const liveIndex = (nth: number): number => {
+    let seen = 0;
+    for (let i = 0; i < entries.length; i++) {
+      if (entries[i].live) {
+        seen++;
+        if (seen === nth) {
+          return i;
+        }
+      }
+    }
+    return entries.length;
+  };
+  let insertAt: number;
+  if (hunk.oldCount === 0) {
+    insertAt = hunk.oldStart === 0 ? 0 : liveIndex(hunk.oldStart) + 1;
+  } else {
+    const replaced: number[] = [];
+    let i = liveIndex(hunk.oldStart);
+    while (replaced.length < hunk.oldCount && i < entries.length) {
+      if (entries[i].live) {
+        replaced.push(i);
+      }
+      i++;
+    }
+    for (const index of replaced) {
+      entries[index].live = false;
+    }
+    insertAt = replaced.length === 0 ? entries.length : replaced[replaced.length - 1] + 1;
+  }
+  entries.splice(
+    insertAt,
+    0,
+    ...hunk.newLines.map((text) => ({ text, live: true, fromBase: false })),
+  );
+}
+
+function splitLines(content: string): string[] {
+  if (content === "") {
+    return [];
+  }
+  const lines = content.split("\n");
+  if (lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  return lines;
 }
 
 /** The occurrence of `block` in `lines` nearest to line `near`, so a thread

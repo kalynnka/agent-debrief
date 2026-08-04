@@ -226,6 +226,11 @@ GIT_INDEX_FILE=<common>/octoview/<lane>/index  git read-tree <parent>
   that way, and the POC's first snapshot reported it deleted.
 - A repo the turn did not change gets **no turn**. An empty turn would put a
   repo's numbering out of step with the work it describes.
+- **Everything octoview records about a repo lives in that repo's own `.git`** —
+  refs under `refs/octoview/`, state and batches under
+  `<git-common-dir>/octoview/<lane>/`. The tool keeps no central store:
+  reviewing four repos writes four repos' `.git` and nothing anywhere else,
+  so a clone carries its own review history and deleting a clone deletes it.
 
 ### 4.4 Review state
 
@@ -391,24 +396,27 @@ comparable transcript, so its turns carry diffs without provenance.
 ## 5. Architecture
 
 ```
-              skills / hooks
-                    │
-                    ▼
-  Octoview UI ──► octoview CLI ──► review core ──► git + .git/octoview
-  (VS Code,             │
-   JetBrains,           └──── sync ──► Octomate API ──► Web UI
-   macOS)
+  skills / hooks / agents ──► octoview CLI ──┐
+                                             ├──► review core ──► git + <repo>/.git/octoview
+  Octoview UI (VS Code) ── in-process ───────┘
+                                  │
+                                  └── sync (M5) ──► Octomate API ──► Web UI
 ```
 
-### 5.1 Review core (Python)
+### 5.1 Review core (TypeScript)
 
 Owns every invariant: private-index snapshotting, turn identity, base/head shas,
 stale-review detection, comment anchoring and carry-forward, state transitions,
 report and evidence schemas, locking.
 
-It is a library. The CLI is a thin interface over it. **The core/CLI split does
-not get its own package until Octomate sync is a real second caller** — one
-package with a `cli` module until then.
+It is a library of editor-free TypeScript modules (`lanes`, `git`, `state`,
+`review`, `transcript`) in the octoview repo. The extension imports it
+in-process; the `octoview` CLI is a thin bin over the same modules and is the
+contract everything that is not the extension talks through. **One language for
+core, CLI and extension** replaced the original Python-core plan (owner
+decision, 2026-08-04): the POC's tested plumbing carried forward instead of
+being rewritten, and the "same git logic in two languages" risk disappeared
+outright.
 
 ### 5.2 CLI — the integration contract
 
@@ -427,7 +435,7 @@ machine-facing command:
 
 | Command | Purpose |
 |---|---|
-| `octoview turn snapshot` | Capture a turn. `--label`, `--agent`, `--session` |
+| `octoview turn snapshot` | Capture a turn. `--label`, `--agent`, `--session`; `--from-stop-hook` reads Claude's Stop payload (session id, transcript path, project cwd) from stdin |
 | `octoview status` | Lanes, turns, changed files, review state |
 | `octoview diff <turn>` | Changed files for a turn |
 | `octoview show <rev> <path>` | File content at a revision |
@@ -437,7 +445,8 @@ machine-facing command:
 | `octoview gc` | Prune spent lanes and turns (§4.8) |
 
 Every command takes `--repo` and `--lane`; both default to the current directory
-and its checked-out branch.
+and its checked-out branch. As of M1 all of these exist except `plan put/show`
+(lands with M2's artifacts) and `gc`, which is designed (§4.8) but unbuilt.
 
 Not in v1, each arriving with the milestone that needs it: `turn edits` (§4.9,
 M2), `feedback list/reply` (M2), `evidence attach` (M2), `pr pull` (M4), `sync`
@@ -458,17 +467,23 @@ on an unborn HEAD); neither should ever need fixing twice.
 with Copilot or Cursor; the architecture diagram does not. If the CLI lands
 inside the octomate package, the tool is re-coupled through the back door.
 
-Repo layout: CLI and extension in the `octoview` repo, released separately.
+Repo layout: CLI and extension in the `octoview` repo (one pnpm package, the
+CLI as its `bin`), released separately when release time comes. Dev install is
+`pnpm link --global`, or an absolute `node <repo>/out/cli.js` path in hook
+configs.
 
 ### 5.4 Extension — deliberately dumb
 
-The extension executes the CLI, renders its JSON, and drives VS Code's Comments
-API, diff editor, tree view and decorations. It holds no review policy, no
-snapshot logic, and never parses human-oriented output.
+The extension renders core output and drives VS Code's Comments API, diff
+editor, tree view and decorations. It holds no review policy, no snapshot
+logic, and never parses human-oriented output.
 
-This matters beyond taste: there is no TypeScript anywhere else in octoverse —
-all three siblings are Python. Every line of TS is a new maintenance surface, so
-it is held to process execution, JSON rendering and editor APIs.
+With core and extension in one language the boundary is enforced by module
+ownership rather than a process hop: the UI modules (`extension`, `turns`,
+`comments`, `diff`) execute no git and hold no review state of their own —
+git runs only inside the core's `git` module, and every mutation goes through
+the same locked store the CLI uses. A second IDE client still needs only
+process execution of the CLI plus JSON rendering.
 
 All the VS Code APIs used are finalized and stable, with no Copilot involvement
 and no model API. Octoview does not plug into VS Code's agent system: that would
@@ -491,14 +506,22 @@ wrong. So the CLI computes the git facts, validates payloads and refuses invalid
 transitions; hooks capture turn boundaries deterministically; the skill supplies
 rationale, risk and response.
 
-Canonical workflow in the open Agent Skills format, with thin host wrappers:
+Canonical workflow in the open Agent Skills format, delivered per host:
 
 ```
-skills/prepare-change-review/SKILL.md   canonical
-.claude/…                               Claude discovery
-.codex/…                                Codex discovery
-.github/agents/reviewer.agent.md        Copilot persona
+skills/prepare-change-review/SKILL.md      canonical, git-tracked in this repo
+~/.claude/skills/prepare-change-review  →  symlink to the canonical dir: every
+                                           Claude Code session in every repo,
+                                           iterating live with this repo
+.codex/…                                   Codex discovery (M3)
+.github/agents/reviewer.agent.md           Copilot persona (M4)
 ```
+
+A repo-local `.claude/skills/` wrapper was tried first and dropped (2026-08-04):
+it only reached sessions opened in the octoview repo itself — exactly where the
+skill is least needed. When delivery has to reach beyond this machine, the
+packaged form is a Claude Code plugin: one install carrying the skill *and* the
+Stop hook, replacing the per-repo `settings.local.json` wiring.
 
 If logic starts accumulating in a wrapper, it belongs back in the skill or CLI.
 
@@ -599,7 +622,7 @@ because notes anchor to commits and never touch the index, but it only works for
 | | Scope | Exit criteria |
 |---|---|---|
 | **M0** ✅ | POC extension: snapshot, turn tree, turn-over-turn diff, comments, batch submit, multi-repo | Done. 30 assertions across 9 headless check groups passing |
-| **M1** | Python core + CLI; lanes (§4.2), which also fixes worktrees; extension becomes a client; Claude `Stop` hook auto-snapshot; `prepare-change-review` skill | Extension holds zero git logic. A full turn reviewed without touching the CLI by hand. Two worktrees of one clone reviewed independently |
+| **M1** ◐ | TypeScript core + CLI; lanes (§4.2), which also fixes worktrees; extension becomes a core client; Claude `Stop` hook auto-snapshot; `prepare-change-review` skill | Landed at `e80fae7` (2026-08-04), 109 assertions across 26 headless groups. Verified: UI modules hold zero git logic; two worktrees of one clone review independently. Still to demonstrate by hand: a full turn reviewed end to end in the editor, and a hook-driven turn appearing unprompted |
 | **M2** | **Claude end to end**: feedback round-trip via `--resume`, inline consult, plan artifacts (§4.7) and plan-revision citation, edit provenance (§4.9) | UC-1 and UC-4 complete on Claude alone. A plan reviewed, revised, and implemented through the same batch. A hunk traceable to the tool call that wrote it |
 | **M3** | Widen to Codex — stop hook, session resume — against the loop M2 proved | UC-1 and UC-4 on Codex with no core changes. Adding a host is configuration, not architecture |
 | **M4** | PR import, GitHub submit; Copilot hook support verified | UC-5 end to end |
@@ -625,8 +648,10 @@ adding the second host costs nothing structural.
 
 ## 11. Risks
 
-- **Two languages.** Python core, TypeScript shell. Mitigated by giving the
-  extension no git knowledge at all — including `show` for diff content.
+- **~~Two languages~~ — closed 2026-08-04.** Core, CLI and extension are all
+  TypeScript now. What the risk was really about — the same git logic existing
+  twice — is guarded instead by module ownership (git executes only in the
+  core's `git` module) and by the headless suite.
 - **Hook coverage is uneven.** Claude and Codex yes, Copilot unverified. Manual
   snapshot keeps every host usable; automation is a per-host upgrade.
 - **Anchor drift.** Carry-forward matching will sometimes mis-locate. The
@@ -667,32 +692,23 @@ lifecycle → closes when its branch is deleted or merged (§4.2); plan review �
 plans are git-blob artifacts sharing the comment model (§4.7); plan-to-code
 linkage → the turn cites the plan revision, drift is evidence rather than a
 verdict (§4.7); retention → `octoview gc`, never pruning open review work (§4.8);
-host order → Claude end to end first, Copilot postponed (§6).
+host order → Claude end to end first, Copilot postponed (§6); implementation
+language → TypeScript end to end (§5.1, 2026-08-04); concurrent writers → an
+advisory lock file around every read-modify-write, one implementation covering
+every writer including the hook, exercised by two real spawned processes in the
+test suite (2026-08-04); how the UI learns a turn happened → a debounced file
+watch on the lane's state directory, no daemon (2026-08-04); the two POC bugs →
+fixed in M1's git layer with regression tests (rename records parsed as the
+three fields they carry; an unborn HEAD snapshots against the empty tree).
 
 Still open:
 
-1. **Concurrent writers.** §5.1 claims the core owns "locking and concurrency",
-   and nothing else in this document says what that means. From M1 there are two
-   writers: a `Stop` hook invoking the CLI, and the extension acting on my
-   clicks — a read-modify-write race on one lane's `state.json`, with lost
-   updates as the failure. Needs a decision: a lock file around the
-   read-modify-write, or splitting turns (CLI-written) from review state
-   (UI-written) into separate files so the writers never overlap.
-2. **How the UI learns a turn happened.** UC-1 says the view updates when a
-   snapshot lands automatically, but nothing delivers that event. A file watch on
-   `state.json` is the cheap answer and stays inside the no-daemon non-goal;
-   `events --follow` is the expensive one. Undecided, and M1's auto-snapshot is
-   the milestone that forces it.
-3. **Label quality from the transcript.** §6 derives a turn's label from the
+1. **Label quality from the transcript.** §6 derives a turn's label from the
    agent's last-turn summary. Whether that reads well enough to navigate by is an
    empirical question, answerable only once M1 produces real turns.
-4. **Snapshot cost at scale.** Seeding the private index each turn re-hashes the
+2. **Snapshot cost at scale.** Seeding the private index each turn re-hashes the
    tree. Fine on a 284-file repo; unmeasured on a large one. Needs numbers before
    it needs a solution.
-5. **Two known POC bugs** carried into M1: the `--name-status -z` rename parse,
-   and `commit-tree -p` failing on an unborn HEAD. Both are in the appendix, both
-   disappear when the git logic moves to the CLI — provided the CLI gets them
-   right.
 
 ---
 
@@ -709,7 +725,7 @@ Still open:
 | Refs are shared across a clone's worktrees | Turn refs must be lane-scoped |
 | `.git` is a file in a linked worktree — `mkdir .git/octoview` gives `ENOTDIR` | State lives under `--git-common-dir`; worktrees are broken in the POC |
 | `update-ref` accepts a blob, and `git diff` works between two blobs | Plans can be pure git objects, touching nothing |
-| `--name-status -z` rename records have three fields | Parser bug; open |
-| `commit-tree -p` fails on an unborn HEAD | A fresh `git init` repo cannot be snapshotted; open |
+| `--name-status -z` rename records have three fields | Parser bug; fixed in M1, regression-tested |
+| `commit-tree -p` fails on an unborn HEAD | A fresh `git init` repo cannot be snapshotted; fixed in M1 via the empty-tree base, regression-tested |
 | Cline, Cursor and Zed all do checkpoints; none do comments | Comments differentiate against *those* tools |
 | VS Code's Agents Window (Preview, 1.120+) ships batched feedback comments, mark-as-reviewed, and reviewed-state reset on a later agent turn | **Comments alone are no longer the differentiator** — see §11 |
