@@ -13,7 +13,8 @@ report whose facts come from the CLI, ordered for their reading.
 
 - **Never touch the user's git state.** No `git add`, no commits, no branch or
   stash operations. The staged set is the human's review progress marker; the
-  tool exists to protect it.
+  tool exists to protect it. `octoview turn commit` is the one exception, and
+  only on an instruction to commit in the human's *latest* message — see below.
 - **Every git fact comes from the `octoview` CLI.** Never read or write
   `.git/octoview/` directly and never create or delete refs yourself — the CLI
   owns that state and its locking.
@@ -45,3 +46,27 @@ report whose facts come from the CLI, ordered for their reading.
 
 5. **Stop.** The human reviews in their editor. Their comments come back to you
    as one batch: `octoview review batch --json`.
+
+## Landing a reviewed prefix
+
+Only when the human asks for it in the message you are answering:
+
+    octoview turn commit <n> -m "<subject>" --json
+
+This commits turns 1..n as one commit and leaves every later turn uncommitted in
+the working tree, which is what makes "commit through turn 10, keep going on
+11+" possible: the content comes from turn n's snapshot, so the working tree
+never moves and a file that turn 12 edited again still commits at its turn-10
+value.
+
+- `n` must be a turn that exists; the prefix is implied, so there is no way to
+  commit a gapped set.
+- It **replaces the index**, which is the human's review progress marker. The
+  command refuses while anything is staged rather than discarding it. Do not
+  reach for `--force` on their behalf — report the refusal and let them decide.
+- `landed` in the JSON is the turns that now have nothing uncommitted left of
+  them. It is derived from git, so it is also the answer after an amend, a reset
+  or a rebase.
+
+An instruction to commit is scoped to the turn it was given in, exactly like
+every other approval. Having committed once grants nothing for the next batch.

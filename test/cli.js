@@ -303,7 +303,28 @@ async function main() {
   assert.strictEqual(hp.turn.agent, "claude");
   assert.strictEqual(hp.turn.session, "sess-123");
   assert.strictEqual(hp.turn.label, "I fixed strip_markdown to keep code fences.");
-  console.log("stop hook: repo/session/label        ok");
+  const full = "I fixed strip_markdown to keep code fences.\n\nDetails follow.";
+  await store.load();
+  assert.strictEqual(
+    store.data.turns.find((t) => t.n === hp.turn.n).message,
+    full,
+    "the whole message is kept, not only the line the label is cut from",
+  );
+
+  //     A label given on the command line wins, and the message is read anyway:
+  //     the label can be the caller's, but the message is the agent's own.
+  fs.writeFileSync(path.join(root, "hooked-again.txt"), "h\n");
+  const labelled = octoview(
+    ["turn", "snapshot", "--from-stop-hook", "--label", "mine", "--json"],
+    parent,
+    JSON.stringify({ session_id: "sess-123", transcript_path: transcript, cwd: root }),
+  );
+  assert.strictEqual(labelled.status, 0, labelled.stderr);
+  const lp = JSON.parse(labelled.stdout);
+  assert.strictEqual(lp.turn.label, "mine");
+  await store.load();
+  assert.strictEqual(store.data.turns.find((t) => t.n === lp.turn.n).message, full);
+  console.log("stop hook: session, label, message    ok");
 
   // 18. Stacked history: every line's lifecycle rendered in place as unified
   //     diff — a replaced value reads +bbb then -bbb where it lived, so the
@@ -335,6 +356,44 @@ async function main() {
     "a superseded intermediate shows its arrival and its departure in place",
   );
   console.log("stacked history rendering            ok");
+
+  // 19. `turn commit n`: turns 1..n become one commit, later turns stay on disk,
+  //     the message is required, and staged work is protected without --force.
+  fs.writeFileSync(path.join(stack, "later.txt"), "later\n");
+  JSON.parse(octoview(["turn", "snapshot", "--label", "t3", "--json"], stack).stdout);
+  const noMsg = octoview(["turn", "commit", "2"], stack);
+  assert.strictEqual(noMsg.status, 2, "a commit without a message is a usage error");
+  const noTurn = octoview(["turn", "commit", "99", "-m", "x"], stack);
+  assert.strictEqual(noTurn.status, 3, "committing a turn that does not exist must fail");
+
+  fs.writeFileSync(path.join(stack, "mine.txt"), "staged by the human\n");
+  git(["add", "mine.txt"], stack);
+  const refused = octoview(["turn", "commit", "2", "-m", "land t1-t2"], stack);
+  assert.strictEqual(refused.status, 3, "staged work must not be silently replaced");
+  assert.ok(refused.stderr.includes("--force"), "the refusal must name the way through");
+  git(["restore", "--staged", "mine.txt"], stack);
+
+  const landedOut = JSON.parse(
+    octoview(["turn", "commit", "2", "-m", "land t1-t2", "--json"], stack).stdout,
+  );
+  assert.deepStrictEqual(landedOut.landed, [1, 2], "turns 1-2 land, turn 3 does not");
+  assert.strictEqual(
+    git(["show", "HEAD:f.txt"], stack),
+    "x\nn\nccc\ny\n",
+    "the commit holds turn 2's snapshot",
+  );
+  assert.strictEqual(
+    fs.existsSync(path.join(stack, "later.txt")),
+    true,
+    "turn 3's file must stay in the working tree, uncommitted",
+  );
+  assert.strictEqual(
+    git(["status", "--porcelain"], stack).includes("?? later.txt"),
+    true,
+    "turn 3 is what is left to commit",
+  );
+  console.log("turn commit lands a prefix           ok");
+
 
   fs.rmSync(parent, { recursive: true, force: true });
   console.log("\nall checks passed");

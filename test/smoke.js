@@ -7,10 +7,18 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { Git } = require("../out/git");
+const { Git, turnRef } = require("../out/git");
 const { resolveLane } = require("../out/lanes");
 const { Repos } = require("../out/repos");
-const { makeAnchor, snapshotTurn } = require("../out/review");
+const {
+  committableRun,
+  dropTurn,
+  landedCommits,
+  landedTurns,
+  makeAnchor,
+  revertPaths,
+  snapshotTurn,
+} = require("../out/review");
 const { Store } = require("../out/state");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-"));
@@ -217,6 +225,251 @@ async function main() {
 
   assert.strictEqual(git(["status", "--porcelain"]).includes("M  b.py"), true, "revert hit the index");
   console.log("revert unwinds one turn at a time    ok");
+
+  // A file back at the turn's starting point has had that turn's change undone,
+  // so its row goes — measured against the turn's *parent* rather than its sha.
+  // Turn 2's two files have both been put back, which leaves it showing nothing.
+  const undone2 = await g.unchangedSince(r2.turn.parent, ["a.py", "d.py"]);
+  assert.strictEqual(undone2.has("a.py"), true, "a reverted file still reads as changed");
+  assert.strictEqual(undone2.has("d.py"), true, "a turn-added file, deleted again, is undone");
+  const stillThere = await g.unchangedSince(r1.turn.parent, ["c.py"]);
+  assert.strictEqual(stillThere.has("c.py"), false, "turn 1's c.py is untouched and must stay");
+
+  // The count the turn row freezes on: files still differing from what the turn
+  // started from. Turn 2 has been reverted away entirely; turn 1 has not.
+  const liveOf = async (turn) => {
+    const files = await g.changedFiles(turn.parent, turn.sha);
+    const paths = files.map((f) => f.path);
+    const [before, disk] = await Promise.all([g.blobsAt(turn.parent, paths), g.blobsOnDisk(paths)]);
+    return paths.filter((p) => before.get(p) !== disk.get(p)).length;
+  };
+  assert.strictEqual(await liveOf(r2.turn), 0, "turn 2 should be frozen once reverted away");
+  assert.strictEqual(await liveOf(r1.turn), 3, "turn 1 still owns a.py, b.py and c.py");
+  // Second pass runs entirely off the caches; the answers must not move.
+  assert.strictEqual(await liveOf(r2.turn), 0, "cached pass disagreed with the cold one");
+  console.log("undone files drop out of the turn    ok");
+
+  // 11. Undoing a turn takes the turn itself off the stack, not just its files:
+  //     ref, record, and the review marks it made. Its number comes back.
+  assert.strictEqual(git(["rev-parse", "--verify", "-q", turnRef("main", 2)]).trim(), r2.turn.sha);
+  assert.strictEqual(store.isReviewed("a.py", 2), true, "a.py was marked reviewed at turn 2");
+  await dropTurn(g, store, 2);
+  assert.deepStrictEqual(store.data.turns.map((t) => t.n), [1], "turn 2 still recorded");
+  assert.throws(
+    () => git(["rev-parse", "--verify", "-q", turnRef("main", 2)]),
+    "turn 2's ref survived",
+  );
+  assert.strictEqual(store.isReviewed("a.py", 1), false, "a review mark made at turn 2 outlived it");
+  // Both threads were opened at turn 2 and submitted; the turn going takes them
+  // with it, because a comment on a change that no longer exists is about nothing.
+  assert.strictEqual(store.data.threads.length, 0, "threads outlived the turn they were about");
+  // The batch already written stays: it is output that was handed over, and the
+  // comment it carried is still in it.
+  assert.strictEqual(JSON.parse(fs.readFileSync(result.path, "utf8")).comments.length, 2);
+
+  // The next snapshot takes the number back, so the lane has no gap.
+  fs.writeFileSync(path.join(root, "a.py"), "def f(x: int) -> str:\n    return repr(x)\n");
+  const r3 = await snapshotTurn(g, store, { label: "after the undo", agent: "manual" });
+  assert.strictEqual(r3.turn.n, 2, "numbering did not follow the stack down");
+  assert.strictEqual(r3.turn.parent, r1.turn.sha, "the new turn 2 must build on turn 1");
+  console.log("undo drops the turn, number returns  ok");
+
+  // 12. A turn in the middle can go too, as long as no later turn wrote over the
+  //     files it changed. Turn 3 below touches only e.py, so turn 2's a.py is
+  //     still turn 2's to give back — and dropping turn 2 must not disturb turn 3.
+  fs.writeFileSync(path.join(root, "e.py"), "SEP = 1\n");
+  const r4 = await snapshotTurn(g, store, { label: "disjoint file", agent: "manual" });
+  assert.deepStrictEqual(r4.files.map((f) => f.path), ["e.py"]);
+  assert.strictEqual(r4.turn.parent, r3.turn.sha, "turn 3 builds on turn 2");
+  await store.withLock((state) => {
+    state.reviewed["e.py"] = 3;
+  });
+
+  const midIntact = await g.unchangedSince(r3.turn.sha, ["a.py"]);
+  assert.strictEqual(midIntact.has("a.py"), true, "no later turn touched a.py, so turn 2 can go");
+  const midFiles = await g.changedFiles(r3.turn.parent, r3.turn.sha);
+  await g.restoreFiles(r3.turn.parent, midFiles);
+  await revertPaths(g, store, 2, midFiles.map((f) => f.path));
+  await dropTurn(g, store, 2);
+  assert.deepStrictEqual(store.data.turns.map((t) => t.n), [1, 3], "the gap should be honest");
+
+  // The rewrite moved turn 3's sha, so read it back rather than trusting the
+  // object the snapshot handed us — `withLock` reloads, and those are stale now.
+  const turn3 = store.data.turns.find((t) => t.n === 3);
+  // The dropped turn's commit survives as turn 3's git parent, so turn 3's own
+  // diff still resolves — the reason a middle turn is safe to remove at all.
+  assert.strictEqual(git(["cat-file", "-t", turn3.parent]).trim(), "commit");
+  assert.deepStrictEqual(
+    (await g.changedFiles(turn3.parent, turn3.sha)).map((f) => f.path),
+    ["e.py"],
+    "turn 3 lost its diff when the turn before it went",
+  );
+  assert.strictEqual(store.isReviewed("e.py", 3), true, "a later turn's review mark was cleared");
+  console.log("a middle turn drops cleanly          ok");
+
+  // 13. A revert must leave the newest snapshot agreeing with disk, or the next
+  //     turn opens by recording the reviewer's revert as the agent's own work —
+  //     the "D playground.md I never deleted" bug.
+  fs.writeFileSync(path.join(root, "g.py"), "GONE = 1\n");
+  fs.writeFileSync(path.join(root, "h.py"), "KEPT = 1\n");
+  const added = await snapshotTurn(g, store, { label: "adds two files", agent: "manual" });
+  fs.writeFileSync(path.join(root, "h.py"), "KEPT = 2\n");
+  const later = await snapshotTurn(g, store, { label: "touches only h.py", agent: "manual" });
+
+  // Revert g.py out of the *earlier* turn, with a later turn sitting on top of it.
+  await g.restoreFile(added.turn.parent, "g.py");
+  await revertPaths(g, store, added.turn.n, ["g.py"]);
+  assert.strictEqual(fs.existsSync(path.join(root, "g.py")), false, "g.py should be gone");
+
+  const rewritten = store.data.turns.find((t) => t.n === added.turn.n);
+  const after = store.data.turns.find((t) => t.n === later.turn.n);
+  assert.deepStrictEqual(
+    (await g.changedFiles(rewritten.parent, rewritten.sha)).map((f) => f.path),
+    ["h.py"],
+    "the reverted file should be out of the turn that added it",
+  );
+  assert.deepStrictEqual(
+    (await g.changedFiles(after.parent, after.sha)).map((f) => f.path),
+    ["h.py"],
+    "a later turn's own diff must survive the rewrite untouched",
+  );
+  assert.strictEqual(after.parent, rewritten.sha, "the chain must follow the new shas");
+  assert.strictEqual(git(["cat-file", "-t", after.sha]).trim(), "commit");
+
+  // The point of all of it: the next snapshot sees nothing to record.
+  const nothing = await snapshotTurn(g, store, { label: "should not exist", agent: "manual" });
+  assert.strictEqual(nothing.created, false, "the revert leaked into the next turn");
+  console.log("revert stays out of the next turn    ok");
+
+  // 14. The review header's numbers. `--numstat -z` writes a rename as an empty
+  //     path field followed by the old and new paths, which naive parsing reads
+  //     as one record and gets the counts of the file after it.
+  fs.writeFileSync(path.join(root, "h.py"), "KEPT = 3\nMORE = 1\n");
+  fs.renameSync(path.join(root, "b.py"), path.join(root, "moved.py"));
+  const counted = await snapshotTurn(g, store, { label: "edit and rename", agent: "manual" });
+  const stat = await g.diffStat(counted.turn.parent, counted.turn.sha);
+  assert.deepStrictEqual(stat.get("h.py"), { added: 2, deleted: 1 });
+  assert.deepStrictEqual(stat.get("moved.py"), { added: 0, deleted: 0 }, "pure rename: no lines");
+  assert.strictEqual(stat.has(""), false, "a rename must not be read as an empty path");
+  console.log("diff stat counts, renames included   ok");
+
+  // 15. Which turns a commit lands. The Turns view derives it rather than
+  //     recording it: a file is committed when disk matches HEAD, and a turn is
+  //     landed when every file it still *owns* is. Owns, not touched — otherwise
+  //     a later turn editing the same file again would un-land a committed turn.
+  const landedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-landed-"));
+  const lg = (args) => execFileSync("git", args, { cwd: landedRoot, encoding: "utf8" });
+  lg(["init", "-q", "-b", "main", "."]);
+  lg(["config", "user.email", "t@t"]);
+  lg(["config", "user.name", "t"]);
+  fs.writeFileSync(path.join(landedRoot, "base.txt"), "0\n");
+  lg(["add", "."]);
+  lg(["commit", "-qm", "base"]);
+  const lgit = new Git(landedRoot);
+  const lstore = new Store(await resolveLane(landedRoot));
+  const taken = [];
+  fs.writeFileSync(path.join(landedRoot, "a.txt"), "a1\n");
+  taken.push((await snapshotTurn(lgit, lstore, { label: "adds a", agent: "manual" })).turn);
+  fs.writeFileSync(path.join(landedRoot, "b.txt"), "b1\n");
+  taken.push((await snapshotTurn(lgit, lstore, { label: "adds b", agent: "manual" })).turn);
+
+  // The reviewer commits turn 1's file only — the partial commit that makes
+  // "which turns are committed" a real question.
+  lg(["add", "a.txt"]);
+  lg(["commit", "-qm", "land turn 1"]);
+
+  const landedNow = async () => landedTurns(lgit, lstore.data.turns, await lgit.head());
+  let landed = await landedNow();
+  assert.deepStrictEqual([...landed], [1], "only turn 1's file is committed");
+
+  // A third turn rewrites turn 1's file and is not committed. Turn 1 no longer
+  // owns a.txt, so it stays landed — judging it on what it touched would flip it
+  // back to open over work that is not its own.
+  fs.writeFileSync(path.join(landedRoot, "a.txt"), "a2\n");
+  await snapshotTurn(lgit, lstore, { label: "edits a again", agent: "manual" });
+  landed = await landedNow();
+  assert.strictEqual(landed.has(1), true, "a committed turn must not un-land");
+  assert.strictEqual(landed.has(3), false, "the turn that owns a.txt now is open");
+
+  // `turn commit` is the same answer from the other side: commit through turn 3
+  // and every turn lands, with the working tree never having moved.
+  await lgit.commitSnapshot(lstore.data.turns[2].sha, "land everything");
+  assert.deepStrictEqual([...(await landedNow())].sort(), [1, 2, 3], "all turns land");
+  assert.strictEqual(lg(["status", "--porcelain"]).trim(), "", "the commit must match disk");
+  console.log("commit lands the turns it covers    ok");
+
+  // 16. How far the Reviewed area can be committed from. A commit is a prefix of
+  //     the lane, so an unbroken run from the earliest turn is the whole rule —
+  //     and adjacency is in the list, never in the numbering, or one dropped turn
+  //     would block committing for the rest of the lane's life.
+  const run = (spec) => committableRun(spec.map(([n, reviewed]) => ({ n, reviewed })));
+  assert.deepStrictEqual(run([]), { through: undefined, blocked: [] });
+  assert.deepStrictEqual(run([[1, true], [2, true], [3, true]]), { through: 3, blocked: [] });
+  assert.deepStrictEqual(run([[1, false], [2, true]]), { through: undefined, blocked: [2] });
+  assert.deepStrictEqual(run([[1, true], [2, false], [3, true], [4, true]]), {
+    through: 1,
+    blocked: [3, 4],
+  });
+  // Turn 2 was dropped; 1 and 3 are adjacent in the list and commit together.
+  assert.deepStrictEqual(run([[1, true], [3, true]]), { through: 3, blocked: [] });
+  console.log("committable run is a list prefix     ok");
+
+  // 17. The regression the screenshot caught: a turn whose files a later turn
+  //     rewrote owns nothing, and "every file it owns matches HEAD" is vacuously
+  //     true — which read as committed in a repo with no commits of its own.
+  const neverRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-never-"));
+  const ng = (args) => execFileSync("git", args, { cwd: neverRoot, encoding: "utf8" });
+  ng(["init", "-q", "-b", "main", "."]);
+  ng(["config", "user.email", "t@t"]);
+  ng(["config", "user.name", "t"]);
+  fs.writeFileSync(path.join(neverRoot, "x.txt"), "0\n");
+  ng(["add", "."]);
+  ng(["commit", "-qm", "base"]);
+  const ngit = new Git(neverRoot);
+  const nstore = new Store(await resolveLane(neverRoot));
+  fs.writeFileSync(path.join(neverRoot, "x.txt"), "1\n");
+  await snapshotTurn(ngit, nstore, { label: "sets x to 1", agent: "manual" });
+  fs.writeFileSync(path.join(neverRoot, "x.txt"), "2\n");
+  await snapshotTurn(ngit, nstore, { label: "sets x to 2", agent: "manual" });
+  assert.deepStrictEqual(
+    [...(await landedTurns(ngit, nstore.data.turns, await ngit.head()))],
+    [],
+    "no commit was made, so no turn may read as committed",
+  );
+  fs.rmSync(neverRoot, { recursive: true, force: true });
+  console.log("a superseded turn is not committed    ok");
+
+  // 18. Two commits, read back as two groups. A commit made from a turn's
+  //     snapshot has that turn's tree, so which turns it took is recognised
+  //     rather than recorded — and committing through 2 then through 4 must not
+  //     collapse into one run of four.
+  const twoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-two-"));
+  const tg = (args) => execFileSync("git", args, { cwd: twoRoot, encoding: "utf8" });
+  tg(["init", "-q", "-b", "main", "."]);
+  tg(["config", "user.email", "t@t"]);
+  tg(["config", "user.name", "t"]);
+  fs.writeFileSync(path.join(twoRoot, "base.txt"), "0\n");
+  tg(["add", "."]);
+  tg(["commit", "-qm", "base"]);
+  const tgit = new Git(twoRoot);
+  const tstore = new Store(await resolveLane(twoRoot));
+  for (const n of [1, 2, 3, 4]) {
+    fs.writeFileSync(path.join(twoRoot, `f${n}.txt`), `${n}\n`);
+    await snapshotTurn(tgit, tstore, { label: `turn ${n}`, agent: "manual" });
+  }
+  await tgit.commitSnapshot(tstore.data.turns[1].sha, "first batch\n\nwith a body line");
+  await tgit.commitSnapshot(tstore.data.turns[3].sha, "second batch");
+  const groups = await landedCommits(tgit, tstore.data.turns, await tgit.head());
+  assert.strictEqual(groups.length, 2, "two commits must read back as two groups");
+  assert.deepStrictEqual(groups[0].turns, [1, 2], "the older commit took turns 1-2");
+  assert.deepStrictEqual(groups[1].turns, [3, 4], "the newer commit took only 3-4");
+  assert.strictEqual(groups[0].message.split("\n")[0], "first batch", "subject is the first line");
+  assert.ok(groups[0].message.includes("with a body line"), "the full message is carried");
+  fs.rmSync(twoRoot, { recursive: true, force: true });
+  console.log("commits read back as their own groups ok");
+
+
+
 
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });

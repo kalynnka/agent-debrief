@@ -9,6 +9,8 @@ import * as vscode from "vscode";
  * in package.json is what guarantees it is present and activated before us. */
 interface Change {
   readonly uri: vscode.Uri;
+  /** `Status`, a numeric enum. Only ever compared, never interpreted here. */
+  readonly status: number;
 }
 
 interface Branch {
@@ -20,6 +22,8 @@ interface GitRepositoryState {
    * the worktree's directory name, so the branch name is the whole lane key. */
   readonly HEAD?: Branch;
   readonly indexChanges: readonly Change[];
+  readonly workingTreeChanges: readonly Change[];
+  readonly untrackedChanges: readonly Change[];
   readonly onDidChange: vscode.Event<void>;
 }
 
@@ -46,8 +50,21 @@ export async function gitApi(): Promise<GitAPI> {
   return (await extension.activate()).getAPI(1);
 }
 
-function branchOf(repository: GitRepository): string {
-  return repository.state.HEAD?.name ?? "";
+/** What the Turns view actually reads out of git: the lane, and which paths git
+ * is calling changed. Compared as a whole to tell a real change from a re-run. */
+interface Shape {
+  branch: string;
+  changes: string;
+}
+
+function shapeOf(repository: GitRepository): Shape {
+  const state = repository.state;
+  return {
+    branch: state.HEAD?.name ?? "",
+    changes: [...state.indexChanges, ...state.workingTreeChanges, ...state.untrackedChanges]
+      .map((change) => `${change.status} ${change.uri.fsPath}`)
+      .join("\n"),
+  };
 }
 
 /** git's own change events, collapsed into one.
@@ -63,7 +80,7 @@ export class GitWatch implements vscode.Disposable {
   readonly onDidChange = this.moved.event;
 
   private readonly listeners: vscode.Disposable[] = [];
-  private readonly branches = new Map<GitRepository, string>();
+  private readonly seen = new Map<GitRepository, Shape>();
   private timer: NodeJS.Timeout | undefined;
   private checkoutMoved = false;
 
@@ -75,7 +92,7 @@ export class GitWatch implements vscode.Disposable {
         this.schedule(true);
       }),
       this.api.onDidCloseRepository((repository) => {
-        this.branches.delete(repository);
+        this.seen.delete(repository);
         this.schedule(true);
       }),
     );
@@ -103,13 +120,22 @@ export class GitWatch implements vscode.Disposable {
   }
 
   private watch(repository: GitRepository): void {
-    this.branches.set(repository, branchOf(repository));
+    this.seen.set(repository, shapeOf(repository));
     this.listeners.push(
       repository.state.onDidChange(() => {
-        const branch = branchOf(repository);
-        const moved = this.branches.get(repository) !== branch;
-        this.branches.set(repository, branch);
-        this.schedule(moved);
+        const before = this.seen.get(repository);
+        const now = shapeOf(repository);
+        this.seen.set(repository, now);
+        // git re-runs status on any file event under the repo — a build writing
+        // to an ignored directory, a save, an editor opening — and reports the
+        // result whether or not it differs. Rebuilding the tree for an answer
+        // that did not change is exactly what makes the rows flicker.
+        const same =
+          before !== undefined && before.branch === now.branch && before.changes === now.changes;
+        if (same) {
+          return;
+        }
+        this.schedule(before === undefined || before.branch !== now.branch);
       }),
     );
   }

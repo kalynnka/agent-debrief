@@ -11,6 +11,19 @@ export function turnFileUri(absPath: string, status: string): vscode.Uri {
   return vscode.Uri.from({ scheme: TURN_SCHEME, path: absPath, query: status });
 }
 
+/** The queries that mark a turn row rather than a file row. A status letter is
+ * never one of these words, so the two cannot collide. */
+const FROZEN = "frozen";
+
+/** A reverted-away turn's row. Its path names no file — it only has to be unique
+ * per turn, so the decoration is cached per row. This is what greys the label:
+ * `TreeItem.label` carries no colour of its own, and the row's icon slot belongs
+ * to the agent. Being committed needs no such mark — those turns sit under their
+ * commit, and position says it. */
+export function frozenTurnUri(repoRoot: string, n: number): vscode.Uri {
+  return vscode.Uri.from({ scheme: TURN_SCHEME, path: `${repoRoot}/turn/${n}`, query: FROZEN });
+}
+
 /** `git diff --name-status` letters, coloured as git's own decorations colour
  * them so a turn row and a Changes row read the same. */
 const COLORS: Record<string, string> = {
@@ -35,14 +48,25 @@ const NAMES: Record<string, string> = {
  * language server has something to say about the file — the problem count in
  * the list's warning/error colour, which is the louder fact of the two. */
 export class TurnDecorations implements vscode.FileDecorationProvider, vscode.Disposable {
-  private changed = new vscode.EventEmitter<undefined | vscode.Uri | vscode.Uri[]>();
+  private changed = new vscode.EventEmitter<vscode.Uri[]>();
   readonly onDidChangeFileDecorations = this.changed.event;
   private readonly listener: vscode.Disposable;
+  /** Turn URIs already asked about, by the file they point at, one per status
+   * letter. A row's URI carries that letter, so it is never the URI a diagnostics
+   * event names — this is the way back from the file to the rows showing it. */
+  private readonly rows = new Map<string, Map<string, vscode.Uri>>();
 
   constructor() {
-    // A row's URI carries its status letter, so the URIs the event reports are
-    // not the ones on screen; every row is re-asked instead.
-    this.listener = vscode.languages.onDidChangeDiagnostics(() => this.changed.fire(undefined));
+    // Firing `undefined` here would be correct and ruinous: it invalidates every
+    // decoration in the window — Explorer, Source Control, tabs — and the
+    // TypeScript server emits diagnostics on every keystroke. Only the rows whose
+    // file actually changed are re-asked.
+    this.listener = vscode.languages.onDidChangeDiagnostics((event) => {
+      const stale = event.uris.flatMap((uri) => [...(this.rows.get(uri.fsPath)?.values() ?? [])]);
+      if (stale.length > 0) {
+        this.changed.fire(stale);
+      }
+    });
   }
 
   dispose(): void {
@@ -54,7 +78,20 @@ export class TurnDecorations implements vscode.FileDecorationProvider, vscode.Di
     if (uri.scheme !== TURN_SCHEME) {
       return undefined;
     }
-    const diagnostics = vscode.languages.getDiagnostics(vscode.Uri.file(uri.path));
+    if (uri.query === FROZEN) {
+      // Colour only. No badge: the row already says it twice over, struck through
+      // and greyed, and a badge would just cost width the label needs.
+      return new vscode.FileDecoration(
+        undefined,
+        "Reverted — nothing of this turn is left",
+        new vscode.ThemeColor("disabledForeground"),
+      );
+    }
+    const file = vscode.Uri.file(uri.path);
+    const seen = this.rows.get(file.fsPath) ?? new Map<string, vscode.Uri>();
+    seen.set(uri.query, uri);
+    this.rows.set(file.fsPath, seen);
+    const diagnostics = vscode.languages.getDiagnostics(file);
     const errors = diagnostics.filter(
       (d) => d.severity === vscode.DiagnosticSeverity.Error,
     ).length;

@@ -41,6 +41,12 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "octoview.turns",
+        "contents": "No turns yet in this workspace. A turn is captured when an agent finishes, or you can take one now.\n[Snapshot Turn](command:octoview.snapshot)"
+      }
+    ],
     "commands": [
       {
         "command": "octoview.snapshot",
@@ -56,7 +62,7 @@
       },
       {
         "command": "octoview.stackedDiff",
-        "title": "Open Net Diff of Checked Turns",
+        "title": "Open Net Diff of Selected Turns",
         "category": "Octoview",
         "icon": "$(diff-multiple)"
       },
@@ -82,7 +88,7 @@
         "command": "octoview.markUnreviewed",
         "title": "Mark Unreviewed",
         "category": "Octoview",
-        "icon": "$(circle-outline)"
+        "icon": "$(remove)"
       },
       {
         "command": "octoview.createThread",
@@ -107,13 +113,81 @@
         "icon": "$(go-to-file)"
       },
       {
-        "command": "octoview.revertTurn",
+        "command": "octoview.revert",
         "title": "Revert This Turn's Change",
         "category": "Octoview",
         "icon": "$(discard)"
+      },
+      {
+        "command": "octoview.dropTurn",
+        "title": "Drop This Turn",
+        "category": "Octoview",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "octoview.openTurn",
+        "title": "Open Turn Diff",
+        "category": "Octoview"
+      },
+      {
+        "command": "octoview.markViewedHere",
+        "title": "Mark Viewed",
+        "category": "Octoview",
+        "icon": "$(check)"
+      },
+      {
+        "command": "octoview.markUnviewedHere",
+        "title": "Mark Not Viewed",
+        "category": "Octoview",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "octoview.markAllReviewed",
+        "title": "Mark All Files Viewed",
+        "category": "Octoview",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "octoview.markAllUnreviewed",
+        "title": "Mark All Files Not Viewed",
+        "category": "Octoview",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "octoview.commitReviewed",
+        "title": "Commit Reviewed Turns",
+        "category": "Octoview",
+        "icon": "$(git-commit)"
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "octoview.markViewedHere",
+          "when": "octoview.inDiff && !octoview.diffViewed",
+          "group": "navigation@1"
+        },
+        {
+          "command": "octoview.markUnviewedHere",
+          "when": "octoview.inDiff && octoview.diffViewed",
+          "group": "navigation@1"
+        },
+        {
+          "command": "octoview.markAllReviewed",
+          "when": "octoview.inReview && !octoview.reviewAllViewed",
+          "group": "navigation@1"
+        },
+        {
+          "command": "octoview.markAllUnreviewed",
+          "when": "octoview.inReview && octoview.reviewAllViewed",
+          "group": "navigation@1"
+        },
+        {
+          "command": "octoview.submit",
+          "when": "octoview.inReview",
+          "group": "navigation@2"
+        }
+      ],
       "view/title": [
         {
           "command": "octoview.snapshot",
@@ -121,41 +195,51 @@
           "group": "navigation@1"
         },
         {
-          "command": "octoview.submit",
-          "when": "view == octoview.turns",
-          "group": "navigation@2"
-        },
-        {
           "command": "octoview.stackedDiff",
           "when": "view == octoview.turns",
           "group": "navigation@3"
         },
         {
-          "command": "octoview.refresh",
+          "command": "octoview.submit",
           "when": "view == octoview.turns",
           "group": "navigation@4"
+        },
+        {
+          "command": "octoview.refresh",
+          "when": "view == octoview.turns",
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [
+        {
+          "command": "octoview.commitReviewed",
+          "when": "view == octoview.turns && viewItem == group-reviewed",
+          "group": "inline@1"
+        },
         {
           "command": "octoview.openFile",
           "when": "view == octoview.turns && viewItem =~ /^file-/",
           "group": "inline@1"
         },
         {
-          "command": "octoview.revertTurn",
-          "when": "view == octoview.turns && viewItem =~ /-revertable$/",
+          "command": "octoview.revert",
+          "when": "view == octoview.turns && (viewItem =~ /-revertable$/ || viewItem =~ /^turn-(un)?reviewed-droppable$/)",
+          "group": "inline@2"
+        },
+        {
+          "command": "octoview.dropTurn",
+          "when": "view == octoview.turns && viewItem == turn-frozen-droppable",
           "group": "inline@2"
         },
         {
           "command": "octoview.markReviewed",
-          "when": "view == octoview.turns && viewItem =~ /^file-unreviewed/",
+          "when": "view == octoview.turns && (viewItem =~ /^file-unreviewed/ || viewItem =~ /^turn-unreviewed/)",
           "group": "inline@3"
         },
         {
           "command": "octoview.markUnreviewed",
-          "when": "view == octoview.turns && viewItem =~ /^file-reviewed/",
-          "group": "inline@3"
+          "when": "view == octoview.turns && (viewItem =~ /^file-reviewed/ || viewItem =~ /^turn-reviewed/)",
+          "group": "inline@4"
         },
         {
           "command": "octoview.stepHistory",
@@ -169,7 +253,35 @@
           "when": "false"
         },
         {
-          "command": "octoview.revertTurn",
+          "command": "octoview.revert",
+          "when": "false"
+        },
+        {
+          "command": "octoview.dropTurn",
+          "when": "false"
+        },
+        {
+          "command": "octoview.openTurn",
+          "when": "false"
+        },
+        {
+          "command": "octoview.markViewedHere",
+          "when": "octoview.inDiff && !octoview.diffViewed"
+        },
+        {
+          "command": "octoview.markUnviewedHere",
+          "when": "octoview.inDiff && octoview.diffViewed"
+        },
+        {
+          "command": "octoview.markAllReviewed",
+          "when": "octoview.inReview"
+        },
+        {
+          "command": "octoview.markAllUnreviewed",
+          "when": "octoview.inReview"
+        },
+        {
+          "command": "octoview.commitReviewed",
           "when": "false"
         }
       ],

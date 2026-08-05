@@ -101,6 +101,23 @@ export class Store {
 
   /** Reload → mutate → save, holding the lane's advisory lock file.
    *
+   * The reload is why this is safe: another process — the Stop hook's CLI — may
+   * have written the file since we last read it, so we start from what is on disk
+   * rather than from what we remember.
+   *
+   * It also means **every object inside `state` is replaced on each call**. A
+   * `Turn` you were holding from before is now a different object from the one in
+   * `state.turns`, and mutating or reading it has nothing to do with the store:
+   *
+   *     const r = await snapshotTurn(git, store, {…});  // r.turn is one object
+   *     await revertPaths(git, store, r.turn.n, […]);   // reloads; updates another
+   *     r.turn.sha                                      // still the old value
+   *
+   * So pass turn *numbers* across a mutation, never turn objects, and read the
+   * turn back out of `store.data.turns` afterwards if you need its new sha. The
+   * tree view gets this for free — it rebuilds every node from `store.data` on
+   * refresh — but anything holding a `Turn` across one of these calls does not.
+   *
    * A crashed holder leaves the lock behind; it is stolen after 10s of silence.
    * Two stealers racing on the same corpse can in theory both proceed — accepted
    * for an advisory lock whose contended path is hook-vs-click, not crash-vs-crash. */
