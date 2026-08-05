@@ -178,6 +178,46 @@ async function main() {
   assert.strictEqual(first.store.data.turns.length, 2, "snapshotting one repo disturbed another");
   console.log("per-repo turns stay isolated         ok");
 
+  // 10. Revert is offered only on the row whose version is still the one on disk,
+  //     so the stack unwinds one turn at a time.
+  const intact2 = await g.unchangedSince(r2.turn.sha, ["a.py", "d.py"]);
+  assert.strictEqual(intact2.has("a.py"), true, "turn 2 holds a.py; its row should offer revert");
+  assert.strictEqual(intact2.has("d.py"), true, "an untracked file the turn added counts as intact");
+  const intact1 = await g.unchangedSince(r1.turn.sha, ["a.py", "c.py"]);
+  assert.strictEqual(intact1.has("a.py"), false, "turn 2 wrote over turn 1's a.py");
+  assert.strictEqual(intact1.has("c.py"), true, "nothing touched c.py since turn 1");
+
+  await g.restoreFile(r2.turn.parent, "a.py");
+  const reverted = fs.readFileSync(path.join(root, "a.py"), "utf8");
+  assert.ok(reverted.includes("return str(x)"), "revert should land on turn 1's version");
+  assert.strictEqual(
+    (await g.unchangedSince(r2.turn.sha, ["a.py"])).has("a.py"),
+    false,
+    "turn 2's row must stop offering revert once undone",
+  );
+  assert.strictEqual(
+    (await g.unchangedSince(r1.turn.sha, ["a.py"])).has("a.py"),
+    true,
+    "turn 1's row becomes the revertable one",
+  );
+
+  // A file the turn added is reverted by ceasing to exist.
+  await g.restoreFile(r2.turn.parent, "d.py");
+  assert.strictEqual(fs.existsSync(path.join(root, "d.py")), false, "added file should be removed");
+
+  // The same on an untracked file the turn *changed* — git is picky about paths
+  // it does not have in the index, and c.py has never been staged.
+  fs.writeFileSync(path.join(root, "c.py"), "NEW = 'edited'\n");
+  await g.restoreFile(r1.turn.sha, "c.py");
+  assert.strictEqual(
+    fs.readFileSync(path.join(root, "c.py"), "utf8"),
+    "NEW = True\n",
+    "an untracked file must revert to its turn content",
+  );
+
+  assert.strictEqual(git(["status", "--porcelain"]).includes("M  b.py"), true, "revert hit the index");
+  console.log("revert unwinds one turn at a time    ok");
+
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });
   console.log("\nall checks passed");

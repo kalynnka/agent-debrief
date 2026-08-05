@@ -1,11 +1,14 @@
 import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 
 import { Comments, SCHEME } from "./comments";
-import { RevisionContentProvider, openDiff, openStackedDiff } from "./diff";
+import { TurnDecorations } from "./decorations";
+import { RevisionContentProvider, openDiff, openStackedDiff, openStepHistory } from "./diff";
+import { GitWatch, gitApi } from "./gitwatch";
 import { Repos } from "./repos";
 import { snapshotTurn } from "./review";
-import { FileNode, TurnsProvider } from "./turns";
+import { FileNode, TurnNode, TurnsProvider } from "./turns";
 
 function workspaceFolders(): string[] {
   return (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
@@ -15,24 +18,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const repos = new Repos();
   await repos.discover(workspaceFolders());
 
-  const turns = new TurnsProvider(repos);
+  const gitWatch = new GitWatch(await gitApi());
+  const turns = new TurnsProvider(repos, gitWatch);
   const comments = new Comments(repos);
-  context.subscriptions.push(comments);
+  const revisions = new RevisionContentProvider(repos);
+  const decorations = new TurnDecorations();
+  context.subscriptions.push(
+    comments,
+    gitWatch,
+    decorations,
+    vscode.window.registerFileDecorationProvider(decorations),
+  );
 
-  const view = vscode.window.createTreeView("octoview.turns", { treeDataProvider: turns });
+  const view = vscode.window.createTreeView("octoview.turns", {
+    treeDataProvider: turns,
+    canSelectMany: true,
+  });
   context.subscriptions.push(
     view,
     view.onDidChangeCheckboxState((event) => {
+      // VS Code reports the box that was clicked and cascades a repo row onto the
+      // turns it has already materialized; both are mirrored here so the model is
+      // right even for a collapsed repo. A shift-selected range it does not know
+      // about at all, so a toggle inside the selection carries the rest with it.
+      const selected = view.selection.filter((n): n is TurnNode => n.kind === "turn");
+      let beyondTheBox = false;
       for (const [node, state] of event.items) {
-        if (node.kind === "turn") {
-          turns.setChecked(node, state === vscode.TreeItemCheckboxState.Checked);
+        const on = state === vscode.TreeItemCheckboxState.Checked;
+        if (node.kind === "repo") {
+          turns.setAllChecked(node.repo, on);
+          beyondTheBox = true;
+        } else if (node.kind === "turn") {
+          turns.setChecked(node, on);
+          if (selected.some((s) => s.repo === node.repo && s.turn.n === node.turn.n)) {
+            selected.forEach((s) => turns.setChecked(s, on));
+            beyondTheBox = true;
+          }
         }
       }
+      if (beyondTheBox) {
+        turns.refresh();
+      }
     }),
-    vscode.workspace.registerTextDocumentContentProvider(
-      SCHEME,
-      new RevisionContentProvider(repos),
-    ),
+    vscode.workspace.registerTextDocumentContentProvider(SCHEME, revisions),
   );
 
   // How the view learns that a snapshot landed without a click: a watch on each
@@ -73,6 +101,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     },
   });
+
+  // The other half of the review loop happens in a terminal. A `git restore` or
+  // an edit moves what the rows describe — which file is staged, which turn's
+  // version is still the one that a revert would undo — and a `git checkout` or
+  // `gh pr checkout` moves the lane itself, which is a different review entirely.
+  context.subscriptions.push(
+    gitWatch.onDidChange((checkoutMoved) => {
+      void (async () => {
+        if (checkoutMoved) {
+          await repos.discover(workspaceFolders());
+          rewatch();
+          comments.refresh();
+        }
+        turns.refresh();
+      })();
+    }),
+  );
 
   const paint = (editor: vscode.TextEditor | undefined): void => {
     if (editor !== undefined) {
@@ -135,6 +180,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await openDiff(node.repo, node);
   });
 
+  register("octoview.stepHistory", async (node: FileNode) => {
+    const checked = turns.checkedTurns(node.repo);
+    await openStepHistory(
+      node.repo,
+      node.file.path,
+      checked.length > 0 ? checked : node.repo.store.data.turns,
+    );
+  });
+
+  register("octoview.openFile", async (node: FileNode) => {
+    const uri = vscode.Uri.file(path.join(node.repo.root, node.file.path));
+    await vscode.window.showTextDocument(uri, { preview: false });
+  });
+
+  // Only offered on the row whose version is the one on disk, so a revert always
+  // undoes exactly one turn — the file lands on that turn's parent, which is the
+  // previous turn's version, and that row becomes revertable in its place.
+  register("octoview.revertTurn", async (node: FileNode) => {
+    const confirmed = await vscode.window.showWarningMessage(
+      `Revert turn ${node.turn.n}'s change to ${path.basename(node.file.path)}?`,
+      {
+        modal: true,
+        detail: "The file goes back to how it was before this turn. The index is untouched.",
+      },
+      "Revert",
+    );
+    if (confirmed === undefined) {
+      return;
+    }
+    await node.repo.git.restoreFile(node.turn.parent, node.file.path);
+    if (node.file.oldPath !== undefined) {
+      await node.repo.git.restoreFile(node.turn.parent, node.file.oldPath);
+    }
+    turns.refresh();
+  });
+
   register("octoview.stackedDiff", async () => {
     let opened = 0;
     for (const repo of repos.all) {
@@ -146,7 +227,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (opened === 0) {
       vscode.window.showInformationMessage(
-        "Octoview: check one or more turns first — the stacked diff reads them as a series.",
+        "Octoview: check one or more turns first — the stacked history shows their flow.",
       );
     }
   });

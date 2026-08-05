@@ -129,44 +129,70 @@ async function carryForward(
   }
 }
 
-interface StackEntry {
+export interface HistoryLine {
   text: string;
-  /** Still present in the newest state; dead lines were superseded en route. */
-  live: boolean;
-  /** Came from the oldest state rather than being added by a later one. */
-  fromBase: boolean;
+  /** The turn that introduced this line; undefined when it predates the
+   * selection (present in the base state). */
+  born?: number;
+  /** The turn that superseded or removed this line; undefined while it is
+   * still present in the newest selected state. */
+  died?: number;
 }
 
-/** The left-hand document for a stacked history diff of one file.
- *
- * `states` is the file's evolution — the base revision, then each turn's sha.
- * Every pairwise change is replayed; a line that gets replaced stays in place,
- * dead, so the result holds the original lines plus every superseded
- * intermediate, in chronological order. Diffing it against the final content
- * makes the editor render the flow itself: origin and intermediates as
- * consecutive deletions, the surviving values as additions, untouched lines as
- * context. Lines added mid-series that survive are excluded here so they show
- * as additions rather than context. */
-export async function stackedBase(git: Git, file: string, states: string[]): Promise<string> {
-  const origin = await git.fileAt(states[0], file);
-  const entries: StackEntry[] = splitLines(origin).map((text) => ({
-    text,
-    live: true,
-    fromBase: true,
-  }));
-  for (let i = 1; i < states.length; i++) {
-    const hunks = await git.diffHunks(states[i - 1], states[i], file);
+/** One file's evolution across the selected turns, every version of every line
+ * kept in place: base lines, superseded intermediates and survivors, in
+ * chronological order, each annotated with the turn that introduced it and the
+ * turn that ended it. Built by replaying `git diff -U0` hunks between each
+ * consecutive pair of states. */
+export async function stackedHistory(
+  git: Git,
+  file: string,
+  base: string,
+  turns: Turn[],
+): Promise<HistoryLine[]> {
+  const origin = await git.fileAt(base, file);
+  const entries: StackEntry[] = splitLines(origin).map((text) => ({ text, live: true }));
+  let previous = base;
+  for (const turn of turns) {
+    const hunks = await git.diffHunks(previous, turn.sha, file);
     // Hunk positions refer to the pre-state; applying back to front keeps the
     // earlier positions valid while later ones mutate the entry list.
     for (const hunk of [...hunks].reverse()) {
-      applyHunk(entries, hunk);
+      applyHunk(entries, hunk, turn.n);
     }
+    previous = turn.sha;
   }
-  const kept = entries.filter((entry) => !entry.live || entry.fromBase);
-  return kept.length === 0 ? "" : kept.map((entry) => entry.text).join("\n") + "\n";
+  return entries.map(({ text, born, died }) => ({ text, born, died }));
 }
 
-function applyHunk(entries: StackEntry[], hunk: Hunk): void {
+/** Render a file's history as unified-diff text, which the editor's `diff`
+ * grammar colors natively: a line born in the selection shows `+` on arrival,
+ * a line that later died shows `-` at the same spot — so a value edited twice
+ * reads `+v1 -v1 +v2 -v2 +v3`, the flow in place. Base lines that survived
+ * everything are plain context. */
+export function renderHistory(lines: HistoryLine[]): string {
+  const out: string[] = [];
+  for (const line of lines) {
+    if (line.born !== undefined) {
+      out.push(`+${line.text}`);
+    }
+    if (line.died !== undefined) {
+      out.push(`-${line.text}`);
+    } else if (line.born === undefined) {
+      out.push(` ${line.text}`);
+    }
+  }
+  return out.length === 0 ? "" : out.join("\n") + "\n";
+}
+
+interface StackEntry {
+  text: string;
+  live: boolean;
+  born?: number;
+  died?: number;
+}
+
+function applyHunk(entries: StackEntry[], hunk: Hunk, turn: number): void {
   const liveIndex = (nth: number): number => {
     let seen = 0;
     for (let i = 0; i < entries.length; i++) {
@@ -193,13 +219,14 @@ function applyHunk(entries: StackEntry[], hunk: Hunk): void {
     }
     for (const index of replaced) {
       entries[index].live = false;
+      entries[index].died = turn;
     }
     insertAt = replaced.length === 0 ? entries.length : replaced[replaced.length - 1] + 1;
   }
   entries.splice(
     insertAt,
     0,
-    ...hunk.newLines.map((text) => ({ text, live: true, fromBase: false })),
+    ...hunk.newLines.map((text) => ({ text, live: true, born: turn })),
   );
 }
 

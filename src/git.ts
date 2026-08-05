@@ -189,4 +189,47 @@ export class Git {
   async blobContent(blobSha: string): Promise<string> {
     return this.run(["cat-file", "blob", blobSha]);
   }
+
+  /** Which of `paths` still hold on disk exactly the content they had at `rev`.
+   *
+   * Blob ids, not `git diff <rev>`: a file the turn created but nobody has staged
+   * is untracked, and `git diff` calls every untracked path deleted, which would
+   * report the newest turn's own files as drifted. A path absent from both sides
+   * counts as unchanged — that is a deletion still holding. */
+  async unchangedSince(rev: string, paths: string[]): Promise<Set<string>> {
+    if (paths.length === 0) {
+      return new Set();
+    }
+    const committed = new Map<string, string>();
+    const listing = await this.run(["ls-tree", "-r", "-z", rev, "--", ...paths]);
+    for (const entry of listing.split("\0")) {
+      if (entry !== "") {
+        const [meta, file] = entry.split("\t");
+        committed.set(file, meta.split(" ")[2]);
+      }
+    }
+    const present: string[] = [];
+    for (const file of paths) {
+      if (await fs.stat(path.join(this.root, file)).then(() => true, () => false)) {
+        present.push(file);
+      }
+    }
+    const onDisk = new Map<string, string>();
+    if (present.length > 0) {
+      const hashes = (await this.run(["hash-object", "--", ...present])).trim().split("\n");
+      present.forEach((file, i) => onDisk.set(file, hashes[i]));
+    }
+    return new Set(paths.filter((file) => committed.get(file) === onDisk.get(file)));
+  }
+
+  /** Put one path back to how it was at `rev`, in the working tree only — the
+   * index belongs to the reviewer. A path the revision does not have is removed,
+   * which is what "how it was" means for a file the turn added. */
+  async restoreFile(rev: string, filePath: string): Promise<void> {
+    if ((await this.blobAt(rev, filePath)) === undefined) {
+      await fs.rm(path.join(this.root, filePath), { force: true });
+      return;
+    }
+    await this.run(["restore", "--source", rev, "--worktree", "--", filePath]);
+  }
 }

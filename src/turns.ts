@@ -1,6 +1,9 @@
+import * as path from "path";
 import * as vscode from "vscode";
 
+import { turnFileUri } from "./decorations";
 import { ChangedFile, Turn } from "./git";
+import { GitWatch } from "./gitwatch";
 import { Repo, Repos } from "./repos";
 
 export class RepoNode {
@@ -25,6 +28,12 @@ export class FileNode {
     readonly file: ChangedFile,
     readonly reviewed: boolean,
     readonly threadCount: number,
+    /** This turn's version of the file is the one on disk, so reverting it undoes
+     * this turn and nothing else. False once a later turn has written over it —
+     * revert that one first, and this row becomes the top of the stack. */
+    readonly revertable: boolean,
+    /** The file has staged changes: taken, in the sense the commit will keep. */
+    readonly staged: boolean,
   ) {}
 }
 
@@ -40,7 +49,10 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
   /** Checked turn numbers per repo root — the selection for a stacked diff. */
   private checked = new Map<string, Set<number>>();
 
-  constructor(private readonly repos: Repos) {}
+  constructor(
+    private readonly repos: Repos,
+    private readonly gitWatch: GitWatch,
+  ) {}
 
   refresh(): void {
     this.changed.fire(undefined);
@@ -54,6 +66,11 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
       set.delete(node.turn.n);
     }
     this.checked.set(node.repo.root, set);
+  }
+
+  /** Every turn of a repo at once — what the repo row's own checkbox means. */
+  setAllChecked(repo: Repo, on: boolean): void {
+    this.checked.set(repo.root, on ? new Set(repo.store.data.turns.map((t) => t.n)) : new Set());
   }
 
   /** The checked turns that still exist, in turn order. Gaps are fine: each
@@ -76,10 +93,17 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
           ? vscode.TreeItemCollapsibleState.None
           : vscode.TreeItemCollapsibleState.Expanded,
       );
-      item.description = count === 0 ? "no turns yet" : `${count} turn${count === 1 ? "" : "s"}`;
+      const turns = count === 0 ? "no turns yet" : `${count} turn${count === 1 ? "" : "s"}`;
+      item.description = `${node.repo.lane.name} · ${turns}`;
       item.iconPath = new vscode.ThemeIcon("repo");
       item.contextValue = "repo";
       item.tooltip = node.repo.root;
+      if (count > 0) {
+        item.checkboxState =
+          this.checkedTurns(node.repo).length === count
+            ? vscode.TreeItemCheckboxState.Checked
+            : vscode.TreeItemCheckboxState.Unchecked;
+      }
       return item;
     }
 
@@ -99,18 +123,21 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
       return item;
     }
 
-    const item = new vscode.TreeItem(
-      node.file.path.split("/").pop() ?? node.file.path,
-      vscode.TreeItemCollapsibleState.None,
-    );
+    const abs = path.join(node.repo.root, node.file.path);
+    const dir = path.dirname(node.file.path);
+    const item = new vscode.TreeItem(path.basename(abs), vscode.TreeItemCollapsibleState.None);
     const notes = node.threadCount > 0 ? `  💬 ${node.threadCount}` : "";
-    item.description = `${node.file.status}  ${node.file.path}${notes}`;
-    item.resourceUri = vscode.Uri.file(node.file.path);
-    item.iconPath = new vscode.ThemeIcon(
-      node.reviewed ? "pass-filled" : "circle-large-outline",
-      new vscode.ThemeColor(node.reviewed ? "charts.green" : "charts.orange"),
-    );
-    item.contextValue = node.reviewed ? "file-reviewed" : "file-unreviewed";
+    // The icon slot goes to the file-type icon, so "reviewed" has to say itself;
+    // the letter stays in the text because the badge gives its slot up to the
+    // problem count whenever there is one.
+    const where = dir === "." ? "" : `  ${dir}`;
+    const staged = node.staged ? " staged" : "";
+    item.description = `${node.reviewed ? "✓  " : ""}${node.file.status}${staged}${where}${notes}`;
+    item.resourceUri = turnFileUri(abs, node.file.status);
+    item.tooltip = `${node.file.path} — ${node.file.status}${node.staged ? ", staged" : ""}`;
+    item.contextValue = `file-${node.reviewed ? "reviewed" : "unreviewed"}${
+      node.revertable ? "-revertable" : ""
+    }`;
     item.command = {
       command: "octoview.openDiff",
       title: "Open Diff",
@@ -133,6 +160,11 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
       return [];
     }
     const files = await node.repo.git.changedFiles(node.turn.parent, node.turn.sha);
+    const intact = await node.repo.git.unchangedSince(
+      node.turn.sha,
+      files.map((file) => file.path),
+    );
+    const staged = this.gitWatch.stagedPaths(node.repo.root);
     return files.map(
       (file) =>
         new FileNode(
@@ -141,6 +173,8 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
           file,
           node.repo.store.isReviewed(file.path, node.turn.n),
           node.repo.store.threadsFor(file.path).filter((t) => t.state === "draft").length,
+          intact.has(file.path),
+          staged.has(file.path),
         ),
     );
   }

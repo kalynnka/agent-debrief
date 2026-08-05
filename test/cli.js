@@ -8,7 +8,7 @@ const path = require("path");
 
 const { Git } = require("../out/git");
 const { resolveLane } = require("../out/lanes");
-const { hashLines, stackedBase } = require("../out/review");
+const { hashLines, renderHistory, stackedHistory } = require("../out/review");
 const { Store } = require("../out/state");
 
 const cliPath = path.join(__dirname, "..", "out", "cli.js");
@@ -305,9 +305,9 @@ async function main() {
   assert.strictEqual(hp.turn.label, "I fixed strip_markdown to keep code fences.");
   console.log("stop hook: repo/session/label        ok");
 
-  // 18. Stacked history base: the original line plus every superseded
-  //     intermediate, in order, so diffing it against the final content renders
-  //     the flow (-aaa -bbb +ccc) inside one file's diff view.
+  // 18. Stacked history: every line's lifecycle rendered in place as unified
+  //     diff — a replaced value reads +bbb then -bbb where it lived, so the
+  //     flow of the selected turns is readable top to bottom.
   const stack = path.join(parent, "stack");
   fs.mkdirSync(stack);
   git(["init", "-q", "-b", "main", "."], stack);
@@ -322,22 +322,19 @@ async function main() {
   fs.writeFileSync(path.join(stack, "f.txt"), "x\nn\nccc\ny\n");
   const s2 = JSON.parse(octoview(["turn", "snapshot", "--label", "t2", "--json"], stack).stdout);
   const stackGit = new Git(stack);
+  const single = await stackedHistory(stackGit, "f.txt", stackHead, [s1.turn]);
   assert.strictEqual(
-    await stackedBase(stackGit, "f.txt", [stackHead, s1.turn.sha]),
-    "x\naaa\ny\n",
-    "a single transition must reproduce the origin exactly",
+    renderHistory(single),
+    " x\n-aaa\n+bbb\n y\n",
+    "one turn renders as its plain diff",
   );
+  const both = await stackedHistory(stackGit, "f.txt", stackHead, [s1.turn, s2.turn]);
   assert.strictEqual(
-    await stackedBase(stackGit, "f.txt", [stackHead, s1.turn.sha, s2.turn.sha]),
-    "x\naaa\nbbb\ny\n",
-    "superseded intermediates must stack in chronological order",
+    renderHistory(both),
+    " x\n-aaa\n+bbb\n-bbb\n+n\n+ccc\n y\n",
+    "a superseded intermediate shows its arrival and its departure in place",
   );
-  assert.strictEqual(
-    await stackGit.fileAt(s2.turn.sha, "f.txt"),
-    "x\nn\nccc\ny\n",
-    "the right-hand side is the plain final content",
-  );
-  console.log("stacked history base                 ok");
+  console.log("stacked history rendering            ok");
 
   fs.rmSync(parent, { recursive: true, force: true });
   console.log("\nall checks passed");

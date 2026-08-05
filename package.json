@@ -20,6 +20,9 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "extensionDependencies": [
+    "vscode.git"
+  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -53,9 +56,15 @@
       },
       {
         "command": "octoview.stackedDiff",
-        "title": "Open Stacked Diff of Checked Turns",
+        "title": "Open Net Diff of Checked Turns",
         "category": "Octoview",
         "icon": "$(diff-multiple)"
+      },
+      {
+        "command": "octoview.stepHistory",
+        "title": "Open Step History",
+        "category": "Octoview",
+        "icon": "$(history)"
       },
       {
         "command": "octoview.submit",
@@ -90,6 +99,18 @@
         "title": "Delete Thread",
         "category": "Octoview",
         "icon": "$(trash)"
+      },
+      {
+        "command": "octoview.openFile",
+        "title": "Open File",
+        "category": "Octoview",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "octoview.revertTurn",
+        "title": "Revert This Turn's Change",
+        "category": "Octoview",
+        "icon": "$(discard)"
       }
     ],
     "menus": {
@@ -117,14 +138,39 @@
       ],
       "view/item/context": [
         {
+          "command": "octoview.openFile",
+          "when": "view == octoview.turns && viewItem =~ /^file-/",
+          "group": "inline@1"
+        },
+        {
+          "command": "octoview.revertTurn",
+          "when": "view == octoview.turns && viewItem =~ /-revertable$/",
+          "group": "inline@2"
+        },
+        {
           "command": "octoview.markReviewed",
-          "when": "view == octoview.turns && viewItem == file-unreviewed",
-          "group": "inline"
+          "when": "view == octoview.turns && viewItem =~ /^file-unreviewed/",
+          "group": "inline@3"
         },
         {
           "command": "octoview.markUnreviewed",
-          "when": "view == octoview.turns && viewItem == file-reviewed",
-          "group": "inline"
+          "when": "view == octoview.turns && viewItem =~ /^file-reviewed/",
+          "group": "inline@3"
+        },
+        {
+          "command": "octoview.stepHistory",
+          "when": "view == octoview.turns && viewItem =~ /^file-/",
+          "group": "octoview@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "octoview.openFile",
+          "when": "false"
+        },
+        {
+          "command": "octoview.revertTurn",
+          "when": "false"
         }
       ],
       "comments/commentThread/context": [
