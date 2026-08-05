@@ -484,6 +484,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (turn === undefined) {
       throw new Error(`octoview: turn ${through} went away while committing`);
     }
+    // A turn the agent never described is one the Stop hook answered for, which
+    // is the shape an interrupted turn leaves behind — and what a commit takes
+    // is that turn's snapshot exactly as it stands. Say so before it lands, not
+    // after: the reviewer is the only one who can tell finished from cut off.
+    if (turn.described === "transcript") {
+      const answer = await vscode.window.showWarningMessage(
+        `Octoview: turn ${through} was recorded by the hook, not described by the agent.`,
+        {
+          modal: true,
+          detail:
+            `Its message was scraped from the session rather than written for it, ` +
+            `which is what an interrupted turn leaves behind. The commit takes ` +
+            `turn ${through}'s snapshot exactly as it stands — including work that ` +
+            `may have been half done when it was cut off.`,
+        },
+        "Commit Anyway",
+      );
+      if (answer === undefined) {
+        return;
+      }
+    }
     // The snapshot is loaded into the index to be committed, and the staged set
     // is the reviewer's own progress marker. Refuse rather than replace it.
     if (await repo.git.staged()) {

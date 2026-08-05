@@ -402,6 +402,12 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
               `${node.part === "reviewed" ? "read" : "not read yet"}. The rest are in ` +
               `${node.part === "reviewed" ? "Unreviewed" : "Reviewed"}.`,
       );
+      if (node.turn.described === "transcript") {
+        hover.appendMarkdown(
+          `\n\nRecorded by the hook rather than described by the agent — this turn ` +
+            `may have been cut off before it was finished.`,
+        );
+      }
       if (node.turn.message !== undefined) {
         hover.appendMarkdown(`\n\n---\n\n${node.turn.message}`);
       }

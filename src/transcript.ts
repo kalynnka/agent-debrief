@@ -8,6 +8,18 @@ export interface TurnSummary {
   message: string;
 }
 
+/** A message's label: its first non-empty line, cut to what a tree row has room
+ * for. Undefined when the message holds no such line, and so nothing to name a
+ * turn with. One rule for both sources — a message the agent passed in and a
+ * message scraped out of a transcript are labelled the same way. */
+export function labelOf(message: string | undefined): string | undefined {
+  const first = (message?.split("\n").find((line) => line.trim() !== "") ?? "").trim();
+  if (first === "") {
+    return undefined;
+  }
+  return first.length > 72 ? `${first.slice(0, 71)}…` : first;
+}
+
 /** Read a turn's summary out of a Claude Code transcript: the session's last
  * assistant text, which is the agent's own account of what it just did. Returns
  * undefined when the transcript is unreadable or holds no assistant text; the
@@ -35,17 +47,11 @@ export async function summaryFromTranscript(file: string): Promise<TurnSummary |
       message = text;
     }
   }
-  if (message === undefined) {
+  const label = labelOf(message);
+  if (message === undefined || label === undefined) {
     return undefined;
   }
-  const first = (message.split("\n").find((l) => l.trim() !== "") ?? "").trim();
-  if (first === "") {
-    return undefined;
-  }
-  return {
-    label: first.length > 72 ? `${first.slice(0, 71)}…` : first,
-    message: message.trim(),
-  };
+  return { label, message: message.trim() };
 }
 
 function assistantText(entry: unknown): string | undefined {

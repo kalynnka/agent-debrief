@@ -15,7 +15,7 @@ import { ChangedFile, Git, Turn } from "./git";
 import { resolveLane } from "./lanes";
 import { landedTurns, snapshotTurn } from "./review";
 import { Store } from "./state";
-import { summaryFromTranscript } from "./transcript";
+import { labelOf, summaryFromTranscript } from "./transcript";
 
 /** Bumped when a payload's shape changes; clients refuse a version they do not know. */
 const SCHEMA_VERSION = 1;
@@ -23,8 +23,11 @@ const SCHEMA_VERSION = 1;
 const USAGE = `usage: octoview <command> [options]
 
   status                capture nothing; report repo, lane, turns and review state
-  turn snapshot         capture a turn  (--label, --agent, --session, --from-stop-hook)
+  turn snapshot         capture a turn  (-m, --label, --agent, --session, --from-stop-hook)
+  turn describe <n>     give turn n the message it should have had  (-m required)
   turn commit <n>       commit turns 1..n as one commit  (-m required, --force)
+                        --force overrides both refusals: a staged index, and a
+                        turn the agent never described
   diff <n>              changed files for turn n
   show <rev> <path>     file content at a revision (a turn number or a sha)
   review submit         write the pending comment threads out as one batch
@@ -65,6 +68,9 @@ async function dispatch(argv: string[]): Promise<number> {
       const [sub, ...args] = rest;
       if (sub === "commit") {
         return commitCommand(args);
+      }
+      if (sub === "describe") {
+        return describeCommand(args);
       }
       if (sub !== "snapshot") {
         throw new UsageError(`unknown turn subcommand '${sub ?? ""}'`);
@@ -159,31 +165,42 @@ async function snapshotCommand(args: string[]): Promise<number> {
         lane: { type: "string" },
         json: { type: "boolean" },
         label: { type: "string" },
+        message: { type: "string", short: "m" },
         agent: { type: "string" },
         session: { type: "string" },
         "from-stop-hook": { type: "boolean" },
       },
     }),
   );
-  let { repo, label, agent, session } = values;
-  let message: string | undefined;
+  let { repo, label, message, agent, session } = values;
+  let described: Turn["described"] = message === undefined ? undefined : "agent";
   if (values["from-stop-hook"] ?? false) {
     const hook = stopHookPayload(await readStdin());
     repo ??= hook.cwd;
     session ??= hook.sessionId;
     agent ??= "claude";
     if (hook.transcriptPath !== undefined) {
-      // Read even when --label was given: a label can be the caller's, but the
-      // message is the agent's own and is what the review opens with.
+      // Only what the caller did not give. An agent that described its own turn
+      // has said it better than the transcript's last paragraph can; the scrape
+      // is the backstop for the turn where it did not get the chance — and the
+      // turn is marked as having been answered for, because that is also the
+      // shape of a turn that was cut off before it could finish.
       const summary = await summaryFromTranscript(hook.transcriptPath);
       label ??= summary?.label;
-      message = summary?.message;
+      if (message === undefined && summary !== undefined) {
+        message = summary.message;
+        described = "transcript";
+      }
     }
   }
+  // A message is enough on its own: the label is its first line, by the rule
+  // the transcript is read with.
+  label ??= labelOf(message);
   const { lane, git, store } = await open(repo, values.lane);
   const result = await snapshotTurn(git, store, {
     label,
     message,
+    described,
     agent: agent ?? "manual",
     session,
   });
@@ -205,6 +222,71 @@ async function snapshotCommand(args: string[]): Promise<number> {
   process.stdout.write(
     `turn ${result.turn.n}: ${result.turn.label} — ${result.files.length} file(s)\n`,
   );
+  return 0;
+}
+
+/** Give a turn the message it should have been recorded with.
+ *
+ * The snapshot is the thing that cannot be missed, so the hook takes it whether
+ * or not the agent was in a position to say what it did — a turn cut short by an
+ * interrupt is recorded with whatever the transcript last held, which is often a
+ * sentence from the middle of the work. This is the way back: the next run says
+ * it properly. Only the description moves. The snapshot, its ref, its parent and
+ * its place in the order are all untouched, so nothing that has been reviewed or
+ * committed against this turn is disturbed. */
+async function describeCommand(args: string[]): Promise<number> {
+  const { values, positionals } = guarded(() =>
+    parseArgs({
+      args,
+      options: {
+        repo: { type: "string" },
+        lane: { type: "string" },
+        json: { type: "boolean" },
+        message: { type: "string", short: "m" },
+        label: { type: "string" },
+      },
+      allowPositionals: true,
+    }),
+  );
+  if (positionals.length !== 1 || !/^\d+$/.test(positionals[0])) {
+    throw new UsageError("turn describe takes exactly one turn number");
+  }
+  const message = values.message;
+  if (message === undefined || message === "") {
+    throw new UsageError('turn describe needs a message: -m "<what the turn did>"');
+  }
+  const label = values.label ?? labelOf(message);
+  if (label === undefined) {
+    throw new UsageError("the message has no line to take a label from");
+  }
+  const n = Number(positionals[0]);
+  const { lane, store } = await open(values.repo, values.lane);
+  const described = await store.withLock((state) => {
+    const turn = state.turns.find((t) => t.n === n);
+    if (turn === undefined) {
+      return undefined;
+    }
+    turn.label = label;
+    turn.message = message;
+    // Whatever the hook had to guess, the agent has now answered for: a
+    // described turn is one somebody stood behind.
+    turn.described = "agent";
+    return turn;
+  });
+  if (described === undefined) {
+    throw new Error(`no turn ${n} in lane ${lane.name}`);
+  }
+  const payload = {
+    schemaVersion: SCHEMA_VERSION,
+    repo: lane.root,
+    lane: lane.name,
+    turn: described,
+  };
+  if (values.json ?? false) {
+    process.stdout.write(JSON.stringify(payload) + "\n");
+    return 0;
+  }
+  process.stdout.write(`turn ${described.n}: ${described.label}\n`);
   return 0;
 }
 
@@ -250,6 +332,17 @@ async function commitCommand(args: string[]): Promise<number> {
     throw new Error(
       `the index has staged changes that committing turn ${n} would replace — ` +
         `commit or unstage them first, or pass --force`,
+    );
+  }
+  // What gets committed is turn n's snapshot exactly as it stands, so a turn the
+  // agent never described is a tree nobody said was finished — the shape an
+  // interrupted turn leaves behind. Turns from before this was recorded say
+  // nothing either way and are not second-guessed.
+  if (turn.described === "transcript" && !(values.force ?? false)) {
+    throw new Error(
+      `turn ${n} was recorded by the Stop hook rather than described by the agent, ` +
+        `so it may be work that was cut off mid-change — and its snapshot is ` +
+        `exactly what would be committed. Read it, or describe it, or pass --force`,
     );
   }
   const files = await git.changedFiles(head ?? (await git.emptyTree()), turn.sha);

@@ -23,6 +23,12 @@ export interface Turn {
    * line. Absent on turns taken before this was kept, and on any turn snapshotted
    * without a transcript to read it from. */
   message?: string;
+  /** Who that message came from. `agent` means the turn described itself and had
+   * therefore finished; `transcript` means the hook answered for it, scraping
+   * whatever was last said — which is what an interrupted turn leaves behind, so
+   * its snapshot may be work in the middle of being done. Absent when neither
+   * happened: a turn from before this was kept, or one snapshotted by hand. */
+  described?: "agent" | "transcript";
   at: string;
   /** Which agent produced the turn: claude | codex | copilot | manual. */
   agent: string;

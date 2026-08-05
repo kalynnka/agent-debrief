@@ -62,6 +62,13 @@ idempotent, so an idle interrupt cannot pollute the numbering.
 | one file's evolution across turns | **Open Step History** on the file row |
 | the whole lane | click the repo row |
 
+The first row of a multi-file review is `agent notes.md`: what the agent said
+when it finished each of the turns you selected, in full. The tree row and the
+tab title have room for its first line only — this is the rest of it, and it is
+meant to be read before the diff. The `prepare-change-review` skill is what tells
+an agent to close a turn with a message worth putting there: kind, goal, how,
+test numbers, what to look at.
+
 For the **newest** turn the right-hand side of a diff is the real file on disk,
 so the language server attaches — hover, types and go-to-definition all work
 while you read. Older turns diff two snapshot revisions and are read-only by
@@ -184,6 +191,12 @@ the turn in the way and offers to commit through the last one it can reach.
 Adjacency is in the turn list, not the numbering: dropping turn 30 leaves a hole
 in the numbers, and turns 29 and 31 still commit together.
 
+One more thing gets in the way, deliberately. A turn whose message the **hook**
+wrote — rather than the agent describing its own work — is the shape an
+interrupted turn leaves behind, and a commit takes that turn's snapshot exactly
+as it stands, half-done work included. Both the button and `octoview turn commit`
+stop and say so; the turn row's hover says it earlier, before you get there.
+
 ### 5.3 Commit 1–10 now, 11–20 later
 
 This is the case the whole design bends around, and there is **no restore step**.
@@ -295,6 +308,12 @@ octoview show <rev> <path>    # file content at a turn, for before/after
 Report in the human's reading order — schema and model first, then managers, then
 call sites — with real numbers for verification and a plain statement of what was
 not checked.
+
+That report is also the turn's own record: its first line becomes the sidebar row
+and the whole of it becomes the note the review opens with. So it leads with
+`<kind>: <what the turn did>` in one line, then a paragraph giving the goal, the
+approach, the test numbers and where to look — a pull request's description at
+one turn's scale — and only then the per-file detail.
 
 ### 7.2 What an agent must never do
 

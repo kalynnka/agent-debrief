@@ -394,6 +394,108 @@ async function main() {
   );
   console.log("turn commit lands a prefix           ok");
 
+  // 20. The agent describes its own turn, and the hook is the backstop rather
+  //     than the author: an agent-given message survives the hook firing after
+  //     it, because a snapshot of an unchanged tree takes no turn at all. And a
+  //     turn recorded badly — the interrupted case, where the transcript's last
+  //     word was a sentence from the middle of the work — can be said again
+  //     afterwards without disturbing the snapshot.
+  const told = path.join(parent, "told");
+  fs.mkdirSync(told);
+  git(["init", "-q", "-b", "main", "."], told);
+  git(["config", "user.email", "t@t"], told);
+  git(["config", "user.name", "t"], told);
+  fs.writeFileSync(path.join(told, "f.txt"), "one\n");
+  const spoken = "feat: the turn says what it did\n\nAnd then the paragraph, in full.";
+  const own = JSON.parse(
+    octoview(["turn", "snapshot", "-m", spoken, "--json"], told).stdout,
+  );
+  assert.strictEqual(own.created, true);
+  assert.strictEqual(own.turn.label, "feat: the turn says what it did", "label is the first line");
+  assert.strictEqual(own.turn.message, spoken, "the message is kept whole");
+
+  // The hook fires next, on a tree the agent already snapshotted: no second
+  // turn, and nothing of what the agent said is overwritten.
+  const transcript2 = path.join(parent, "told.jsonl");
+  fs.writeFileSync(
+    transcript2,
+    JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "Now the manifest —" }] },
+    }),
+  );
+  const after = JSON.parse(
+    octoview(
+      ["turn", "snapshot", "--from-stop-hook", "--json"],
+      parent,
+      JSON.stringify({ session_id: "s", transcript_path: transcript2, cwd: told }),
+    ).stdout,
+  );
+  assert.strictEqual(after.created, false, "the hook must pass through a turn already taken");
+  const toldStore = new Store(await resolveLane(told));
+  await toldStore.load();
+  assert.strictEqual(toldStore.data.turns.length, 1, "no second turn for an unchanged tree");
+  assert.strictEqual(toldStore.data.turns[0].message, spoken);
+
+  // Now the interrupted shape: the hook takes the turn, and the transcript's
+  // last word is mid-work. The next run says it properly.
+  fs.writeFileSync(path.join(told, "f.txt"), "two\n");
+  const cut = JSON.parse(
+    octoview(
+      ["turn", "snapshot", "--from-stop-hook", "--json"],
+      parent,
+      JSON.stringify({ session_id: "s", transcript_path: transcript2, cwd: told }),
+    ).stdout,
+  );
+  assert.strictEqual(cut.turn.label, "Now the manifest —");
+  const said = "fix: put the manifest clauses back\n\nWhat it was really about.";
+  const fixed = JSON.parse(
+    octoview(["turn", "describe", String(cut.turn.n), "-m", said, "--json"], told).stdout,
+  );
+  assert.strictEqual(fixed.turn.label, "fix: put the manifest clauses back");
+  assert.strictEqual(fixed.turn.message, said);
+  assert.strictEqual(fixed.turn.sha, cut.turn.sha, "describing a turn must not move its snapshot");
+  assert.strictEqual(fixed.turn.parent, cut.turn.parent);
+  const absent = octoview(["turn", "describe", "999", "-m", "x"], told);
+  assert.strictEqual(absent.status, 3, "describing a turn that does not exist is a resolution error");
+  const noMessage = octoview(["turn", "describe", "1"], told);
+  assert.strictEqual(noMessage.status, 2, "describe without a message is a usage error");
+  console.log("agent describes, hook backstops       ok");
+
+  // 21. Provenance is what stands between a cut-off turn and a commit. A turn
+  //     the hook answered for may be work in the middle of being done, and a
+  //     commit takes its snapshot exactly as it stands — so committing one is
+  //     refused until somebody has stood behind it.
+  assert.strictEqual(own.turn.described, "agent", "an agent-given message is the agent's");
+  assert.strictEqual(cut.turn.described, "transcript", "a scraped message is the hook's");
+  assert.strictEqual(fixed.turn.described, "agent", "describing a turn answers for it");
+  fs.writeFileSync(path.join(told, "f.txt"), "three\n");
+  const scraped = JSON.parse(
+    octoview(
+      ["turn", "snapshot", "--from-stop-hook", "--json"],
+      parent,
+      JSON.stringify({ session_id: "s", transcript_path: transcript2, cwd: told }),
+    ).stdout,
+  );
+  const blocked = octoview(["turn", "commit", String(scraped.turn.n), "-m", "x"], told);
+  assert.strictEqual(blocked.status, 3, "committing an undescribed turn must be refused");
+  assert.strictEqual(blocked.stderr.includes("cut off mid-change"), true, blocked.stderr);
+  const commit = ["turn", "commit", String(scraped.turn.n), "-m", "x"];
+  const forced = octoview([...commit, "--force", "--json"], told);
+  assert.strictEqual(forced.status, 0, forced.stderr);
+  // And the same turn, once described, needs no override at all.
+  fs.writeFileSync(path.join(told, "f.txt"), "four\n");
+  const nextCut = JSON.parse(
+    octoview(
+      ["turn", "snapshot", "--from-stop-hook", "--json"],
+      parent,
+      JSON.stringify({ session_id: "s", transcript_path: transcript2, cwd: told }),
+    ).stdout,
+  );
+  octoview(["turn", "describe", String(nextCut.turn.n), "-m", "chore: said properly"], told);
+  const allowed = octoview(["turn", "commit", String(nextCut.turn.n), "-m", "y", "--json"], told);
+  assert.strictEqual(allowed.status, 0, allowed.stderr);
+  console.log("a cut-off turn cannot land unseen    ok");
 
   fs.rmSync(parent, { recursive: true, force: true });
   console.log("\nall checks passed");

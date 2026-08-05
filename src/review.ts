@@ -7,6 +7,7 @@ export interface SnapshotOptions {
   label?: string;
   /** The agent's closing message in full, when the host gives one. */
   message?: string;
+  described?: Turn["described"];
   /** claude | codex | copilot | manual. */
   agent: string;
   session?: string;
@@ -74,6 +75,7 @@ export async function snapshotTurn(
       parent,
       label,
       message: opts.message,
+      described: opts.described,
       at: new Date().toISOString(),
       agent: opts.agent,
       session: opts.session,
