@@ -87,6 +87,15 @@ For the **newest** snapshot the right-hand side of a diff is the real file on di
 so the language server attaches — hover, types and go-to-definition all work while
 you read. Older snapshots diff two revisions and are read-only by nature.
 
+That has an edge, and Octoview handles it rather than leaving it to you. A review
+of snapshot 10, opened while 10 was newest, points at the file; when snapshot 11
+lands, the file holds 11's work, so the tab would quietly be showing 9→11 under a
+title saying 10. It is **frozen** instead: the next time you look at that tab it
+reopens against snapshot 10's own revision, and means what it says again. The
+freeze waits for you to look, because a multi-diff cannot be rebuilt without being
+focused and an agent finishing a turn must not pull your cursor away. The cost is
+that the frozen tab loses its live language server — it is history now.
+
 Tick a file as you read it three ways: the **✓ on the row's own header**, beside
 Open File; `⌘⌥V` (`ctrl+alt+v` elsewhere), which marks the row your cursor is in;
 or the tick in the tab's title bar, which follows the focused row and says

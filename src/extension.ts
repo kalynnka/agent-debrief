@@ -61,6 +61,13 @@ interface Review {
   repo: Repo;
   snapshots: Snapshot[];
   showRead: boolean;
+  /** It was opened over the newest snapshot, so its right-hand side is the file
+   * on disk rather than a revision — which is what lets the language server
+   * attach, and what goes stale the moment a newer snapshot lands. */
+  wasLatest: boolean;
+  /** A newer snapshot has landed, so this tab is now showing that snapshot's work
+   * under the old one's title. Cleared by reopening it against a frozen revision. */
+  stale: boolean;
 }
 
 /** Every path a set of changes occupies. A rename holds two, and putting it back
@@ -135,7 +142,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const showing = showRead || unread.length === 0 ? all : unread;
     const title = await openStackedDiff(repo, scope, showing, all.length - showing.length);
     if (title !== undefined) {
-      reviewTabs.set(title, { repo, snapshots: scope, showRead });
+      const wasLatest = scope[scope.length - 1]?.n === repo.store.latestSnapshot?.n;
+      reviewTabs.set(title, { repo, snapshots: scope, showRead, wasLatest, stale: false });
     }
     await trackActiveDiff();
   };
@@ -224,8 +232,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           reloadTimer = setTimeout(() => {
             void (async () => {
               await Promise.all(repos.all.map((r) => r.store.load()));
+              for (const review of reviewTabs.values()) {
+                const last = review.snapshots[review.snapshots.length - 1];
+                if (review.wasLatest && last?.n !== review.repo.store.latestSnapshot?.n) {
+                  review.stale = true;
+                }
+              }
               comments.refresh();
               snapshots.refresh();
+              await trackActiveDiff();
             })();
           }, 200);
         }),
@@ -331,6 +346,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * the mouse. This one is what the keyboard aims at, and it is also the only one
    * that says whether the file it is pointed at has been read. */
   const trackActiveDiff = async (): Promise<void> => {
+    // A review opened over the newest snapshot diffs against the file on disk, so
+    // once a newer snapshot lands it quietly starts showing that one's work too,
+    // under the old one's title. Reopening pins the right-hand side to the
+    // snapshot's own revision, and the tab means what it says again.
+    //
+    // Done when the reviewer looks at the tab, not when the snapshot lands: a
+    // multi-diff cannot be rebuilt without being focused, and an agent finishing a
+    // turn must never pull the cursor out of whatever they are doing.
+    const superseded = activeReview();
+    if (superseded?.stale === true) {
+      superseded.stale = false;
+      await reopenReview(superseded);
+      return;
+    }
     const active = activeDiff() ?? (await rowAt(undefined));
     const review = activeReview();
     const rows = review === undefined ? [] : await rowsFor(review.repo, review.snapshots);
