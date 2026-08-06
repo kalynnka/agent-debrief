@@ -12,7 +12,14 @@
       "script": "watch",
       "group": "build",
       "isBackground": true,
-      "problemMatcher": "$tsc-watch"
+      "problemMatcher": "$tsc-watch",
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "presentation": {
+        "reveal": "never",
+        "panel": "dedicated"
+      }
     }
   ]
 }

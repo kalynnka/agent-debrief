@@ -78,10 +78,23 @@ pnpm dev     # in octoview/
 ```
 
 That opens the octoverse workspace with octoview running in it and octoview's own
-source in the same tree, then starts the compiler. Edit, then **⌘R** to reload:
-the extension host restarts in the same process, so it picks up `out/**` and
-keeps the flags. `package.json` is the exception — a manifest change needs the
-window relaunched, which is the same trap as F5-not-reload above.
+source in the same tree. **The compiler is not chained to it** — the watch task
+carries `runOn: folderOpen`, so the new window starts its own, in its own
+integrated terminal. Nothing has to be babysat from outside: the launching
+terminal can be closed the moment the window appears.
+
+Edit, then **⌘R** to reload: the extension host restarts in the same process, so
+it picks up `out/**` and keeps the flags — and the watch survives, because
+integrated terminals live in the pty host, a separate process from the window
+(`terminal.integrated.enablePersistentSessions`, on by default). `package.json` is
+the exception — a manifest change needs the window relaunched, which is the same
+trap as F5-not-reload above.
+
+Two things to know about the auto-started watch. It needs **Tasks: Allow
+Automatic Tasks** once per folder, or it stays silent — `⌘⇧B` starts it by hand in
+the meantime. And it starts in *every* window that opens this folder, so while you
+still keep a second window on octoview both will compile into the same `out/`.
+That stops mattering as soon as one window is all you keep, which is the point.
 
 The price is breakpoints. The JS debugger is an extension living in the host you
 would be pausing, so a window cannot debug itself. `pnpm dev` holds
@@ -108,9 +121,9 @@ state is **109 assertions across 26 check groups, all passing**, entirely
 headless — every module except the four UI ones avoids importing `vscode` so
 the whole review core is testable from Node. Preserve that property.
 
-**The Extension Development Host** launches with `F5`, opening `../kraken`
-(`.vscode/launch.json`). Anything involving the tree view, comment widgets or
-diff rendering can only be checked there, by a human.
+**The Extension Development Host** is `pnpm dev` (§2), or `F5` when you want the
+debugger; both open `../octoverse.code-workspace`. Anything involving the tree
+view, comment widgets or diff rendering can only be checked there, by a human.
 
 ---
 
