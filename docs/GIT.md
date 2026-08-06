@@ -333,6 +333,13 @@ Three rules hold that:
   `landedCommits` is now flat: 7 subprocesses at 10 snapshots and at 67.
 - **A redraw only recomputes what moved.** The working tree decides file rows; HEAD,
   the refs and `state.json` decide everything else.
+- **At most 32 `git` processes run at once**, across every repository. The work is
+  fanned out with `Promise.all`, so the peak is however much happens to be waiting:
+  a lane of 60 uncommitted snapshots measured 110 processes at once, and a
+  workspace of five such lanes would be five times that. The cap bounds the peak,
+  never the total — the view needs every answer it asks for, and refusing to ask
+  would mean drawing something untrue. Measured free: 419ms capped against 421ms
+  uncapped on that lane, and a working-tree redraw peaks at one either way.
 
 Nothing here is a retention policy, a cap, or a warning. A reviewer with a
 thousand snapshots on `master` is not doing anything wrong, and the tool should

@@ -5,6 +5,38 @@ import { promisify } from "util";
 
 const exec = promisify(execFile);
 
+/** How many `git` processes octoview will have running at once, across every
+ * repository in the workspace.
+ *
+ * The work is fanned out with `Promise.all` — one call per snapshot, per repo —
+ * so without a limit the peak is however much work happens to be waiting: a lane
+ * of 60 uncommitted snapshots measured 120 processes at once, and a workspace of
+ * five such lanes would be five times that. Nothing in git minds, but the machine
+ * does: file descriptors, memory, and on Windows a process is far dearer to start
+ * than it is here.
+ *
+ * This caps the peak, not the total. The total is what it is — the view needs
+ * every answer it asks for, and refusing to ask would mean drawing something
+ * untrue. Queueing costs nothing when the queue is empty, which is the common
+ * case: a working-tree redraw peaks at one. */
+const MAX_CONCURRENT = 32;
+
+let running = 0;
+const waiting: (() => void)[] = [];
+
+async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (running >= MAX_CONCURRENT) {
+    await new Promise<void>((resolve) => waiting.push(resolve));
+  }
+  running++;
+  try {
+    return await fn();
+  } finally {
+    running--;
+    waiting.shift()?.();
+  }
+}
+
 /** Where snapshot refs live: outside refs/heads, so `git branch` never lists a
  * snapshot — and lane-scoped, because refs are shared across a clone's worktrees
  * and unscoped snapshot numbers collide between two worktrees of one clone. */
@@ -108,11 +140,15 @@ export class Git {
   constructor(readonly root: string) {}
 
   async run(args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
-    const { stdout } = await exec("git", args, {
-      cwd: this.root,
-      env: env ? { ...process.env, ...env } : process.env,
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    // Only the spawn is inside the slot. Anything that awaited another `run`
+    // while holding one could deadlock against itself once the queue filled.
+    const { stdout } = await withSlot(() =>
+      exec("git", args, {
+        cwd: this.root,
+        env: env ? { ...process.env, ...env } : process.env,
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    );
     return stdout;
   }
 
