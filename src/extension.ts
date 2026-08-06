@@ -240,14 +240,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return at === undefined ? undefined : { repo: located.repo, rel: located.rel, at };
   };
 
+  /** The row of a review tab the cursor is in. A multi-diff's rows are ordinary
+   * editors, so the active one names the file; which snapshot the mark belongs at
+   * is that row's own last snapshot, the same answer `markRows` gives.
+   *
+   * Either side of the row resolves — the mark's snapshot comes from the row, not
+   * from the revision the cursor happens to be on. */
+  const activeRow = async (): Promise<{ repo: Repo; rel: string; at: number } | undefined> => {
+    const review = activeReview();
+    const editor = vscode.window.activeTextEditor;
+    if (review === undefined || editor === undefined) {
+      return undefined;
+    }
+    const uri = editor.document.uri;
+    const located = repos.locate(uri.scheme === SCHEME ? pathOf(uri) : uri.fsPath);
+    if (located === undefined || located.repo !== review.repo) {
+      return undefined;
+    }
+    const row = (await rowsFor(review.repo, review.snapshots)).find(
+      (r) => r.file.path === located.rel || r.file.oldPath === located.rel,
+    );
+    return row === undefined
+      ? undefined
+      : {
+          repo: review.repo,
+          rel: row.file.path,
+          at: row.snapshots[row.snapshots.length - 1].n,
+        };
+  };
+
   /** Which title-bar buttons the active tab offers. A plain diff gets the tick
-   * for its own file; a review tab gets the actions for everything it covers.
+   * for its own file; a review tab gets the actions for everything it covers, and
+   * the tick for whichever row the cursor is in.
    *
    * A multi-diff's per-row toolbar is a proposed-API menu
-   * (`contribMultiDiffEditorMenus`), so the tick cannot sit on each row inside
-   * one — the tab-level actions here are what replaces it. */
+   * (`contribMultiDiffEditorMenus`), so the tick cannot sit on the row itself —
+   * the tab-level tick, following the focused row, is what replaces it. */
   const trackActiveDiff = async (): Promise<void> => {
-    const active = activeDiff();
+    const active = activeDiff() ?? (await activeRow());
     const review = activeReview();
     const rows = review === undefined ? [] : await rowsFor(review.repo, review.snapshots);
     await vscode.commands.executeCommand("setContext", "octoview.inDiff", active !== undefined);
@@ -261,7 +291,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await vscode.commands.executeCommand(
       "setContext",
       "octoview.inReview",
-      rows.length > 0 && active === undefined,
+      rows.length > 0 && activeDiff() === undefined,
     );
     await vscode.commands.executeCommand(
       "setContext",
@@ -273,6 +303,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.window.tabGroups.onDidChangeTabs(() => void trackActiveDiff()),
     vscode.window.tabGroups.onDidChangeTabGroups(() => void trackActiveDiff()),
+    // Moving between rows never changes the tab, so the tick would otherwise
+    // still be describing the row you left.
+    vscode.window.onDidChangeActiveTextEditor(() => void trackActiveDiff()),
   );
 
   const paint = (editor: vscode.TextEditor | undefined): void => {
@@ -552,7 +585,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The tick where GitHub puts it: on the file you are reading, not on a row in
   // a list somewhere else.
   const markHere = async (viewed: boolean): Promise<void> => {
-    const active = activeDiff();
+    const active = activeDiff() ?? (await activeRow());
     if (active === undefined) {
       throw new Error("octoview: no snapshot diff is showing");
     }

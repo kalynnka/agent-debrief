@@ -305,6 +305,20 @@
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "octoview.markViewedHere",
+        "key": "ctrl+alt+v",
+        "mac": "cmd+alt+v",
+        "when": "octoview.inDiff && !octoview.diffViewed"
+      },
+      {
+        "command": "octoview.markUnviewedHere",
+        "key": "ctrl+alt+v",
+        "mac": "cmd+alt+v",
+        "when": "octoview.inDiff && octoview.diffViewed"
+      }
+    ],
     "configuration": {
       "title": "Octoview",
       "properties": {

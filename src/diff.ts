@@ -28,8 +28,9 @@ export class RevisionContentProvider implements vscode.TextDocumentContentProvid
 export const NOTE_SCHEME = "octoview-note";
 
 /** Named as a file so the row header reads as one, and given a markdown
- * extension so the icon theme draws it as a note rather than as source. */
-const NOTE_NAME = "agent notes.md";
+ * extension so the icon theme draws it as a note rather than as source. Short,
+ * because the row header shows it beside the repository name. */
+const NOTE_NAME = "Notes.md";
 
 function noteUri(repo: Repo, snapshots: Snapshot[], text: boolean): vscode.Uri {
   return vscode.Uri.from({
@@ -135,16 +136,21 @@ export async function openStackedDiff(
   const isLatest = last.n === repo.store.latestSnapshot?.n;
   const added = rows.reduce((n, row) => n + row.stat.added, 0);
   const deleted = rows.reduce((n, row) => n + row.stat.deleted, 0);
+  // Which snapshots and how big, and nothing else. What they *did* is the first
+  // row of the review, in full and unabridged; a tab is one line, and a label
+  // repeated there only pushed the numbers off the end of it.
   const span =
     snapshots.length === 1
-      ? `snapshot ${snapshots[0].n} — ${snapshots[0].label}`
+      ? `snapshot ${snapshots[0].n}`
       : `snapshots ${snapshots[0].n}→${last.n} net`;
-  const title = `${repo.name}: ${span} · +${added} −${deleted}`;
+  const counts = `+${added} −${deleted}`;
   if (rows.length === 1) {
     // A one-row multi-diff leaves the rest of the tab empty; the plain diff
-    // editor shows the same change at full height.
+    // editor shows the same change at full height. There is no note row here, so
+    // the title says which file instead.
     const file = rows[0].file;
     const abs = path.join(repo.root, file.path);
+    const title = `${repo.name}: ${span} · ${path.basename(file.path)} · ${counts}`;
     await vscode.commands.executeCommand(
       "vscode.diff",
       revisionUri(base, path.join(repo.root, file.oldPath ?? file.path)),
@@ -154,23 +160,18 @@ export async function openStackedDiff(
     );
     return title;
   }
+  const title = `${repo.name}: ${span} · ${counts}`;
   // The agent's own account of the work, first: a diff is easier to read for
-  // knowing what the snapshot was trying to do, and this is the one place with room
-  // for the whole message. With one snapshot and no message there is nothing to say
-  // that the tab title has not said already; with several, the run of labels is
-  // still worth having as a contents page.
-  const guided =
-    snapshots.length > 1 || snapshots.some((snapshot) => snapshot.message !== undefined);
+  // knowing what the snapshot was trying to do, and this is the one place with
+  // room for the whole message. Always present, because it is now the only place
+  // the message is — a snapshot with none falls back to its label, which the tab
+  // title no longer carries either.
   const resources = [
-    ...(guided
-      ? [
-          [
-            vscode.Uri.file(path.join(repo.root, NOTE_NAME)),
-            noteUri(repo, snapshots, false),
-            noteUri(repo, snapshots, true),
-          ],
-        ]
-      : []),
+    [
+      vscode.Uri.file(path.join(repo.root, NOTE_NAME)),
+      noteUri(repo, snapshots, false),
+      noteUri(repo, snapshots, true),
+    ],
     ...rows.map((row) => {
       const abs = path.join(repo.root, row.file.path);
       const absOld = path.join(repo.root, row.file.oldPath ?? row.file.path);
@@ -245,7 +246,7 @@ export async function openStepHistory(
       "vscode.diff",
       revisionUri(snapshot.parent, abs),
       snapshot.n === latest ? vscode.Uri.file(abs) : revisionUri(snapshot.sha, abs),
-      `${path.basename(rel)}: t${snapshot.n} — ${snapshot.label}`,
+      `${path.basename(rel)}: snapshot ${snapshot.n}`,
       { preview: false },
     );
     return;
@@ -277,7 +278,7 @@ export async function openStepHistory(
   // way to suppress it — which is one more reason to keep the label short.
   await vscode.commands.executeCommand(
     "vscode.changes",
-    `${path.basename(rel)}: t${steps[0].n}→t${steps[steps.length - 1].n}`,
+    `${path.basename(rel)}: s${steps[0].n}→s${steps[steps.length - 1].n}`,
     resources,
   );
 }

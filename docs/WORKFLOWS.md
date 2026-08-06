@@ -62,21 +62,27 @@ idempotent, so an idle interrupt cannot pollute the numbering.
 | one file's evolution across snapshots | **Open Step History** on the file row |
 | the whole lane | click the repo row |
 
-The first row of a multi-file review is `agent notes.md`: what the agent said
-when it finished each of the snapshots you selected, in full. The tree row and
-the tab title have room for its first line only — this is the rest of it, and it is
-meant to be read before the diff. The `prepare-change-review` skill is what tells
-an agent to close a turn with a message worth putting there: kind, goal, how, test
-numbers, what to look at.
+The first row of a multi-file review is `Notes.md`: what the agent said when it
+finished each of the snapshots you selected, in full. The tab title says only
+which snapshots and how big, and the tree row has room for the first line — this
+is the whole of it, and it is meant to be read before the diff. It is a diff row
+like any other, so it shows the message as text; hover the snapshot's row in the
+sidebar to read the same message rendered. The `prepare-change-review` skill is
+what tells an agent to close a turn with a message worth putting there: kind,
+goal, how, test numbers, what to look at.
 
 For the **newest** snapshot the right-hand side of a diff is the real file on disk,
 so the language server attaches — hover, types and go-to-definition all work while
 you read. Older snapshots diff two revisions and are read-only by nature.
 
-A multi-diff row header shows `✓ files.ts` once you have marked that file viewed.
-It is baked in when the tab opens, so ticking a file elsewhere does not update an
-already-open review — reopen it, or use **Mark All Files Viewed**, which reopens
-the tab for you.
+Tick a file as you read it with `⌘⌥V` (`ctrl+alt+v` elsewhere), which marks the
+row your cursor is in — and the tick button in the tab's title bar follows the
+focused row, so it says whether *this* file is read and toggles it back.
+
+A multi-diff row header shows `✓ files.ts` once that file is marked viewed. The
+header is baked in when the tab opens, so the mark you just made appears there
+only on reopen — the sidebar and the title-bar button are what answer in the
+meantime. **Mark All Files Viewed** reopens the tab for you.
 
 ---
 
