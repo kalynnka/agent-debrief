@@ -42,7 +42,7 @@ verified against the working repos rather than read off the PRD.
 | `git branch -d`, `git branch -D` | `octoview gc` lets go of the lane's refs, so git can collect the snapshots on its own schedule; a lane git has already collected is forgotten. | Unchanged. |
 | `git checkout <sha>`, `git switch --detach`, `git bisect` | A lane of its own, `detached/<sha7>`. | Unchanged. |
 | `git worktree add` | Works. The common dir is shared, so lanes are shared and branch-per-worktree keeps them apart. | Unchanged. |
-| `git worktree remove` | The removed worktree's detached-lane state, if any, leaks. | Falls out of the same prune. |
+| `git worktree remove` | Its `detached/<sha>` lane has no branch, so `octoview gc` sweeps it like any other. | Unchanged. |
 
 ### B. Commands that move history under the lane
 
@@ -55,7 +55,7 @@ verified against the working repos rather than read off the PRD.
 | `git reset --soft`, `--mixed` | Index and HEAD move; the worktree does not, so snapshots still describe what is on disk. | Unchanged. |
 | `git reset --hard` | The worktree goes back; every snapshot's files stop differing from where they started, so the rows go frozen and struck through. Honest, and the snapshot refs are what makes the work recoverable. | Unchanged. Drop is now refused while git is mid-operation (D5); a plain `reset --hard` is not an operation git considers itself inside, so that case still relies on the frozen row reading as a fact rather than an instruction. |
 | `git revert <commit>` | A new commit; the worktree follows; affected snapshots go frozen. | Unchanged. |
-| `git cherry-pick`, `git merge`, `git pull`, `git pull --rebase` | HEAD is on the snapshot record, and the note says so when it moved. The foreign lines are still *in* the diff — the subtraction is D3's open half. | Subtract what the move brought in. |
+| `git cherry-pick`, `git merge`, `git pull`, `git pull --rebase` | HEAD is on the snapshot record; the note names the move and the rows it brought are marked `⇣`. | Unchanged. |
 | History rewrites — `filter-repo`, `filter-branch` | Snapshot parents dangle; landing answers change. | Out of scope; document it. |
 
 ### C. Commands that move the working tree
@@ -63,9 +63,10 @@ verified against the working repos rather than read off the PRD.
 | Command | Today | Should |
 |---|---|---|
 | `git restore <path>`, `git checkout -- <path>` | `GitWatch` fires, rows recompute, a file back at its starting content drops off its snapshot's worklist. Already designed for. | Unchanged. |
-| `git stash`, `git stash pop`/`apply` | A stash makes every snapshot look reverted — frozen, struck through, droppable — and a pop puts them all back. | Unchanged in what it shows; D5 covers the destructive action offered while it is true. |
+| `git stash`, `git stash pop`/`apply` | A stash makes every snapshot look reverted — frozen, struck through, **droppable** — and a pop puts them all back. A stash is not an operation git considers itself inside, so `operationInProgress` returns undefined and D5's gate does not catch it. Verified. | **Open** — see D5's residue. |
 | `git clean -fd` | Deletes untracked files a snapshot created; those snapshots go frozen. | Unchanged. |
-| `git apply`, `git am` | Ordinary worktree writes; captured by the next snapshot as the agent's work. | Same problem as merge/pull (D3), same fix. |
+| `git am` | Commits, so HEAD moves and D3's rule marks what it brought. | Unchanged. |
+| `git apply` | **Open.** It patches the worktree without moving HEAD — verified — so there is no move for `foreignPaths` to read, and the patch is credited to the agent. | Needs a signal that is not HEAD. |
 | Conflict resolution during merge/rebase | Refused. `operationInProgress` reads git's own marker files, and a snapshot is not taken while one exists. | Unchanged. |
 
 ### D. Commands that move the index only
@@ -121,7 +122,7 @@ untouched: it governs what *we* may commit, which is a different question.
 from where the lane started. No fast path was needed — the content rule reproduces
 octoview's own history exactly (5–13, 14–47, 48–50).
 
-**D2 — Lanes do not follow branches.** *(half fixed)*
+**D2 — Lanes do not follow branches.** *(fixed)*
 Cutting a branch abandoned the review; deleting one still leaks it. PRD §4.2
 already specified that a lane closes when its branch is deleted or merged, and
 §4.8 specified the prune — neither existed in the code.
@@ -154,7 +155,7 @@ branch. `state.json` stands in, holding every sha, so a lane can be put back wit
 `git update-ref` while the objects last. The window is `gc.pruneExpire`: git's
 knob, not one octoview invents.
 
-**D3 — Foreign changes are attributed to the agent.** *(half fixed)*
+**D3 — Foreign changes are attributed to the agent.** *(fixed, with one residue)*
 `git pull` between two snapshots puts everyone else's work in the agent's next
 snapshot, under its name and its message.
 
@@ -166,11 +167,15 @@ refused rather than captured: conflict markers and half-applied commits are
 nobody's work yet, so `takeSnapshot` returns `mid-operation` instead of recording
 them.
 
-*Open: the subtraction.* When HEAD moved from H0 to H1, the paths in
-`diff(H0,H1)` that hold H1's content are the checkout's doing and should be shown
-apart from the agent's. Deliberately not built here — it changes what a snapshot's
-diff *is*, which every row, count and review tab reads, and that deserves its own
-sitting rather than riding along with a record field.
+*Done: the subtraction.* `foreignPaths` marks the paths a HEAD move brought in,
+and they carry `⇣` on the review row and the tree row.
+
+*Residue: `git apply`.* The rule reads a HEAD move, and `git apply` patches the
+worktree without moving HEAD — verified. A patch applied by hand is therefore
+still credited to the agent. Catching it needs a signal that is not HEAD, and
+there may not be an honest one: by the time a snapshot is taken, a hand-applied
+patch and a hand-typed edit are the same bytes with the same provenance. Worth
+naming rather than pretending.
 
 **D4 — Detached HEAD has no lane of its own.** *(fixed)*
 `resolveLane` fell back to the worktree directory name, so every detached state
@@ -178,13 +183,20 @@ in a clone shared one lane, a bisect run appended to it a snapshot at a time, an
 a clone whose directory happened to share a name with a branch appended to that
 branch's lane. It is `detached/<sha7>` now.
 
-**D5 — Destructive actions stay offered while git is mid-operation.** *(fixed)*
+**D5 — Destructive actions stay offered while git is mid-operation.** *(fixed, with one residue)*
 A merge or rebase in progress makes snapshots look frozen, and a frozen row
 offered **Drop** — which deletes the ref, and with it the only remaining copy of
 work that is perfectly alive. Revert and Drop now refuse while
-`operationInProgress` answers, and say which operation to finish first. A plain
-`git stash` is not something git considers itself inside, so that case is still
-carried by the frozen row reading as a fact rather than an instruction.
+`operationInProgress` answers, and say which operation to finish first.
+
+*Residue: `git stash`.* Verified — after a stash, `operationInProgress` returns
+undefined, because a stash is a completed act rather than something git is inside.
+So a stash still makes every snapshot look frozen and every frozen row still
+offers **Drop**. Octoview cannot tell "the reviewer reverted this" from "the
+reviewer stashed it": both leave the worktree back where the snapshot started.
+Watching whether `refs/stash` has moved since the last snapshot would catch the
+common case, at the cost of a heuristic where everything else here is derived.
+Not built, and not decided.
 
 ## 4. Plan
 
@@ -267,13 +279,10 @@ agent edits after the merge goes back to being theirs.
 **Phase 4 — Write it down.** ✅ **Done.** PRD §4.2 and §4.8 reconciled as each
 phase landed; this catalogue is the contract; WORKFLOWS and HANDOFF follow.
 
-**Phase 4 — Write it down.**
-PRD §4.2 and §4.8 reconciled with what was built, this catalogue kept as the
-contract, WORKFLOWS and the two skills updated where the reviewer's own git
-commands now mean something different.
-
-Phase 1 is the reported bug and stands alone. Phases 2 and 3 are each a sitting's
-worth of review on their own, so they should not be folded together.
+**Still open, both named above and neither scheduled:** `git apply` (D3's residue)
+and `git stash` (D5's residue). Each needs a decision about accepting a heuristic
+where the rest of this document derives its answers from git, which is why neither
+was taken unilaterally.
 
 ## 5. Deliberately not followed
 
