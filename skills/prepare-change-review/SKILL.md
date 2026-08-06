@@ -5,15 +5,20 @@ description: Prepare a finished agent turn for human review with octoview — ma
 
 # Prepare a change review
 
-Octoview reviews work at the turn boundary, before anything is committed. Your
-job at the end of a turn: make sure the turn is captured, then hand the human a
-report whose facts come from the CLI, ordered for their reading.
+Octoview reviews work at the turn boundary, before anything is committed. Each
+turn's work is captured as a **snapshot** — a real git commit outside
+`refs/heads`. Your job at the end of a turn: make sure the snapshot is taken,
+then hand the human a report whose facts come from the CLI, ordered for their
+reading.
+
+To read snapshots somebody else left behind rather than write one, the sibling
+skill `recover-change-context` is the one you want.
 
 ## Rules that are not yours to bend
 
 - **Never touch the user's git state.** No `git add`, no commits, no branch or
   stash operations. The staged set is the human's review progress marker; the
-  tool exists to protect it. `octoview turn commit` is the one exception, and
+  tool exists to protect it. `octoview snapshot commit` is the one exception, and
   only on an instruction to commit in the human's *latest* message — see below.
 - **Every git fact comes from the `octoview` CLI.** Never read or write
   `.git/octoview/` directly and never create or delete refs yourself — the CLI
@@ -23,26 +28,26 @@ report whose facts come from the CLI, ordered for their reading.
 
 ## Workflow
 
-1. **Fix a turn that was recorded badly**, before anything else. A turn you were
-   interrupted in was snapshotted by the hook with whatever you had last said —
-   often a sentence from the middle of the work. Say it properly:
+1. **Fix a snapshot that was recorded badly**, before anything else. A turn you
+   were interrupted in was snapshotted by the hook with whatever you had last
+   said — often a sentence from the middle of the work. Say it properly:
 
-       octoview turn describe <n> -m "<kind>: <what that turn did>"
+       octoview snapshot describe <n> -m "<kind>: <what that snapshot did>"
 
    Only the description moves. The snapshot, its ref and its place in the order
-   are untouched, so anything already reviewed or committed against that turn is
+   are untouched, so anything already reviewed or committed against it is
    undisturbed.
 
 2. **Collect the facts from the CLI, not from your memory of the work:**
 
-       octoview status --json        # turns so far, files, review state
-       octoview diff <n> --json      # exactly this turn's changed files
-       octoview show <rev> <path>    # file content at a turn, for before/after
+       octoview status --json        # snapshots so far, files, review state
+       octoview diff <n> --json      # exactly this snapshot's changed files
+       octoview show <rev> <path>    # file content at a snapshot, for before/after
 
-3. **Capture the turn with its message**, as the last thing you do before
+3. **Take the snapshot with its message**, as the last thing you do before
    writing your reply — you cannot run a command after it:
 
-       octoview turn snapshot --agent <host> --json -m "$(cat <<'EOF'
+       octoview snapshot --agent <host> --json -m "$(cat <<'EOF'
        <kind>: <what the turn did>
 
        <the paragraph>
@@ -53,13 +58,13 @@ report whose facts come from the CLI, ordered for their reading.
    per-file detail belongs in your reply, not in the note a review opens with.
    `--label` is unnecessary: the first line is the label.
 
-   `"created": false` means the tree holds no new work — say so and stop. A turn
-   that changed nothing is never recorded, by you or by the hook.
+   `"created": false` means the tree holds no new work — say so and stop. A
+   snapshot that changed nothing is never recorded, by you or by the hook.
 
    **The hook is the backstop, not the author.** Where one is installed it fires
    after you and captures whatever you left uncaptured, reading the transcript
    for a message because it has nothing better. On a tree you have already
-   snapshotted it takes no turn at all, and your message stands.
+   snapshotted it takes nothing at all, and your message stands.
 
 4. **Write the reply.** It opens with the same front page you just recorded, and
    the per-file detail follows it — see the next section.
@@ -69,11 +74,12 @@ report whose facts come from the CLI, ordered for their reading.
 
 ## The closing message is the review's front page
 
-Octoview keeps the message a turn was recorded with — the one you pass to `-m`,
-or, when the hook had to step in, the last thing you said. Its **first line
-becomes that turn's row in the sidebar**, cut at 72 characters, and the **whole
-message opens the review** as the first row of the multi-diff, above the files.
-It is the only thing the human reads before the diff, so write it for that job.
+Octoview keeps the message a snapshot was recorded with — the one you pass to
+`-m`, or, when the hook had to step in, the last thing you said. Its **first line
+becomes that snapshot's row in the sidebar**, cut at 72 characters, and the
+**whole message opens the review** as the first row of the multi-diff, above the
+files. It is the only thing the human reads before the diff, so write it for that
+job.
 
 Lead with these two, in this order, ahead of any per-file detail:
 
@@ -100,9 +106,13 @@ first, then managers and logic, then call sites and tests. For each file: what
 changed, why, and anything you did not verify. Distinguish claims (yours) from
 evidence (command output).
 
-It is one turn's worth of change, so it is a pull request's description at a
+It is one snapshot's worth of change, so it is a pull request's description at a
 tenth of the length. Aim for a paragraph a reviewer reads in fifteen seconds and
 is then ready to read the diff.
+
+It is also what the *next* agent on this branch will read to work out what
+happened here, long after this session is gone — see `recover-change-context`.
+Write it for a reader who has none of your context.
 
 ### What ruins it
 
@@ -120,24 +130,24 @@ is then ready to read the diff.
 
 Only when the human asks for it in the message you are answering:
 
-    octoview turn commit <n> -m "<subject>" --json
+    octoview snapshot commit <n> -m "<subject>" --json
 
-This commits turns 1..n as one commit and leaves every later turn uncommitted in
-the working tree, which is what makes "commit through turn 10, keep going on
-11+" possible: the content comes from turn n's snapshot, so the working tree
-never moves and a file that turn 12 edited again still commits at its turn-10
-value.
+This commits snapshots 1..n as one commit and leaves every later snapshot
+uncommitted in the working tree, which is what makes "commit through snapshot 10,
+keep going on 11+" possible: the content comes from snapshot n, so the working
+tree never moves and a file that snapshot 12 edited again still commits at its
+snapshot-10 value.
 
-- `n` must be a turn that exists; the prefix is implied, so there is no way to
-  commit a gapped set.
+- `n` must be a snapshot that exists; the prefix is implied, so there is no way
+  to commit a gapped set.
 - It **replaces the index**, which is the human's review progress marker. The
   command refuses while anything is staged rather than discarding it.
-- It refuses a turn **the hook recorded rather than you**. That is the shape a
-  turn cut off mid-change leaves behind, and what lands is its snapshot exactly
-  as it stands. Describing it (step 1) is the fix; `--force` is not.
+- It refuses a snapshot **the hook recorded rather than you**. That is the shape
+  a turn cut off mid-change leaves behind, and what lands is that snapshot
+  exactly as it stands. Describing it (step 1) is the fix; `--force` is not.
 - Do not reach for `--force` on their behalf — report either refusal and let
   them decide.
-- `landed` in the JSON is the turns that now have nothing uncommitted left of
+- `landed` in the JSON is the snapshots that now have nothing uncommitted left of
   them. It is derived from git, so it is also the answer after an amend, a reset
   or a rebase.
 

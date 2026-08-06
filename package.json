@@ -1,7 +1,7 @@
 {
   "name": "octoview",
   "displayName": "Octoview",
-  "description": "Turn-by-turn review of agent changes: snapshot each turn, diff turn-over-turn, batch line comments.",
+  "description": "Snapshot-by-snapshot review of agent changes: snapshot each turn, diff snapshot-over-snapshot, batch line comments.",
   "version": "0.0.1",
   "publisher": "octoverse",
   "private": true,
@@ -36,21 +36,21 @@
     "views": {
       "octoview": [
         {
-          "id": "octoview.turns",
-          "name": "Turns"
+          "id": "octoview.snapshots",
+          "name": "Snapshots"
         }
       ]
     },
     "viewsWelcome": [
       {
-        "view": "octoview.turns",
-        "contents": "No turns yet in this workspace. A turn is captured when an agent finishes, or you can take one now.\n[Snapshot Turn](command:octoview.snapshot)"
+        "view": "octoview.snapshots",
+        "contents": "No snapshots yet in this workspace. A snapshot is captured when an agent finishes its turn, or you can take one now.\n[Take Snapshot](command:octoview.snapshot)"
       }
     ],
     "commands": [
       {
         "command": "octoview.snapshot",
-        "title": "Snapshot Turn",
+        "title": "Take Snapshot",
         "category": "Octoview",
         "icon": "$(device-camera)"
       },
@@ -62,7 +62,7 @@
       },
       {
         "command": "octoview.stackedDiff",
-        "title": "Open Net Diff of Selected Turns",
+        "title": "Open Net Diff of Selected Snapshots",
         "category": "Octoview",
         "icon": "$(diff-multiple)"
       },
@@ -114,19 +114,19 @@
       },
       {
         "command": "octoview.revert",
-        "title": "Revert This Turn's Change",
+        "title": "Revert This Snapshot's Change",
         "category": "Octoview",
         "icon": "$(discard)"
       },
       {
-        "command": "octoview.dropTurn",
-        "title": "Drop This Turn",
+        "command": "octoview.dropSnapshot",
+        "title": "Drop This Snapshot",
         "category": "Octoview",
         "icon": "$(trash)"
       },
       {
-        "command": "octoview.openTurn",
-        "title": "Open Turn Diff",
+        "command": "octoview.openSnapshot",
+        "title": "Open Snapshot Diff",
         "category": "Octoview"
       },
       {
@@ -155,7 +155,7 @@
       },
       {
         "command": "octoview.commitReviewed",
-        "title": "Commit Reviewed Turns",
+        "title": "Commit Reviewed Snapshots",
         "category": "Octoview",
         "icon": "$(git-commit)"
       }
@@ -191,59 +191,59 @@
       "view/title": [
         {
           "command": "octoview.snapshot",
-          "when": "view == octoview.turns",
+          "when": "view == octoview.snapshots",
           "group": "navigation@1"
         },
         {
           "command": "octoview.stackedDiff",
-          "when": "view == octoview.turns",
+          "when": "view == octoview.snapshots",
           "group": "navigation@3"
         },
         {
           "command": "octoview.submit",
-          "when": "view == octoview.turns",
+          "when": "view == octoview.snapshots",
           "group": "navigation@4"
         },
         {
           "command": "octoview.refresh",
-          "when": "view == octoview.turns",
+          "when": "view == octoview.snapshots",
           "group": "navigation@5"
         }
       ],
       "view/item/context": [
         {
           "command": "octoview.commitReviewed",
-          "when": "view == octoview.turns && viewItem == group-reviewed",
+          "when": "view == octoview.snapshots && viewItem == group-reviewed",
           "group": "inline@1"
         },
         {
           "command": "octoview.openFile",
-          "when": "view == octoview.turns && viewItem =~ /^file-/",
+          "when": "view == octoview.snapshots && viewItem =~ /^file-/",
           "group": "inline@1"
         },
         {
           "command": "octoview.revert",
-          "when": "view == octoview.turns && (viewItem =~ /-revertable$/ || viewItem =~ /^turn-(un)?reviewed-droppable$/)",
+          "when": "view == octoview.snapshots && (viewItem =~ /-revertable$/ || viewItem =~ /^snapshot-(un)?reviewed-droppable$/)",
           "group": "inline@2"
         },
         {
-          "command": "octoview.dropTurn",
-          "when": "view == octoview.turns && viewItem == turn-frozen-droppable",
+          "command": "octoview.dropSnapshot",
+          "when": "view == octoview.snapshots && viewItem == snapshot-frozen-droppable",
           "group": "inline@2"
         },
         {
           "command": "octoview.markReviewed",
-          "when": "view == octoview.turns && (viewItem =~ /^file-unreviewed/ || viewItem =~ /^turn-unreviewed/)",
+          "when": "view == octoview.snapshots && (viewItem =~ /^file-unreviewed/ || viewItem =~ /^snapshot-unreviewed/)",
           "group": "inline@3"
         },
         {
           "command": "octoview.markUnreviewed",
-          "when": "view == octoview.turns && (viewItem =~ /^file-reviewed/ || viewItem =~ /^turn-reviewed/)",
+          "when": "view == octoview.snapshots && (viewItem =~ /^file-reviewed/ || viewItem =~ /^snapshot-reviewed/)",
           "group": "inline@4"
         },
         {
           "command": "octoview.stepHistory",
-          "when": "view == octoview.turns && viewItem =~ /^file-/",
+          "when": "view == octoview.snapshots && viewItem =~ /^file-/",
           "group": "octoview@1"
         }
       ],
@@ -257,11 +257,11 @@
           "when": "false"
         },
         {
-          "command": "octoview.dropTurn",
+          "command": "octoview.dropSnapshot",
           "when": "false"
         },
         {
-          "command": "octoview.openTurn",
+          "command": "octoview.openSnapshot",
           "when": "false"
         },
         {

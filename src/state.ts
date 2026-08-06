@@ -1,7 +1,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 
-import { Turn } from "./git";
+import { Snapshot } from "./git";
 import { Lane } from "./lanes";
 
 export interface ReviewComment {
@@ -29,8 +29,8 @@ export type ThreadState = "draft" | "submitted" | "resolved";
 export interface Thread {
   id: string;
   anchor: Anchor;
-  /** The turn under review when the thread was opened. */
-  turn: number;
+  /** The snapshot under review when the thread was opened. */
+  snapshot: number;
   state: ThreadState;
   /** The anchored lines themselves changed and the thread could not be
    * relocated — GitHub's semantics: still visible, still open, marked. */
@@ -40,15 +40,15 @@ export interface Thread {
 
 export interface State {
   schemaVersion: number;
-  turns: Turn[];
-  /** file → the highest turn number the file has been marked reviewed at. A
-   * later turn touching the same file therefore makes it unreviewed again, with
-   * no bookkeeping: `reviewed[file] >= turn` is the whole rule. */
+  snapshots: Snapshot[];
+  /** file → the highest snapshot number the file has been marked reviewed at. A
+   * later snapshot touching the same file therefore makes it unreviewed again, with
+   * no bookkeeping: `reviewed[file] >= snapshot` is the whole rule. */
   reviewed: Record<string, number>;
   threads: Thread[];
 }
 
-const emptyState = (): State => ({ schemaVersion: 1, turns: [], reviewed: {}, threads: [] });
+const emptyState = (): State => ({ schemaVersion: 2, snapshots: [], reviewed: {}, threads: [] });
 
 /** Per-lane persistence under the clone's common dir, so every worktree of a
  * clone agrees on where state lives and nothing ever appears in `git status`.
@@ -106,17 +106,19 @@ export class Store {
    * rather than from what we remember.
    *
    * It also means **every object inside `state` is replaced on each call**. A
-   * `Turn` you were holding from before is now a different object from the one in
-   * `state.turns`, and mutating or reading it has nothing to do with the store:
+   * `Snapshot` you were holding from before is now a different object from the
+   * one in `state.snapshots`, and mutating or reading it has nothing to do with
+   * the store:
    *
-   *     const r = await snapshotTurn(git, store, {…});  // r.turn is one object
-   *     await revertPaths(git, store, r.turn.n, […]);   // reloads; updates another
-   *     r.turn.sha                                      // still the old value
+   *     const r = await takeSnapshot(git, store, {…});     // one object
+   *     await revertPaths(git, store, r.snapshot.n, […]);  // reloads; updates another
+   *     r.snapshot.sha                                     // still the old value
    *
-   * So pass turn *numbers* across a mutation, never turn objects, and read the
-   * turn back out of `store.data.turns` afterwards if you need its new sha. The
-   * tree view gets this for free — it rebuilds every node from `store.data` on
-   * refresh — but anything holding a `Turn` across one of these calls does not.
+   * So pass snapshot *numbers* across a mutation, never snapshot objects, and read
+   * the snapshot back out of `store.data.snapshots` afterwards if you need its new
+   * sha. The tree view gets this for free — it rebuilds every node from
+   * `store.data` on refresh — but anything holding a `Snapshot` across one of
+   * these calls does not.
    *
    * A crashed holder leaves the lock behind; it is stolen after 10s of silence.
    * Two stealers racing on the same corpse can in theory both proceed — accepted
@@ -155,13 +157,13 @@ export class Store {
     }
   }
 
-  get latestTurn(): Turn | undefined {
-    return this.state.turns[this.state.turns.length - 1];
+  get latestSnapshot(): Snapshot | undefined {
+    return this.state.snapshots[this.state.snapshots.length - 1];
   }
 
-  isReviewed(file: string, turn: number): boolean {
+  isReviewed(file: string, snapshot: number): boolean {
     const at = this.state.reviewed[file];
-    return at !== undefined && at >= turn;
+    return at !== undefined && at >= snapshot;
   }
 
   threadsFor(file: string): Thread[] {
@@ -190,14 +192,14 @@ export class Store {
             schemaVersion: state.schemaVersion,
             lane: this.lane.name,
             submittedAt: now,
-            turn: this.latestTurn?.n ?? null,
+            snapshot: this.latestSnapshot?.n ?? null,
             comments: batch.map((t) => ({
               id: t.id,
               file: t.anchor.file,
               // 1-based on the wire, matching how humans and agents read files.
               line: t.anchor.startLine + 1,
               endLine: t.anchor.endLine + 1,
-              turn: t.turn,
+              snapshot: t.snapshot,
               outdated: t.outdated,
               comments: t.comments,
             })),

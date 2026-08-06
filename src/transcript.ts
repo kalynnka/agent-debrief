@@ -1,6 +1,6 @@
 import * as fs from "fs/promises";
 
-export interface TurnSummary {
+export interface SnapshotSummary {
   /** The first line, short enough for a tree row (PRD §6, "label without
    * prompting"). */
   label: string;
@@ -10,7 +10,7 @@ export interface TurnSummary {
 
 /** A message's label: its first non-empty line, cut to what a tree row has room
  * for. Undefined when the message holds no such line, and so nothing to name a
- * turn with. One rule for both sources — a message the agent passed in and a
+ * snapshot with. One rule for both sources — a message the agent passed in and a
  * message scraped out of a transcript are labelled the same way. */
 export function labelOf(message: string | undefined): string | undefined {
   const first = (message?.split("\n").find((line) => line.trim() !== "") ?? "").trim();
@@ -20,11 +20,11 @@ export function labelOf(message: string | undefined): string | undefined {
   return first.length > 72 ? `${first.slice(0, 71)}…` : first;
 }
 
-/** Read a turn's summary out of a Claude Code transcript: the session's last
+/** Read a snapshot's summary out of a Claude Code transcript: the session's last
  * assistant text, which is the agent's own account of what it just did. Returns
  * undefined when the transcript is unreadable or holds no assistant text; the
- * caller falls back to `turn <n>`. */
-export async function summaryFromTranscript(file: string): Promise<TurnSummary | undefined> {
+ * caller falls back to `snapshot <n>`. */
+export async function summaryFromTranscript(file: string): Promise<SnapshotSummary | undefined> {
   let raw: string;
   try {
     raw = await fs.readFile(file, "utf8");

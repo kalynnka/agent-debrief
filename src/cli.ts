@@ -8,30 +8,31 @@
 // Exit codes:
 //   0  success
 //   2  usage error
-//   3  the repository, lane, turn or revision could not be resolved
+//   3  the repository, lane, snapshot or revision could not be resolved
 import { parseArgs } from "util";
 
-import { ChangedFile, Git, Turn } from "./git";
+import { ChangedFile, Git, Snapshot } from "./git";
 import { resolveLane } from "./lanes";
-import { landedTurns, snapshotTurn } from "./review";
+import { landedSnapshots, takeSnapshot } from "./review";
 import { Store } from "./state";
 import { labelOf, summaryFromTranscript } from "./transcript";
 
-/** Bumped when a payload's shape changes; clients refuse a version they do not know. */
-const SCHEMA_VERSION = 1;
+/** Bumped when a payload's shape changes; clients refuse a version they do not
+ * know. 2 renamed every `turn` field and `turns` array to `snapshot`. */
+const SCHEMA_VERSION = 2;
 
 const USAGE = `usage: octoview <command> [options]
 
-  status                capture nothing; report repo, lane, turns and review state
-  turn snapshot         capture a turn  (-m, --label, --agent, --session, --from-stop-hook)
-  turn describe <n>     give turn n the message it should have had  (-m required)
-  turn commit <n>       commit turns 1..n as one commit  (-m required, --force)
-                        --force overrides both refusals: a staged index, and a
-                        turn the agent never described
-  diff <n>              changed files for turn n
-  show <rev> <path>     file content at a revision (a turn number or a sha)
-  review submit         write the pending comment threads out as one batch
-  review batch          print the latest submitted batch
+  status                 capture nothing; report repo, lane, snapshots and review state
+  snapshot               capture a snapshot  (-m, --label, --agent, --session, --from-stop-hook)
+  snapshot describe <n>  give snapshot n the message it should have had  (-m required)
+  snapshot commit <n>    commit snapshots 1..n as one commit  (-m required, --force)
+                         --force overrides both refusals: a staged index, and a
+                         snapshot the agent never described
+  diff <n>               changed files for snapshot n
+  show <rev> <path>      file content at a revision (a snapshot number or a sha)
+  review submit          write the pending comment threads out as one batch
+  review batch           print the latest submitted batch
 
 options: --repo <path> (default .) · --lane <name> (default: checked-out branch) · --json
 exit codes: 0 success · 2 usage error · 3 resolution failure`;
@@ -42,7 +43,7 @@ interface FilePayload extends ChangedFile {
   reviewed: boolean;
 }
 
-interface TurnPayload extends Turn {
+interface SnapshotPayload extends Snapshot {
   files: FilePayload[];
 }
 
@@ -64,7 +65,7 @@ async function dispatch(argv: string[]): Promise<number> {
   switch (command) {
     case "status":
       return statusCommand(rest);
-    case "turn": {
+    case "snapshot": {
       const [sub, ...args] = rest;
       if (sub === "commit") {
         return commitCommand(args);
@@ -72,10 +73,9 @@ async function dispatch(argv: string[]): Promise<number> {
       if (sub === "describe") {
         return describeCommand(args);
       }
-      if (sub !== "snapshot") {
-        throw new UsageError(`unknown turn subcommand '${sub ?? ""}'`);
-      }
-      return snapshotCommand(args);
+      // Anything else is the capture itself and its flags — the common case, and
+      // the one the Stop hook runs, so it is the command with nothing in it.
+      return snapshotCommand(rest);
     }
     case "diff":
       return diffCommand(rest);
@@ -113,10 +113,10 @@ async function open(repo: string | undefined, laneName: string | undefined) {
   return { lane, git, store };
 }
 
-function turnPayload(store: Store, turn: Turn, files: ChangedFile[]): TurnPayload {
+function snapshotPayload(store: Store, snapshot: Snapshot, files: ChangedFile[]): SnapshotPayload {
   return {
-    ...turn,
-    files: files.map((f) => ({ ...f, reviewed: store.isReviewed(f.path, turn.n) })),
+    ...snapshot,
+    files: files.map((f) => ({ ...f, reviewed: store.isReviewed(f.path, snapshot.n) })),
   };
 }
 
@@ -137,20 +137,24 @@ async function statusCommand(args: string[]): Promise<number> {
     }),
   );
   const { lane, git, store } = await open(values.repo, values.lane);
-  const turns: TurnPayload[] = [];
-  for (const turn of store.data.turns) {
-    turns.push(turnPayload(store, turn, await git.changedFiles(turn.parent, turn.sha)));
+  const snapshots: SnapshotPayload[] = [];
+  for (const snapshot of store.data.snapshots) {
+    const files = await git.changedFiles(snapshot.parent, snapshot.sha);
+    snapshots.push(snapshotPayload(store, snapshot, files));
   }
-  const payload = { schemaVersion: SCHEMA_VERSION, repo: lane.root, lane: lane.name, turns };
+  const payload = { schemaVersion: SCHEMA_VERSION, repo: lane.root, lane: lane.name, snapshots };
   if (values.json ?? false) {
     process.stdout.write(JSON.stringify(payload) + "\n");
     return 0;
   }
-  process.stdout.write(`repo:  ${lane.root}\nlane:  ${lane.name}\nturns: ${turns.length}\n`);
-  for (const turn of turns) {
-    const reviewed = turn.files.filter((f) => f.reviewed).length;
+  process.stdout.write(
+    `repo:      ${lane.root}\nlane:      ${lane.name}\nsnapshots: ${snapshots.length}\n`,
+  );
+  for (const snapshot of snapshots) {
+    const reviewed = snapshot.files.filter((f) => f.reviewed).length;
     process.stdout.write(
-      `  ${turn.n}  ${turn.label} — ${turn.files.length} file(s), ${reviewed} reviewed [${turn.agent}]\n`,
+      `  ${snapshot.n}  ${snapshot.label} — ${snapshot.files.length} file(s), ` +
+        `${reviewed} reviewed [${snapshot.agent}]\n`,
     );
   }
   return 0;
@@ -173,18 +177,18 @@ async function snapshotCommand(args: string[]): Promise<number> {
     }),
   );
   let { repo, label, message, agent, session } = values;
-  let described: Turn["described"] = message === undefined ? undefined : "agent";
+  let described: Snapshot["described"] = message === undefined ? undefined : "agent";
   if (values["from-stop-hook"] ?? false) {
     const hook = stopHookPayload(await readStdin());
     repo ??= hook.cwd;
     session ??= hook.sessionId;
     agent ??= "claude";
     if (hook.transcriptPath !== undefined) {
-      // Only what the caller did not give. An agent that described its own turn
+      // Only what the caller did not give. An agent that described its own snapshot
       // has said it better than the transcript's last paragraph can; the scrape
-      // is the backstop for the turn where it did not get the chance — and the
-      // turn is marked as having been answered for, because that is also the
-      // shape of a turn that was cut off before it could finish.
+      // is the backstop for the snapshot where it did not get the chance — and the
+      // snapshot is marked as having been answered for, because that is also the
+      // shape of a snapshot that was cut off before it could finish.
       const summary = await summaryFromTranscript(hook.transcriptPath);
       label ??= summary?.label;
       if (message === undefined && summary !== undefined) {
@@ -197,7 +201,7 @@ async function snapshotCommand(args: string[]): Promise<number> {
   // the transcript is read with.
   label ??= labelOf(message);
   const { lane, git, store } = await open(repo, values.lane);
-  const result = await snapshotTurn(git, store, {
+  const result = await takeSnapshot(git, store, {
     label,
     message,
     described,
@@ -209,31 +213,31 @@ async function snapshotCommand(args: string[]): Promise<number> {
     repo: lane.root,
     lane: lane.name,
     created: result.created,
-    turn: result.created ? turnPayload(store, result.turn, result.files) : null,
+    snapshot: result.created ? snapshotPayload(store, result.snapshot, result.files) : null,
   };
   if (values.json ?? false) {
     process.stdout.write(JSON.stringify(payload) + "\n");
     return 0;
   }
   if (!result.created) {
-    process.stdout.write(`nothing changed in ${lane.name} — no turn taken\n`);
+    process.stdout.write(`nothing changed in ${lane.name} — no snapshot taken\n`);
     return 0;
   }
   process.stdout.write(
-    `turn ${result.turn.n}: ${result.turn.label} — ${result.files.length} file(s)\n`,
+    `snapshot ${result.snapshot.n}: ${result.snapshot.label} — ${result.files.length} file(s)\n`,
   );
   return 0;
 }
 
-/** Give a turn the message it should have been recorded with.
+/** Give a snapshot the message it should have been recorded with.
  *
  * The snapshot is the thing that cannot be missed, so the hook takes it whether
- * or not the agent was in a position to say what it did — a turn cut short by an
+ * or not the agent was in a position to say what it did — a snapshot cut short by an
  * interrupt is recorded with whatever the transcript last held, which is often a
  * sentence from the middle of the work. This is the way back: the next run says
  * it properly. Only the description moves. The snapshot, its ref, its parent and
  * its place in the order are all untouched, so nothing that has been reviewed or
- * committed against this turn is disturbed. */
+ * committed against this snapshot is disturbed. */
 async function describeCommand(args: string[]): Promise<number> {
   const { values, positionals } = guarded(() =>
     parseArgs({
@@ -249,11 +253,11 @@ async function describeCommand(args: string[]): Promise<number> {
     }),
   );
   if (positionals.length !== 1 || !/^\d+$/.test(positionals[0])) {
-    throw new UsageError("turn describe takes exactly one turn number");
+    throw new UsageError("snapshot describe takes exactly one snapshot number");
   }
   const message = values.message;
   if (message === undefined || message === "") {
-    throw new UsageError('turn describe needs a message: -m "<what the turn did>"');
+    throw new UsageError('snapshot describe needs a message: -m "<what the snapshot did>"');
   }
   const label = values.label ?? labelOf(message);
   if (label === undefined) {
@@ -262,36 +266,36 @@ async function describeCommand(args: string[]): Promise<number> {
   const n = Number(positionals[0]);
   const { lane, store } = await open(values.repo, values.lane);
   const described = await store.withLock((state) => {
-    const turn = state.turns.find((t) => t.n === n);
-    if (turn === undefined) {
+    const snapshot = state.snapshots.find((t) => t.n === n);
+    if (snapshot === undefined) {
       return undefined;
     }
-    turn.label = label;
-    turn.message = message;
+    snapshot.label = label;
+    snapshot.message = message;
     // Whatever the hook had to guess, the agent has now answered for: a
-    // described turn is one somebody stood behind.
-    turn.described = "agent";
-    return turn;
+    // described snapshot is one somebody stood behind.
+    snapshot.described = "agent";
+    return snapshot;
   });
   if (described === undefined) {
-    throw new Error(`no turn ${n} in lane ${lane.name}`);
+    throw new Error(`no snapshot ${n} in lane ${lane.name}`);
   }
   const payload = {
     schemaVersion: SCHEMA_VERSION,
     repo: lane.root,
     lane: lane.name,
-    turn: described,
+    snapshot: described,
   };
   if (values.json ?? false) {
     process.stdout.write(JSON.stringify(payload) + "\n");
     return 0;
   }
-  process.stdout.write(`turn ${described.n}: ${described.label}\n`);
+  process.stdout.write(`snapshot ${described.n}: ${described.label}\n`);
   return 0;
 }
 
-/** Commit everything up to and including turn n — the reviewed prefix — as one
- * commit, and leave every later turn uncommitted on disk.
+/** Commit everything up to and including snapshot n — the reviewed prefix — as one
+ * commit, and leave every later snapshot uncommitted on disk.
  *
  * Committing is the human's call. This exists so it can be carried out on their
  * instruction without hand-assembling plumbing, not so an agent can decide to
@@ -311,43 +315,43 @@ async function commitCommand(args: string[]): Promise<number> {
     }),
   );
   if (positionals.length !== 1 || !/^\d+$/.test(positionals[0])) {
-    throw new UsageError("turn commit takes exactly one turn number");
+    throw new UsageError("snapshot commit takes exactly one snapshot number");
   }
   if (values.message === undefined || values.message === "") {
-    throw new UsageError("turn commit needs a message: -m \"<subject>\"");
+    throw new UsageError("snapshot commit needs a message: -m \"<subject>\"");
   }
   const n = Number(positionals[0]);
   const { lane, git, store } = await open(values.repo, values.lane);
-  const turn = store.data.turns.find((t) => t.n === n);
-  if (turn === undefined) {
-    throw new Error(`no turn ${n} in lane ${lane.name}`);
+  const snapshot = store.data.snapshots.find((t) => t.n === n);
+  if (snapshot === undefined) {
+    throw new Error(`no snapshot ${n} in lane ${lane.name}`);
   }
   const head = await git.head();
-  if (head !== undefined && (await git.treeOf(head)) === (await git.treeOf(turn.sha))) {
-    throw new Error(`turn ${n} is already committed — HEAD holds exactly its snapshot`);
+  if (head !== undefined && (await git.treeOf(head)) === (await git.treeOf(snapshot.sha))) {
+    throw new Error(`snapshot ${n} is already committed — HEAD holds exactly its snapshot`);
   }
   // Loading the snapshot into the index destroys whatever was staged, and the
   // staged set is the reviewer's own progress marker.
   if (head !== undefined && !(values.force ?? false) && (await git.staged())) {
     throw new Error(
-      `the index has staged changes that committing turn ${n} would replace — ` +
+      `the index has staged changes that committing snapshot ${n} would replace — ` +
         `commit or unstage them first, or pass --force`,
     );
   }
-  // What gets committed is turn n's snapshot exactly as it stands, so a turn the
+  // What gets committed is snapshot n's snapshot exactly as it stands, so a snapshot the
   // agent never described is a tree nobody said was finished — the shape an
-  // interrupted turn leaves behind. Turns from before this was recorded say
+  // interrupted snapshot leaves behind. Snapshots from before this was recorded say
   // nothing either way and are not second-guessed.
-  if (turn.described === "transcript" && !(values.force ?? false)) {
+  if (snapshot.described === "transcript" && !(values.force ?? false)) {
     throw new Error(
-      `turn ${n} was recorded by the Stop hook rather than described by the agent, ` +
+      `snapshot ${n} was recorded by the Stop hook rather than described by the agent, ` +
         `so it may be work that was cut off mid-change — and its snapshot is ` +
         `exactly what would be committed. Read it, or describe it, or pass --force`,
     );
   }
-  const files = await git.changedFiles(head ?? (await git.emptyTree()), turn.sha);
-  const sha = await git.commitSnapshot(turn.sha, values.message);
-  const landed = await landedTurns(git, store.data.turns, sha);
+  const files = await git.changedFiles(head ?? (await git.emptyTree()), snapshot.sha);
+  const sha = await git.commitSnapshot(snapshot.sha, values.message);
+  const landed = await landedSnapshots(git, store.data.snapshots, sha);
   const payload = {
     schemaVersion: SCHEMA_VERSION,
     repo: lane.root,
@@ -362,7 +366,7 @@ async function commitCommand(args: string[]): Promise<number> {
     return 0;
   }
   process.stdout.write(
-    `committed ${sha.slice(0, 8)} — turns through ${n}, ${files.length} file(s)\n` +
+    `committed ${sha.slice(0, 8)} — snapshots through ${n}, ${files.length} file(s)\n` +
       `landed:   ${payload.landed.join(", ") || "none"}\n`,
   );
   for (const f of payload.files) {
@@ -384,25 +388,26 @@ async function diffCommand(args: string[]): Promise<number> {
     }),
   );
   if (positionals.length !== 1 || !/^\d+$/.test(positionals[0])) {
-    throw new UsageError("diff takes exactly one turn number");
+    throw new UsageError("diff takes exactly one snapshot number");
   }
   const n = Number(positionals[0]);
   const { lane, git, store } = await open(values.repo, values.lane);
-  const turn = store.data.turns.find((t) => t.n === n);
-  if (turn === undefined) {
-    throw new Error(`no turn ${n} in lane ${lane.name}`);
+  const snapshot = store.data.snapshots.find((t) => t.n === n);
+  if (snapshot === undefined) {
+    throw new Error(`no snapshot ${n} in lane ${lane.name}`);
   }
+  const files = await git.changedFiles(snapshot.parent, snapshot.sha);
   const payload = {
     schemaVersion: SCHEMA_VERSION,
     repo: lane.root,
     lane: lane.name,
-    turn: turnPayload(store, turn, await git.changedFiles(turn.parent, turn.sha)),
+    snapshot: snapshotPayload(store, snapshot, files),
   };
   if (values.json ?? false) {
     process.stdout.write(JSON.stringify(payload) + "\n");
     return 0;
   }
-  for (const f of payload.turn.files) {
+  for (const f of payload.snapshot.files) {
     process.stdout.write(fileLine(f) + "\n");
   }
   return 0;
@@ -426,11 +431,11 @@ async function showCommand(args: string[]): Promise<number> {
   const { lane, git, store } = await open(values.repo, values.lane);
   let sha = rev;
   if (/^\d+$/.test(rev)) {
-    const turn = store.data.turns.find((t) => t.n === Number(rev));
-    if (turn === undefined) {
-      throw new Error(`no turn ${rev} in lane ${lane.name}`);
+    const snapshot = store.data.snapshots.find((t) => t.n === Number(rev));
+    if (snapshot === undefined) {
+      throw new Error(`no snapshot ${rev} in lane ${lane.name}`);
     }
-    sha = turn.sha;
+    sha = snapshot.sha;
   }
   // A file absent at the revision prints empty: an added file has no left side.
   process.stdout.write(await git.fileAt(sha, file));

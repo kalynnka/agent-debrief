@@ -66,14 +66,14 @@ octoview/
   diagnostics on stderr, documented exit codes.
 - `--repo` and `--lane` resolution: git root, `--git-common-dir`, current branch,
   detached-HEAD fallback to worktree name.
-- One command, `octoview status`, reporting repo, lane and an empty turn list.
+- One command, `octoview status`, reporting repo, lane and an empty snapshot list.
 
 **Why first, given the model-before-interface rule:** the envelope *is* a schema.
 Every later step conforms to it, and changing it afterwards means rewriting every
 command and the extension at once.
 
 **Verified:** envelope shape; lane resolution in a main tree, a linked worktree,
-and on a detached HEAD. **Not verified:** nothing yet reads real turns.
+and on a detached HEAD. **Not verified:** nothing yet reads real snapshots.
 
 **Size:** small.
 
@@ -87,10 +87,10 @@ An unborn-HEAD lane resolves too — octoview's own pre-first-commit state force
 **Lands:** all snapshot plumbing in Python, lane-scoped, with the POC's bugs dead.
 
 - Private index at `<common>/octoview/<lane>/index`, seeded with `read-tree`.
-- Refs at `refs/octoview/turns/<lane>/<n>`.
+- Refs at `refs/octoview/snapshots/<lane>/<n>`.
 - `changed_files` parsing `--name-status -z` correctly — **rename records carry
   three fields**, which the POC reads as pairs and silently truncates.
-- **Unborn HEAD** handled: turn 1 in a fresh `git init` repo commits with no
+- **Unborn HEAD** handled: snapshot 1 in a fresh `git init` repo commits with no
   parent and diffs against the empty-tree hash.
 - `file_at`, `drop_turn_ref`.
 
@@ -101,10 +101,10 @@ An unborn-HEAD lane resolves too — octoview's own pre-first-commit state force
 | Index, HEAD and branch list unchanged after N snapshots | the §1.3 invariant, asserted not asserted-in-prose |
 | A tracked-but-gitignored file survives | the `read-tree` regression |
 | Snapshot works inside a linked worktree | `.git`-is-a-file, currently `ENOTDIR` |
-| Two worktrees keep independent turn numbering | shared-refs collision |
+| Two worktrees keep independent snapshot numbering | shared-refs collision |
 | A rename record yields one entry with both paths | POC bug |
 | A repo with no commits can be snapshotted | POC bug |
-| Turn 2 does not re-show turn 1's files | turn-over-turn isolation |
+| Snapshot 2 does not re-show snapshot 1's files | snapshot-over-snapshot isolation |
 
 **Size:** medium, and the densest step. If it reads long, the split is
 lanes-and-paths first, then snapshot-and-diff.
@@ -120,24 +120,24 @@ to `src/review.ts`). Every row of the table above is a passing check in
 **Lands:** persistence, and the answer to PRD §12.1.
 
 - `state.json` per lane under the common dir.
-- `reviewed[file] >= turn`.
-- `turn snapshot`, `diff`, `show`, `status` now fully functional from the CLI.
+- `reviewed[file] >= snapshot`.
+- `snapshot`, `diff`, `show`, `status` now fully functional from the CLI.
 
 **Recommendation for the concurrency question:** an advisory lock file around
 every read-modify-write, and nothing more. All writes already funnel through the
 CLI (§5.4), so one lock implementation covers every writer including the hook.
-Splitting turns from review state into separate files also helps, but it is a
+Splitting snapshots from review state into separate files also helps, but it is a
 second mechanism for a problem the lock already solves — take it only if
 contention shows up in practice.
 
 **Verified:** two CLI processes writing concurrently lose no updates (spawned for
-real, not simulated); state round-trips; reviewed state resets on a later turn.
+real, not simulated); state round-trips; reviewed state resets on a later snapshot.
 
 **Size:** medium.
 
 **Landed:** as recommended — `Store.withLock` in `src/state.ts` wraps every
 read-modify-write including the whole snapshot (which also serializes the shared
-private index). Two racing snapshots produce exactly one turn, asserted with two
+private index). Two racing captures produce exactly one snapshot, asserted with two
 real processes.
 
 ---
@@ -148,11 +148,11 @@ real processes.
 
 - Anchor: `(container, line range, blob sha, content hash)`, where container is a
   file path or an artifact slug (§4.7 keeps the second case cheap).
-- Carry-forward into later turns by content; **outdated** when the anchored lines
+- Carry-forward into later snapshots by content; **outdated** when the anchored lines
   themselves changed.
 - `review submit` and `review batch`.
 
-**Verified:** a thread follows its code into a later turn; a thread goes outdated
+**Verified:** a thread follows its code into a later snapshot; a thread goes outdated
 when its lines change; a batch round-trips through disk.
 
 **Size:** medium-to-large — **the most likely step to need splitting.** The split
@@ -180,7 +180,7 @@ read as mostly-removal.
 
 - **Finding the CLI.** An `octoview.cliPath` setting, else `octoview` on `PATH`.
   Dev install is `uv tool install --editable ./cli`.
-- **Existing POC state is discarded, not migrated.** Two turns in `inky`, two in
+- **Existing POC state is discarded, not migrated.** Two snapshots in `inky`, two in
   `kraken`, one of them carrying the phantom-deletion bug. Migration code would
   outlive its purpose by years.
 
@@ -193,7 +193,7 @@ a human. Step 5 is where hands-on checking is mandatory, not optional.
 
 **Landed differently:** nothing was deleted — with one language the POC modules
 *became* the core, and "the extension becomes a client" means the UI modules
-(`extension`, `turns`, `comments`, `diff`) execute no git and mutate state only
+(`extension`, `snapshots`, `comments`, `diff`) execute no git and mutate state only
 through the locked store. The CLI-finding decision dissolved (same package); the
 no-migration decision stood: POC state in inky and kraken is simply ignored by
 the lane-scoped scheme. The editor-host gap above remains real and open.
@@ -205,7 +205,7 @@ the lane-scoped scheme. The editor-host gap above remains real and open.
 **Lands:** UC-1's "a snapshot is taken automatically".
 
 - A Claude Code `Stop` hook calling
-  `octoview turn snapshot --agent claude --session <id>`.
+  `octoview snapshot --agent claude --session <id>`.
 - Label derived from the transcript the hook already points at.
 - The extension notices.
 
@@ -213,14 +213,14 @@ the lane-scoped scheme. The editor-host gap above remains real and open.
 It is a file watch, not a service, so the no-daemon non-goal holds; `events
 --follow` stays unbuilt until a client exists that a file watch cannot serve.
 
-**Verified:** a real Claude turn in `kraken` produces a turn that appears in the
+**Verified:** a real Claude turn in `kraken` produces a snapshot that appears in the
 view without pressing Refresh. This one cannot be tested headlessly and must be
 demonstrated.
 
 **Size:** small in code, and the first moment the product feels like itself.
 
-**Landed:** `--from-stop-hook` on `turn snapshot` (payload from stdin, label
-from the transcript's last assistant text, `turn <n>` fallback); the watch is a
+**Landed:** `--from-stop-hook` on `snapshot` (payload from stdin, label
+from the transcript's last assistant text, `snapshot <n>` fallback); the watch is a
 debounced `fs.watch` on each lane's state dir, as recommended. Hook installed
 for kraken via `.claude/settings.local.json` (kept out of `git status` by
 `.git/info/exclude`) and for inky the same way. The headless suite covers the

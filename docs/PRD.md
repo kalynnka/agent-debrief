@@ -2,7 +2,7 @@
 
 **Status:** draft · **Owner:** Lu Hui · **Last updated:** 2026-08-04
 
-Turn-by-turn review of agent changes, in the editor where the language server
+Snapshot-by-snapshot review of agent changes, in the editor where the language server
 already runs.
 
 **Positioning — the one sentence everything else serves:** Octoview is a
@@ -32,8 +32,8 @@ PR it is a squashed lump, and the moment to catch a wrong turn was twenty minute
 earlier. Copilot's per-turn change review is the right shape, and it's the one
 thing in that product I actually want.
 
-**I re-read what I already cleared.** Reviewing turn N against the branch base
-means every file I read at turn 2 comes back at turn 3, unchanged, demanding to
+**I re-read what I already cleared.** Reviewing snapshot N against the branch base
+means every file I read at snapshot 2 comes back at snapshot 3, unchanged, demanding to
 be skimmed again. This is the single biggest waste in my current loop.
 
 **Per-edit approval is worse than useless.** As agents get better, approving each
@@ -55,8 +55,8 @@ side gets Pylance. That single fact drives most of this design:
   operating a language-server hosting platform as a side effect of wanting to
   read diffs.
 - Review happens **at the turn boundary, against the working tree** — for the
-  newest turn the right-hand side is the real file on disk, so hover, types and
-  go-to-definition work while I read. Historical turns degrade to read-only by
+  newest snapshot the right-hand side is the real file on disk, so hover, types and
+  go-to-definition work while I read. Historical snapshots degrade to read-only by
   nature. Live review is the real mode; design for that.
 
 ### 1.3 The invariant everything else bends around
@@ -72,7 +72,7 @@ No feature is worth violating this.
 
 ### Goals
 
-- Make **the agent turn** the unit of review, with turn-over-turn diffs.
+- Make **the agent turn** the unit of review, with snapshot-over-snapshot diffs.
 - Never re-present work I already cleared, and reopen it the moment it changes.
 - Batch comments and deliver them back to the agent that wrote the code.
 - Keep the language server attached while I read.
@@ -101,24 +101,24 @@ The user is one person reviewing their own agent's work, in their own repos,
 with no CI. Everything below is written for that case first; team use arrives
 only with Octomate sync (§5.6, M5).
 
-### UC-1 — Review a turn while the agent keeps working (primary)
+### UC-1 — Review a snapshot while the agent keeps working (primary)
 
-The agent finishes a turn. A snapshot is taken automatically. The Turns view
-shows the changed files for that turn only. I open one, read it with Pylance
+The agent finishes a turn. A snapshot is taken automatically. The Snapshots view
+shows the changed files for that snapshot only. I open one, read it with Pylance
 attached, leave three comments on specific lines, mark two other files reviewed,
 and submit. The agent picks the batch up as its next input and continues.
 
 ### UC-2 — Interrupt mid-turn
 
 Something looks wrong, or I want to stop and think. I interrupt the agent,
-run **Snapshot Turn** manually, review what exists so far, then let the agent
+run **Take Snapshot** manually, review what exists so far, then let the agent
 continue. Manual snapshot is not a fallback for missing automation — it is a
 first-class entry point for exactly this.
 
-### UC-3 — Catch up after several turns
+### UC-3 — Catch up after several snapshots
 
-I stepped away and the agent ran four turns. Files I cleared at turn 2 and that
-nobody touched since stay cleared. Files touched at turn 4 are open again. I read
+I stepped away and the agent ran four snapshots. Files I cleared at snapshot 2 and that
+nobody touched since stay cleared. Files touched at snapshot 4 are open again. I read
 the delta, not the branch.
 
 ### UC-4 — Consult the agent inline about its own change
@@ -131,12 +131,12 @@ the diff.
 ### UC-5 — Review a GitHub PR with the same ritual
 
 A PR arrives. I pull it into the same review surface, it appears as a single
-turn, and I use the same diff view, the same comment batching, and the same
+snapshot, and I use the same diff view, the same comment batching, and the same
 helper agent. Submitting posts the batch as a GitHub PR review.
 
 ### UC-6 — Review across several repos at once
 
-The workspace holds four clones. A turn that touched two of them produces a turn
+The workspace holds four clones. Work that touched two of them produces a snapshot
 in each; the two it did not touch get nothing. Each repo keeps its own numbering
 and its own state.
 
@@ -144,37 +144,37 @@ and its own state.
 
 ## 4. Review model
 
-### 4.1 Turn
+### 4.1 Snapshot
 
-A **turn** is one agent turn, and the unit of review. Each turn is a real git
+A **snapshot** records one agent turn, and is the unit of review. Each is a real git
 commit capturing the working tree at the moment the turn ended.
 
 | Field | Meaning |
 |---|---|
-| `lane` | The line of work this turn belongs to (§4.2) |
+| `lane` | The line of work this snapshot belongs to (§4.2) |
 | `n` | Per-lane sequence number |
 | `sha` | Snapshot commit |
-| `parent` | Previous turn's `sha`, or `HEAD` for turn 1 |
-| `label` | What the turn did |
+| `parent` | Previous snapshot's `sha`, or `HEAD` for snapshot 1 |
+| `label` | What the snapshot did |
 | `at` | Timestamp |
 | `agent` | Which agent produced it (`claude`, `codex`, `copilot`, `manual`) |
 | `session` | That agent's session id, when the host exposes one |
 | `plan` | The lane's active plan revision at snapshot time (§4.7), if any |
 
-`diff(parent, sha)` is exactly that turn's change. `agent` and `session` are what
+`diff(parent, sha)` is exactly that snapshot's change. `agent` and `session` are what
 make §7 possible — they are captured at snapshot time because that is the only
 moment they are reliably known.
 
-### 4.2 Lane — turns align with branches and worktrees
+### 4.2 Lane — snapshots align with branches and worktrees
 
-A **lane** is a line of work, identified by the checked-out branch. Turn
+A **lane** is a line of work, identified by the checked-out branch. Snapshot
 numbering, review state and comments are all per-lane.
 
 This is not a concurrency feature bolted on; it is a correctness fix the POC
 needs regardless:
 
 - **Refs are shared across worktrees.** A linked worktree writes to the same
-  `refs/` as its main tree, so `refs/octoview/turns/<n>` collides between two
+  `refs/` as its main tree, so `refs/octoview/snapshots/<n>` collides between two
   worktrees of one clone — verified, not assumed.
 - **`.git` is a *file* in a linked worktree**, not a directory. The POC's
   `mkdir .git/octoview` fails with `ENOTDIR`, so both snapshotting and review
@@ -185,13 +185,13 @@ Resolution:
 | Concern | Rule |
 |---|---|
 | Lane id | Current branch. Detached HEAD falls back to the worktree name; a pulled PR is `pr/<number>` |
-| Turn refs | `refs/octoview/turns/<lane>/<n>` |
+| Snapshot refs | `refs/octoview/snapshots/<lane>/<n>` |
 | State | `<git-common-dir>/octoview/<lane>/state.json`, resolved via `git rev-parse --git-common-dir` so every worktree agrees |
 
 Branch is the lane key rather than worktree path because git already forbids the
 same branch in two worktrees, so branch → at most one worktree, and a branch
 survives a worktree being thrown away. Switching branches mid-session starts a
-new lane at turn 1, which is correct: the work changed.
+new lane at snapshot 1, which is correct: the work changed.
 
 **A lane ends the way its branch ends.** It closes when the branch is deleted, or
 when the branch has been merged — `git merge-base --is-ancestor <branch>
@@ -214,17 +214,17 @@ GIT_INDEX_FILE=<common>/octoview/<lane>/index  git read-tree <parent>
                                                git add -A
                                                git write-tree
                                                git commit-tree <tree> -p <parent>
-                                               git update-ref refs/octoview/turns/<lane>/<n> <sha>
+                                               git update-ref refs/octoview/snapshots/<lane>/<n> <sha>
 ```
 
 - The private index means the staged set I curate is never read or written.
-- `refs/octoview/` is outside `refs/heads`, so `git branch` never lists a turn.
+- `refs/octoview/` is outside `refs/heads`, so `git branch` never lists a snapshot.
 - **The `read-tree` seed is required, not an optimization.** Without it `add -A`
   starts from an empty index, where a file that is tracked *and* matched by
-  `.gitignore` looks like a new ignored file — so it is skipped and every turn
+  `.gitignore` looks like a new ignored file — so it is skipped and every snapshot
   reports it deleted. This is not hypothetical: `kraken` pins `.python-version`
   that way, and the POC's first snapshot reported it deleted.
-- A repo the turn did not change gets **no turn**. An empty turn would put a
+- A repo the work did not change gets **no snapshot**. An empty one would put a
   repo's numbering out of step with the work it describes.
 - **Everything octoview records about a repo lives in that repo's own `.git`** —
   refs under `refs/octoview/`, state and batches under
@@ -234,8 +234,8 @@ GIT_INDEX_FILE=<common>/octoview/<lane>/index  git read-tree <parent>
 
 ### 4.4 Review state
 
-`reviewed[file] >= turn` is the entire rule. Mark a file reviewed at turn 2, the
-agent touches it at turn 4, it is unreviewed again. No bookkeeping, no matrix to
+`reviewed[file] >= snapshot` is the entire rule. Mark a file reviewed at snapshot 2, the
+agent touches it at snapshot 4, it is unreviewed again. No bookkeeping, no matrix to
 maintain, and it directly attacks UC-3.
 
 Borrowed from Reviewable's per-file/per-revision model — **agent turns are
@@ -244,7 +244,7 @@ revisions** — with none of its product around it.
 ### 4.5 Comments
 
 A thread anchors to `(file, line range, blob sha, content hash of the anchored
-lines)`. Threads **carry forward** into later turns by locating the same content,
+lines)`. Threads **carry forward** into later snapshots by locating the same content,
 so a review conversation behaves the way a conversation should. If the anchored
 lines themselves changed, the thread is marked **outdated** but stays visible and
 open — GitHub's semantics, which I already have in my hands.
@@ -285,8 +285,8 @@ Consequences that fall out for free:
 - The **same** comment model applies. An anchor is `(container, line range,
   content hash)`; a container is a file path *or* an artifact slug. Carry-forward
   and outdated-marking (§4.5) work unchanged.
-- A plan revision belongs to a turn, so "the agent revised the plan after my
-  comments" is a turn like any other, and the plan's history sits beside the
+- A plan revision belongs to a snapshot, so "the agent revised the plan after my
+  comments" is a snapshot like any other, and the plan's history sits beside the
   code's.
 - Review of a plan produces the same batch, delivered by the same round-trip
   (§7), so plan review is not a second pipeline.
@@ -295,22 +295,22 @@ Artifacts are not limited to plans — a change report or a design note uses the
 same path — but plans are the only one in scope.
 
 **A lane has at most one active plan.** A branch is one piece of work, so it gets
-one plan, and "which plan does this turn belong to?" stops being a question worth
+one plan, and "which plan does this snapshot belong to?" stops being a question worth
 modelling.
 
-**A turn records the plan revision current when it was snapshotted** —
-`plan: {slug, blob}` on the turn. The CLI reads it from the lane's active
+**A snapshot records the plan revision current when it was taken** —
+`plan: {slug, blob}` on the snapshot. The CLI reads it from the lane's active
 artifact ref at snapshot time, so it costs nothing and depends on no agent
 remembering to declare anything. That single field buys:
 
-- which plan revision each turn was working from, in the turn list;
-- "the plan was revised at turn 5", visible because turns 5+ cite a different
+- which plan revision each snapshot was working from, in the snapshot list;
+- "the plan was revised at snapshot 5", visible because snapshots 5+ cite a different
   blob;
-- the plan diff across whatever range of turns I am reviewing.
+- the plan diff across whatever range of snapshots I am reviewing.
 
 **Drift is evidence, not a verdict.** The `verify-change-evidence` skill asks the
-agent to explain how a turn follows the plan; the CLI supplies the facts —
-the plan revision, the files each turn changed, and the changed paths the plan
+agent to explain how a snapshot follows the plan; the CLI supplies the facts —
+the plan revision, the files each snapshot changed, and the changed paths the plan
 text never mentions. That last one is a crude token match, and it is stated as
 "the plan does not mention these paths", never as "the agent drifted". The agent
 owns the explanation, Octoview owns the facts (§4.6), and a fuzzy signal is
@@ -324,7 +324,7 @@ enough to prove it is missed.
 
 ### 4.8 Retention and cleanup
 
-Turn refs and snapshot objects accumulate, so cleanup is a product requirement,
+Snapshot refs and snapshot objects accumulate, so cleanup is a product requirement,
 not an afterthought.
 
 `octoview gc` prunes, and a cheap prune check runs after each snapshot:
@@ -332,25 +332,25 @@ not an afterthought.
 | Rule | |
 |---|---|
 | Closed lane — branch deleted, or merged into the default branch (§4.2) | Prune the whole lane |
-| Turns older than the retention window (default 30 days) | Prune |
-| Beyond the last *K* turns per lane (default 50) | Prune |
+| Snapshots older than the retention window (default 30 days) | Prune |
+| Beyond the last *K* snapshots per lane (default 50) | Prune |
 
-**Nothing with open review work is ever pruned** — a lane keeps any turn that has
+**Nothing with open review work is ever pruned** — a lane keeps any snapshot that has
 an unresolved thread or a file still unreviewed, regardless of age or count. A
 review that vanishes because a timer expired is worse than disk usage.
 
 Pruning deletes the refs; git's own gc reclaims the objects. Octoview never runs
 a destructive git command on the user's behalf beyond deleting refs it created.
 
-### 4.9 Edit provenance inside a turn
+### 4.9 Edit provenance inside a snapshot
 
-A turn is the unit of *review*, but a turn's diff can still leave "why did this
+A snapshot is the unit of *review*, but its diff can still leave "why did this
 line change?" unanswered — and until now this document had no answer at all. The
-turn granularity is deliberate; the silence below it was not.
+snapshot granularity is deliberate; the silence below it was not.
 
 **Provenance, not approval.** §2 rejects per-edit approve/reject because it
 degrades to "approve all". Provenance is the opposite kind of thing: it asks me
-to decide nothing. It explains a hunk while I read the turn I was already going
+to decide nothing. It explains a hunk while I read the snapshot I was already going
 to read. The distinction is written down here precisely because the two look
 similar in a UI mock and must not drift together.
 
@@ -362,7 +362,7 @@ session, not assumed. Nothing needs capturing that is not already captured.
 **Reconstruct at snapshot time; do not intercept.** A `PostToolUse` hook per edit
 puts a process spawn on the hot path of every agent turn. The `Stop` hook that
 already fires for the snapshot (§6) reads the transcript once and derives the
-turn's edit list from it. Interception is the fallback if reconstruction ever
+snapshot's edit list from it. Interception is the fallback if reconstruction ever
 proves lossy, not the design.
 
 **Read the transcript directly, never through Octomate.** The moment provenance
@@ -372,7 +372,7 @@ The transcripts are plain files. The CLI reads them; Octomate reads the same
 files for its own purposes. Two consumers of one source, neither depending on the
 other.
 
-**Scope: a per-file ordered edit list per turn**, each entry carrying the tool
+**Scope: a per-file ordered edit list per snapshot**, each entry carrying the tool
 call and the agent's surrounding text. Line-level attribution — replaying edits
 over the base blob to colour individual lines — is deferred: it is real work, and
 genuinely ambiguous once a later edit rewrites an earlier one. Add it only if its
@@ -389,7 +389,7 @@ evidence half of §4.6 — the tool call is the fact, the assistant's text aroun
 is the claim.
 
 Host coverage follows §6's order: Claude first, Codex next. Copilot exposes no
-comparable transcript, so its turns carry diffs without provenance.
+comparable transcript, so its snapshots carry diffs without provenance.
 
 ---
 
@@ -405,7 +405,7 @@ comparable transcript, so its turns carry diffs without provenance.
 
 ### 5.1 Review core (TypeScript)
 
-Owns every invariant: private-index snapshotting, turn identity, base/head shas,
+Owns every invariant: private-index snapshotting, snapshot identity, base/head shas,
 stale-review detection, comment anchoring and carry-forward, state transitions,
 report and evidence schemas, locking.
 
@@ -428,27 +428,27 @@ machine-facing command:
 - stable exit codes
 - explicit `--repo`
 - structured input over stdin or a file
-- idempotent where retries are plausible — `turn snapshot` with nothing changed
-  creates no turn, exits 0, and reports `{"created": false}`
+- idempotent where retries are plausible — `snapshot` with nothing changed
+  creates no snapshot, exits 0, and reports `{"created": false}`
 
 **v1 surface, deliberately small:**
 
 | Command | Purpose |
 |---|---|
-| `octoview turn snapshot` | Capture a turn. `--label`, `--agent`, `--session`; `--from-stop-hook` reads Claude's Stop payload (session id, transcript path, project cwd) from stdin |
-| `octoview status` | Lanes, turns, changed files, review state |
-| `octoview diff <turn>` | Changed files for a turn |
+| `octoview snapshot` | Capture a snapshot. `--label`, `--agent`, `--session`; `--from-stop-hook` reads Claude's Stop payload (session id, transcript path, project cwd) from stdin |
+| `octoview status` | Lanes, snapshots, changed files, review state |
+| `octoview diff <snapshot>` | Changed files for a snapshot |
 | `octoview show <rev> <path>` | File content at a revision |
 | `octoview plan put` / `plan show` | Write and read a plan artifact revision (§4.7) |
 | `octoview review submit` | Emit the comment batch |
 | `octoview review batch` | Read the latest batch (for agents) |
-| `octoview gc` | Prune spent lanes and turns (§4.8) |
+| `octoview gc` | Prune spent lanes and snapshots (§4.8) |
 
 Every command takes `--repo` and `--lane`; both default to the current directory
 and its checked-out branch. As of M1 all of these exist except `plan put/show`
 (lands with M2's artifacts) and `gc`, which is designed (§4.8) but unbuilt.
 
-Not in v1, each arriving with the milestone that needs it: `turn edits` (§4.9,
+Not in v1, each arriving with the milestone that needs it: `snapshot edits` (§4.9,
 M2), `feedback list/reply` (M2), `evidence attach` (M2), `pr pull` (M4), `sync`
 (M5), and `events --follow --jsonl` only if polling and file-watching prove
 inadequate. A large surface with versioned schemas is a lot of contract for one
@@ -479,7 +479,7 @@ editor, tree view and decorations. It holds no review policy, no snapshot
 logic, and never parses human-oriented output.
 
 With core and extension in one language the boundary is enforced by module
-ownership rather than a process hop: the UI modules (`extension`, `turns`,
+ownership rather than a process hop: the UI modules (`extension`, `snapshots`,
 `comments`, `diff`) execute no git and hold no review state of their own —
 git runs only inside the core's `git` module, and every mutation goes through
 the same locked store the CLI uses. A second IDE client still needs only
@@ -498,6 +498,13 @@ to comments, what evidence to collect, what "ready for human review" means.
 
 Planned: `prepare-change-review`, `address-review-feedback`, `independent-review`,
 `verify-change-evidence`, `propose-review-guideline`.
+
+Built alongside them, `recover-change-context` reads the record the other way:
+the snapshot messages are the best account of a branch's work that survives a
+session, so an agent that has lost the thread — a compaction, a crash, a fresh
+window on the same branch — recovers it from the CLI rather than from the human.
+Deliberately lazy: entered only when the tree holds work the agent cannot
+account for, and left as soon as it can act.
 
 **Skills invoke the CLI. Skills never write `.git/octoview/` directly.**
 
@@ -544,10 +551,10 @@ without another protocol server anywhere. The hook passes `--agent` and
 `--session`, which is what makes §7 work.
 
 **Label without prompting.** A hook cannot ask me for a label. The CLI derives it
-from the transcript the hook already points at — the agent's own last-turn
-summary — falling back to `turn <n>`.
+from the transcript the hook already points at — the agent's own closing
+summary — falling back to `snapshot <n>`.
 
-**Manual (UC-2).** `octoview turn snapshot`, and a VS Code command bound to it.
+**Manual (UC-2).** `octoview snapshot`, and a VS Code command bound to it.
 Required for the interrupt case, and the only path on hosts without hooks.
 
 **Host order is Claude, then Codex, then Copilot.** The loop is proven end to end
@@ -556,7 +563,7 @@ teaches less than a complete one on a single host. Claude Code is first because
 its `Stop` hook and `--resume` cover both §6 and §7 without a gap.
 
 **Copilot custom agents** have no verified stop hook, and that verification is
-postponed rather than blocking. Until it happens, Copilot turns are manual —
+postponed rather than blocking. Until it happens, Copilot snapshots are manual —
 which UC-2 already makes a first-class path, so nothing is unusable meanwhile.
 
 ---
@@ -565,20 +572,20 @@ which UC-2 already makes a first-class path, so nothing is unusable meanwhile.
 
 ### 7.1 Feedback round-trip
 
-Submitting a batch delivers it to the agent that wrote the turn, **preferring
+Submitting a batch delivers it to the agent that wrote the snapshot, **preferring
 that agent's own session** so it answers with its reasoning history intact:
 `claude --resume <session>` and the Codex equivalent, keyed on the `agent` and
 `session` recorded at snapshot time.
 
 **When resume is unavailable** — Copilot today, or a manual snapshot with no
 session recorded — Octoview starts a **fresh session with the same agent and
-model**, seeded with the turn diff, the comment batch and the agent's last-turn
+model**, seeded with the snapshot diff, the comment batch and the agent's closing
 summary. History is lost; the agent is not.
 
 ### 7.2 Inline consult (UC-4)
 
 From a comment thread, ask the authoring agent about that hunk, with the file,
-the turn diff and the thread as context. Same preference order as §7.1. The
+the snapshot diff and the thread as context. Same preference order as §7.1. The
 answer lands in the thread, next to the code.
 
 ### 7.3 Human-only actions — advisory, and honestly so
@@ -597,7 +604,7 @@ only works on two of four hosts is worse than a stated limit.
 ## 8. GitHub PR review (UC-5)
 
 `octoview pr pull <number>` fetches the PR into its own lane, `pr/<number>`, and
-presents it as a **single turn**: `parent` = `merge-base(target, head)`, `sha` =
+presents it as a **single snapshot**: `parent` = `merge-base(target, head)`, `sha` =
 PR head. Everything downstream — diff view, review state, comment batching,
 helper agent — is unchanged, and the lane keeps it clear of my own work.
 
@@ -609,8 +616,8 @@ for people who prefer what the official GitHub extension does.
 `octoview review submit --to github` posts the batch as a PR review through the
 `gh` CLI, reusing its authentication rather than shipping a GitHub client.
 
-**Future — shared turns.** If the PR author also uses Octoview, their turn
-history could be published so a reviewer reads turn-by-turn instead of one
+**Future — shared snapshots.** If the PR author also uses Octoview, their snapshot
+history could be published so a reviewer reads snapshot-by-snapshot instead of one
 squashed diff. Transport is undecided: `refs/notes/octoview` is attractive
 because notes anchor to commits and never touch the index, but it only works for
 *committed* work. Deferred until the single-user loop is proven.
@@ -621,8 +628,8 @@ because notes anchor to commits and never touch the index, but it only works for
 
 | | Scope | Exit criteria |
 |---|---|---|
-| **M0** ✅ | POC extension: snapshot, turn tree, turn-over-turn diff, comments, batch submit, multi-repo | Done. 30 assertions across 9 headless check groups passing |
-| **M1** ◐ | TypeScript core + CLI; lanes (§4.2), which also fixes worktrees; extension becomes a core client; Claude `Stop` hook auto-snapshot; `prepare-change-review` skill | Landed at `e80fae7` (2026-08-04), 109 assertions across 26 headless groups. Verified: UI modules hold zero git logic; two worktrees of one clone review independently. Still to demonstrate by hand: a full turn reviewed end to end in the editor, and a hook-driven turn appearing unprompted |
+| **M0** ✅ | POC extension: snapshot, snapshot tree, snapshot-over-snapshot diff, comments, batch submit, multi-repo | Done. 30 assertions across 9 headless check groups passing |
+| **M1** ◐ | TypeScript core + CLI; lanes (§4.2), which also fixes worktrees; extension becomes a core client; Claude `Stop` hook auto-snapshot; `prepare-change-review` skill | Landed at `e80fae7` (2026-08-04), 109 assertions across 26 headless groups. Verified: UI modules hold zero git logic; two worktrees of one clone review independently. Still to demonstrate by hand: a full snapshot reviewed end to end in the editor, and a hook-driven snapshot appearing unprompted |
 | **M2** | **Claude end to end**: feedback round-trip via `--resume`, inline consult, plan artifacts (§4.7) and plan-revision citation, edit provenance (§4.9) | UC-1 and UC-4 complete on Claude alone. A plan reviewed, revised, and implemented through the same batch. A hunk traceable to the tool call that wrote it |
 | **M3** | Widen to Codex — stop hook, session resume — against the loop M2 proved | UC-1 and UC-4 on Codex with no core changes. Adding a host is configuration, not architecture |
 | **M4** | PR import, GitHub submit; Copilot hook support verified | UC-5 end to end |
@@ -637,8 +644,8 @@ adding the second host costs nothing structural.
 
 1. **Zero mutations of my git state.** No change to index, HEAD, branches or
    worktree, ever. Asserted in tests, not asserted in prose.
-2. Files cleared at turn N and untouched since never reappear.
-3. A turn is reviewed and answered without leaving the editor.
+2. Files cleared at snapshot N and untouched since never reappear.
+3. A snapshot is reviewed and answered without leaving the editor.
 4. Review comments reach the authoring agent with its history intact, on every
    host that supports resume.
 5. Adding a second IDE client requires no review logic — only process execution,
@@ -656,7 +663,7 @@ adding the second host costs nothing structural.
   snapshot keeps every host usable; automation is a per-host upgrade.
 - **Anchor drift.** Carry-forward matching will sometimes mis-locate. The
   outdated flag is the safety valve — a wrong anchor is visible, not silent.
-- **Snapshot cost on large repos.** Seeding the private index each turn costs the
+- **Snapshot cost on large repos.** Seeding the private index each snapshot costs the
   stat cache a full re-hash. Correct but O(tree); measure before assuming it
   scales, and revisit only with numbers.
 - **Advisory boundaries.** An agent can self-approve. Accepted, documented,
@@ -670,7 +677,7 @@ adding the second host costs nothing structural.
   What it does **not** cover, and what Octoview's value now rests on:
 
   - **Durability.** VS Code's snapshots are per-request and explicitly temporary,
-    designed to "complement Git but not replace it". Octoview's turns are git
+    designed to "complement Git but not replace it". Octoview's snapshots are git
     commits, reviewable days later and after a restart.
   - **The index invariant.** Staging in the Source Control view *auto-accepts*
     pending edits, and discarding discards them — VS Code's edit state is coupled
@@ -690,23 +697,23 @@ adding the second host costs nothing structural.
 Resolved: concurrent agents → lanes keyed to branches and worktrees (§4.2); lane
 lifecycle → closes when its branch is deleted or merged (§4.2); plan review →
 plans are git-blob artifacts sharing the comment model (§4.7); plan-to-code
-linkage → the turn cites the plan revision, drift is evidence rather than a
+linkage → the snapshot cites the plan revision, drift is evidence rather than a
 verdict (§4.7); retention → `octoview gc`, never pruning open review work (§4.8);
 host order → Claude end to end first, Copilot postponed (§6); implementation
 language → TypeScript end to end (§5.1, 2026-08-04); concurrent writers → an
 advisory lock file around every read-modify-write, one implementation covering
 every writer including the hook, exercised by two real spawned processes in the
-test suite (2026-08-04); how the UI learns a turn happened → a debounced file
+test suite (2026-08-04); how the UI learns a snapshot happened → a debounced file
 watch on the lane's state directory, no daemon (2026-08-04); the two POC bugs →
 fixed in M1's git layer with regression tests (rename records parsed as the
 three fields they carry; an unborn HEAD snapshots against the empty tree).
 
 Still open:
 
-1. **Label quality from the transcript.** §6 derives a turn's label from the
-   agent's last-turn summary. Whether that reads well enough to navigate by is an
-   empirical question, answerable only once M1 produces real turns.
-2. **Snapshot cost at scale.** Seeding the private index each turn re-hashes the
+1. **Label quality from the transcript.** §6 derives a snapshot's label from the
+   agent's closing summary. Whether that reads well enough to navigate by is an
+   empirical question, answerable only once M1 produces real snapshots.
+2. **Snapshot cost at scale.** Seeding the private index each snapshot re-hashes the
    tree. Fine on a 284-file repo; unmeasured on a large one. Needs numbers before
    it needs a solution.
 
@@ -717,12 +724,12 @@ Still open:
 | Finding | Consequence |
 |---|---|
 | Language services attach only to real files | Editor-first, not web-first; review at the turn boundary |
-| Reviewable's file×revision state | `reviewed[file] >= turn` |
-| Per-edit approval degrades to "approve all" | Turn is the unit |
+| Reviewable's file×revision state | `reviewed[file] >= snapshot` |
+| Per-edit approval degrades to "approve all" | Snapshot is the unit |
 | Claude transcripts already carry every `Edit` with `old_string`/`new_string` and a stable `tool_use` id | Edit provenance needs no new capture, and no Octomate dependency (§4.9) |
 | VS Code, Zed, Cline and hunk-review extensions all diff against a *baseline copy* | Their "per-edit" is per-hunk, attributable to nothing; transcript-derived provenance is unoccupied ground |
 | Tracked-but-ignored files vanish from a virgin index | `read-tree` seed is mandatory |
-| Refs are shared across a clone's worktrees | Turn refs must be lane-scoped |
+| Refs are shared across a clone's worktrees | Snapshot refs must be lane-scoped |
 | `.git` is a file in a linked worktree — `mkdir .git/octoview` gives `ENOTDIR` | State lives under `--git-common-dir`; worktrees are broken in the POC |
 | `update-ref` accepts a blob, and `git diff` works between two blobs | Plans can be pure git objects, touching nothing |
 | `--name-status -z` rename records have three fields | Parser bug; fixed in M1, regression-tested |

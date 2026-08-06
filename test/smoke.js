@@ -7,17 +7,17 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { Git, turnRef } = require("../out/git");
+const { Git, snapshotRef } = require("../out/git");
 const { resolveLane } = require("../out/lanes");
 const { Repos } = require("../out/repos");
 const {
   committableRun,
-  dropTurn,
+  dropSnapshot,
   landedCommits,
-  landedTurns,
+  landedSnapshots,
   makeAnchor,
   revertPaths,
-  snapshotTurn,
+  takeSnapshot,
 } = require("../out/review");
 const { Store } = require("../out/state");
 
@@ -31,7 +31,7 @@ async function main() {
   fs.writeFileSync(path.join(root, "a.py"), "def f(x: int) -> int:\n    return x\n");
   fs.writeFileSync(path.join(root, "b.py"), "KEEP = 1\n");
   // Tracked *and* gitignored, which real repos do (kraken pins .python-version this
-  // way). An empty private index would skip it and report it deleted every turn.
+  // way). An empty private index would skip it and report it deleted every snapshot.
   fs.writeFileSync(path.join(root, ".python-version"), "3.13\n");
   fs.writeFileSync(path.join(root, ".gitignore"), ".python-version\n");
   git(["add", "-f", "."]);
@@ -48,53 +48,53 @@ async function main() {
   const store = new Store(lane);
   await store.load();
 
-  // Turn 1: agent edits a.py and adds c.py, neither staged.
+  // Snapshot 1: agent edits a.py and adds c.py, neither staged.
   fs.writeFileSync(path.join(root, "a.py"), "def f(x: int) -> str:\n    return str(x)\n");
   fs.writeFileSync(path.join(root, "c.py"), "NEW = True\n");
-  const r1 = await snapshotTurn(g, store, { label: "changed signature", agent: "manual" });
+  const r1 = await takeSnapshot(g, store, { label: "changed signature", agent: "manual" });
   assert.strictEqual(r1.created, true);
-  assert.strictEqual(r1.turn.parent, headBefore, "turn 1 must diff against HEAD");
+  assert.strictEqual(r1.snapshot.parent, headBefore, "snapshot 1 must diff against HEAD");
 
-  // Turn 2: agent touches a.py again and adds d.py.
+  // Snapshot 2: agent touches a.py again and adds d.py.
   fs.writeFileSync(path.join(root, "a.py"), "def f(x: int) -> str:\n    return f'{x}'\n");
   fs.writeFileSync(path.join(root, "d.py"), "LATER = 1\n");
-  const r2 = await snapshotTurn(g, store, { label: "use f-string", agent: "manual" });
+  const r2 = await takeSnapshot(g, store, { label: "use f-string", agent: "manual" });
   assert.strictEqual(r2.created, true);
 
   // 1. The user's index and HEAD are untouched.
   assert.strictEqual(git(["status", "--porcelain"]).includes("M  b.py"), true, "staged b.py lost");
   assert.strictEqual(git(["rev-parse", "HEAD"]).trim(), headBefore, "HEAD moved");
   assert.strictEqual(git(["branch", "--list"]).trim(), "* main", "a branch appeared");
-  console.log("index/HEAD untouched                 ok");
+  console.log("index/HEAD untouched                  ok");
   console.log("  before:", JSON.stringify(statusBefore.trim().split("\n")));
 
-  // 2. Turn-over-turn diff is the turn's own change, not the whole branch.
-  const turn1 = r1.files.map((f) => f.path).sort();
-  const turn2 = r2.files.map((f) => f.path).sort();
-  assert.deepStrictEqual(turn1, ["a.py", "b.py", "c.py"], "a tracked-but-ignored file must not show as deleted");
-  assert.deepStrictEqual(turn2, ["a.py", "d.py"], "turn 2 should not re-show turn 1 files");
-  assert.strictEqual(await g.fileAt(r2.turn.sha, ".python-version"), "3.13\n", "tracked-but-ignored file dropped from the snapshot");
-  console.log("turn 1 changed:", turn1.join(", "));
-  console.log("turn 2 changed:", turn2.join(", "), "  <- c.py correctly absent");
+  // 2. Snapshot-over-snapshot diff is the snapshot's own change, not the whole branch.
+  const snapshot1 = r1.files.map((f) => f.path).sort();
+  const snapshot2 = r2.files.map((f) => f.path).sort();
+  assert.deepStrictEqual(snapshot1, ["a.py", "b.py", "c.py"], "a tracked-but-ignored file must not show as deleted");
+  assert.deepStrictEqual(snapshot2, ["a.py", "d.py"], "snapshot 2 should not re-show snapshot 1 files");
+  assert.strictEqual(await g.fileAt(r2.snapshot.sha, ".python-version"), "3.13\n", "tracked-but-ignored file dropped from the snapshot");
+  console.log("snapshot 1 changed:", snapshot1.join(", "));
+  console.log("snapshot 2 changed:", snapshot2.join(", "), "  <- c.py correctly absent");
 
   // 3. Revision content is retrievable for the diff's left-hand side.
-  const atTurn1 = await g.fileAt(r1.turn.sha, "a.py");
-  assert.ok(atTurn1.includes("return str(x)"), "turn 1 content wrong");
+  const atSnapshot1 = await g.fileAt(r1.snapshot.sha, "a.py");
+  assert.ok(atSnapshot1.includes("return str(x)"), "snapshot 1 content wrong");
   assert.strictEqual(await g.fileAt(headBefore, "d.py"), "", "missing file should read empty");
-  console.log("revision content + missing-file      ok");
+  console.log("revision content + missing-file       ok");
 
-  // 4. The Reviewable rule: reviewing at turn 1 does not carry into turn 2.
+  // 4. The Reviewable rule: reviewing at snapshot 1 does not carry into snapshot 2.
   await store.withLock((state) => {
     state.reviewed["a.py"] = 1;
   });
-  assert.strictEqual(store.isReviewed("a.py", 1), true, "should be reviewed at turn 1");
-  assert.strictEqual(store.isReviewed("a.py", 2), false, "turn 2 must reopen a.py");
+  assert.strictEqual(store.isReviewed("a.py", 1), true, "should be reviewed at snapshot 1");
+  assert.strictEqual(store.isReviewed("a.py", 2), false, "snapshot 2 must reopen a.py");
   assert.strictEqual(store.isReviewed("d.py", 2), false);
   await store.withLock((state) => {
     state.reviewed["a.py"] = 2;
   });
   assert.strictEqual(store.isReviewed("a.py", 2), true);
-  console.log("review state resets on later turn    ok");
+  console.log("review state resets on later snapshot ok");
 
   // 5. Submitting writes one batch and flips the drafts.
   const aLines = fs.readFileSync(path.join(root, "a.py"), "utf8").split("\n");
@@ -102,16 +102,16 @@ async function main() {
   const now = new Date().toISOString();
   const threadA = {
     id: "t1",
-    anchor: await makeAnchor(g, r2.turn.sha, "a.py", 1, 1, aLines),
-    turn: 2,
+    anchor: await makeAnchor(g, r2.snapshot.sha, "a.py", 1, 1, aLines),
+    snapshot: 2,
     state: "draft",
     outdated: false,
     comments: [{ body: "why f-string?", author: "me", at: now }],
   };
   const threadD = {
     id: "t2",
-    anchor: await makeAnchor(g, r2.turn.sha, "d.py", 0, 0, dLines),
-    turn: 2,
+    anchor: await makeAnchor(g, r2.snapshot.sha, "d.py", 0, 0, dLines),
+    snapshot: 2,
     state: "draft",
     outdated: false,
     comments: [{ body: "is this needed?", author: "me", at: now }],
@@ -132,15 +132,15 @@ async function main() {
   // 6. State survives a reload.
   const reloaded = new Store(lane);
   await reloaded.load();
-  assert.strictEqual(reloaded.data.turns.length, 2);
+  assert.strictEqual(reloaded.data.snapshots.length, 2);
   assert.strictEqual(reloaded.isReviewed("a.py", 2), true);
   assert.strictEqual(reloaded.data.threads.length, 2);
-  console.log("state round-trips through disk       ok");
+  console.log("state round-trips through disk        ok");
 
   // 7. Nothing leaked into the working tree, and the lock is not left behind.
   assert.strictEqual(git(["status", "--porcelain"]).includes("octoview"), false, "state leaked into git status");
   assert.strictEqual(fs.existsSync(store.lockFile), false, "lock file left behind");
-  console.log("no working-tree pollution            ok");
+  console.log("no working-tree pollution             ok");
 
   // 8. A workspace of several clones: every repo is its own review unit, and a
   //    folder that is not a repo root still resolves to the repo containing it.
@@ -164,199 +164,199 @@ async function main() {
   fs.mkdirSync(path.join(root, ".vscode"), { recursive: true });
   await repos.discover([root, path.join(root, ".vscode"), other]);
   assert.deepStrictEqual(repos.all.map((r) => r.root).sort(), [otherReal, rootReal].sort(), "folders did not dedupe to two repos");
-  console.log("workspace folders → repos            ok");
+  console.log("workspace folders → repos             ok");
 
   const hit = repos.locate(path.join(rootReal, "a.py"));
   assert.strictEqual(hit.repo.root, rootReal, "a.py resolved to the wrong repo");
   assert.strictEqual(hit.rel, "a.py");
   assert.strictEqual(repos.locate(path.join(otherReal, "z.ts")).repo.root, otherReal, "z.ts resolved to the wrong repo");
   assert.strictEqual(repos.locate("/nowhere/x.py"), undefined, "a path outside every repo must not resolve");
-  console.log("path → repo lookup                   ok");
+  console.log("path → repo lookup                    ok");
 
-  // 9. Turn history is per repo: the second clone starts empty even though the
-  //    first has two turns, which is the bug a single global store produced.
+  // 9. Snapshot history is per repo: the second clone starts empty even though the
+  //    first has two snapshots, which is the bug a single global store produced.
   const first = repos.all.find((r) => r.root === rootReal);
   const second = repos.all.find((r) => r.root === otherReal);
-  assert.strictEqual(first.store.data.turns.length, 2, "first repo lost its turns");
-  assert.strictEqual(second.store.data.turns.length, 0, "second repo inherited the first repo's turns");
+  assert.strictEqual(first.store.data.snapshots.length, 2, "first repo lost its snapshots");
+  assert.strictEqual(second.store.data.snapshots.length, 0, "second repo inherited the first repo's snapshots");
 
   fs.writeFileSync(path.join(other, "z.ts"), "export const z = 2;\n");
-  const zResult = await snapshotTurn(second.git, second.store, { label: "bump z", agent: "manual" });
+  const zResult = await takeSnapshot(second.git, second.store, { label: "bump z", agent: "manual" });
   assert.deepStrictEqual(zResult.files.map((f) => f.path), ["z.ts"]);
-  assert.strictEqual(first.store.data.turns.length, 2, "snapshotting one repo disturbed another");
-  console.log("per-repo turns stay isolated         ok");
+  assert.strictEqual(first.store.data.snapshots.length, 2, "snapshotting one repo disturbed another");
+  console.log("per-repo snapshots stay isolated      ok");
 
   // 10. Revert is offered only on the row whose version is still the one on disk,
-  //     so the stack unwinds one turn at a time.
-  const intact2 = await g.unchangedSince(r2.turn.sha, ["a.py", "d.py"]);
-  assert.strictEqual(intact2.has("a.py"), true, "turn 2 holds a.py; its row should offer revert");
-  assert.strictEqual(intact2.has("d.py"), true, "an untracked file the turn added counts as intact");
-  const intact1 = await g.unchangedSince(r1.turn.sha, ["a.py", "c.py"]);
-  assert.strictEqual(intact1.has("a.py"), false, "turn 2 wrote over turn 1's a.py");
-  assert.strictEqual(intact1.has("c.py"), true, "nothing touched c.py since turn 1");
+  //     so the stack unwinds one snapshot at a time.
+  const intact2 = await g.unchangedSince(r2.snapshot.sha, ["a.py", "d.py"]);
+  assert.strictEqual(intact2.has("a.py"), true, "snapshot 2 holds a.py; its row should offer revert");
+  assert.strictEqual(intact2.has("d.py"), true, "an untracked file the snapshot added counts as intact");
+  const intact1 = await g.unchangedSince(r1.snapshot.sha, ["a.py", "c.py"]);
+  assert.strictEqual(intact1.has("a.py"), false, "snapshot 2 wrote over snapshot 1's a.py");
+  assert.strictEqual(intact1.has("c.py"), true, "nothing touched c.py since snapshot 1");
 
-  await g.restoreFile(r2.turn.parent, "a.py");
+  await g.restoreFile(r2.snapshot.parent, "a.py");
   const reverted = fs.readFileSync(path.join(root, "a.py"), "utf8");
-  assert.ok(reverted.includes("return str(x)"), "revert should land on turn 1's version");
+  assert.ok(reverted.includes("return str(x)"), "revert should land on snapshot 1's version");
   assert.strictEqual(
-    (await g.unchangedSince(r2.turn.sha, ["a.py"])).has("a.py"),
+    (await g.unchangedSince(r2.snapshot.sha, ["a.py"])).has("a.py"),
     false,
-    "turn 2's row must stop offering revert once undone",
+    "snapshot 2's row must stop offering revert once undone",
   );
   assert.strictEqual(
-    (await g.unchangedSince(r1.turn.sha, ["a.py"])).has("a.py"),
+    (await g.unchangedSince(r1.snapshot.sha, ["a.py"])).has("a.py"),
     true,
-    "turn 1's row becomes the revertable one",
+    "snapshot 1's row becomes the revertable one",
   );
 
-  // A file the turn added is reverted by ceasing to exist.
-  await g.restoreFile(r2.turn.parent, "d.py");
+  // A file the snapshot added is reverted by ceasing to exist.
+  await g.restoreFile(r2.snapshot.parent, "d.py");
   assert.strictEqual(fs.existsSync(path.join(root, "d.py")), false, "added file should be removed");
 
-  // The same on an untracked file the turn *changed* — git is picky about paths
+  // The same on an untracked file the snapshot *changed* — git is picky about paths
   // it does not have in the index, and c.py has never been staged.
   fs.writeFileSync(path.join(root, "c.py"), "NEW = 'edited'\n");
-  await g.restoreFile(r1.turn.sha, "c.py");
+  await g.restoreFile(r1.snapshot.sha, "c.py");
   assert.strictEqual(
     fs.readFileSync(path.join(root, "c.py"), "utf8"),
     "NEW = True\n",
-    "an untracked file must revert to its turn content",
+    "an untracked file must revert to its snapshot content",
   );
 
   assert.strictEqual(git(["status", "--porcelain"]).includes("M  b.py"), true, "revert hit the index");
-  console.log("revert unwinds one turn at a time    ok");
+  console.log("revert unwinds one snapshot at a time ok");
 
-  // A file back at the turn's starting point has had that turn's change undone,
-  // so its row goes — measured against the turn's *parent* rather than its sha.
-  // Turn 2's two files have both been put back, which leaves it showing nothing.
-  const undone2 = await g.unchangedSince(r2.turn.parent, ["a.py", "d.py"]);
+  // A file back at the snapshot's starting point has had that snapshot's change undone,
+  // so its row goes — measured against the snapshot's *parent* rather than its sha.
+  // Snapshot 2's two files have both been put back, which leaves it showing nothing.
+  const undone2 = await g.unchangedSince(r2.snapshot.parent, ["a.py", "d.py"]);
   assert.strictEqual(undone2.has("a.py"), true, "a reverted file still reads as changed");
-  assert.strictEqual(undone2.has("d.py"), true, "a turn-added file, deleted again, is undone");
-  const stillThere = await g.unchangedSince(r1.turn.parent, ["c.py"]);
-  assert.strictEqual(stillThere.has("c.py"), false, "turn 1's c.py is untouched and must stay");
+  assert.strictEqual(undone2.has("d.py"), true, "a snapshot-added file, deleted again, is undone");
+  const stillThere = await g.unchangedSince(r1.snapshot.parent, ["c.py"]);
+  assert.strictEqual(stillThere.has("c.py"), false, "snapshot 1's c.py is untouched and must stay");
 
-  // The count the turn row freezes on: files still differing from what the turn
-  // started from. Turn 2 has been reverted away entirely; turn 1 has not.
-  const liveOf = async (turn) => {
-    const files = await g.changedFiles(turn.parent, turn.sha);
+  // The count the snapshot row freezes on: files still differing from what the snapshot
+  // started from. Snapshot 2 has been reverted away entirely; snapshot 1 has not.
+  const liveOf = async (snapshot) => {
+    const files = await g.changedFiles(snapshot.parent, snapshot.sha);
     const paths = files.map((f) => f.path);
-    const [before, disk] = await Promise.all([g.blobsAt(turn.parent, paths), g.blobsOnDisk(paths)]);
+    const [before, disk] = await Promise.all([g.blobsAt(snapshot.parent, paths), g.blobsOnDisk(paths)]);
     return paths.filter((p) => before.get(p) !== disk.get(p)).length;
   };
-  assert.strictEqual(await liveOf(r2.turn), 0, "turn 2 should be frozen once reverted away");
-  assert.strictEqual(await liveOf(r1.turn), 3, "turn 1 still owns a.py, b.py and c.py");
+  assert.strictEqual(await liveOf(r2.snapshot), 0, "snapshot 2 should be frozen once reverted away");
+  assert.strictEqual(await liveOf(r1.snapshot), 3, "snapshot 1 still owns a.py, b.py and c.py");
   // Second pass runs entirely off the caches; the answers must not move.
-  assert.strictEqual(await liveOf(r2.turn), 0, "cached pass disagreed with the cold one");
-  console.log("undone files drop out of the turn    ok");
+  assert.strictEqual(await liveOf(r2.snapshot), 0, "cached pass disagreed with the cold one");
+  console.log("undone files drop out of the snapshot ok");
 
-  // 11. Undoing a turn takes the turn itself off the stack, not just its files:
+  // 11. Undoing a snapshot takes the snapshot itself off the stack, not just its files:
   //     ref, record, and the review marks it made. Its number comes back.
-  assert.strictEqual(git(["rev-parse", "--verify", "-q", turnRef("main", 2)]).trim(), r2.turn.sha);
-  assert.strictEqual(store.isReviewed("a.py", 2), true, "a.py was marked reviewed at turn 2");
-  await dropTurn(g, store, 2);
-  assert.deepStrictEqual(store.data.turns.map((t) => t.n), [1], "turn 2 still recorded");
+  assert.strictEqual(git(["rev-parse", "--verify", "-q", snapshotRef("main", 2)]).trim(), r2.snapshot.sha);
+  assert.strictEqual(store.isReviewed("a.py", 2), true, "a.py was marked reviewed at snapshot 2");
+  await dropSnapshot(g, store, 2);
+  assert.deepStrictEqual(store.data.snapshots.map((t) => t.n), [1], "snapshot 2 still recorded");
   assert.throws(
-    () => git(["rev-parse", "--verify", "-q", turnRef("main", 2)]),
-    "turn 2's ref survived",
+    () => git(["rev-parse", "--verify", "-q", snapshotRef("main", 2)]),
+    "snapshot 2's ref survived",
   );
-  assert.strictEqual(store.isReviewed("a.py", 1), false, "a review mark made at turn 2 outlived it");
-  // Both threads were opened at turn 2 and submitted; the turn going takes them
+  assert.strictEqual(store.isReviewed("a.py", 1), false, "a review mark made at snapshot 2 outlived it");
+  // Both threads were opened at snapshot 2 and submitted; the snapshot going takes them
   // with it, because a comment on a change that no longer exists is about nothing.
-  assert.strictEqual(store.data.threads.length, 0, "threads outlived the turn they were about");
+  assert.strictEqual(store.data.threads.length, 0, "threads outlived the snapshot they were about");
   // The batch already written stays: it is output that was handed over, and the
   // comment it carried is still in it.
   assert.strictEqual(JSON.parse(fs.readFileSync(result.path, "utf8")).comments.length, 2);
 
   // The next snapshot takes the number back, so the lane has no gap.
   fs.writeFileSync(path.join(root, "a.py"), "def f(x: int) -> str:\n    return repr(x)\n");
-  const r3 = await snapshotTurn(g, store, { label: "after the undo", agent: "manual" });
-  assert.strictEqual(r3.turn.n, 2, "numbering did not follow the stack down");
-  assert.strictEqual(r3.turn.parent, r1.turn.sha, "the new turn 2 must build on turn 1");
-  console.log("undo drops the turn, number returns  ok");
+  const r3 = await takeSnapshot(g, store, { label: "after the undo", agent: "manual" });
+  assert.strictEqual(r3.snapshot.n, 2, "numbering did not follow the stack down");
+  assert.strictEqual(r3.snapshot.parent, r1.snapshot.sha, "the new snapshot 2 must build on snapshot 1");
+  console.log("undo drops the snapshot, number returns ok");
 
-  // 12. A turn in the middle can go too, as long as no later turn wrote over the
-  //     files it changed. Turn 3 below touches only e.py, so turn 2's a.py is
-  //     still turn 2's to give back — and dropping turn 2 must not disturb turn 3.
+  // 12. A snapshot in the middle can go too, as long as no later snapshot wrote over the
+  //     files it changed. Snapshot 3 below touches only e.py, so snapshot 2's a.py is
+  //     still snapshot 2's to give back — and dropping snapshot 2 must not disturb snapshot 3.
   fs.writeFileSync(path.join(root, "e.py"), "SEP = 1\n");
-  const r4 = await snapshotTurn(g, store, { label: "disjoint file", agent: "manual" });
+  const r4 = await takeSnapshot(g, store, { label: "disjoint file", agent: "manual" });
   assert.deepStrictEqual(r4.files.map((f) => f.path), ["e.py"]);
-  assert.strictEqual(r4.turn.parent, r3.turn.sha, "turn 3 builds on turn 2");
+  assert.strictEqual(r4.snapshot.parent, r3.snapshot.sha, "snapshot 3 builds on snapshot 2");
   await store.withLock((state) => {
     state.reviewed["e.py"] = 3;
   });
 
-  const midIntact = await g.unchangedSince(r3.turn.sha, ["a.py"]);
-  assert.strictEqual(midIntact.has("a.py"), true, "no later turn touched a.py, so turn 2 can go");
-  const midFiles = await g.changedFiles(r3.turn.parent, r3.turn.sha);
-  await g.restoreFiles(r3.turn.parent, midFiles);
+  const midIntact = await g.unchangedSince(r3.snapshot.sha, ["a.py"]);
+  assert.strictEqual(midIntact.has("a.py"), true, "no later snapshot touched a.py, so snapshot 2 can go");
+  const midFiles = await g.changedFiles(r3.snapshot.parent, r3.snapshot.sha);
+  await g.restoreFiles(r3.snapshot.parent, midFiles);
   await revertPaths(g, store, 2, midFiles.map((f) => f.path));
-  await dropTurn(g, store, 2);
-  assert.deepStrictEqual(store.data.turns.map((t) => t.n), [1, 3], "the gap should be honest");
+  await dropSnapshot(g, store, 2);
+  assert.deepStrictEqual(store.data.snapshots.map((t) => t.n), [1, 3], "the gap should be honest");
 
-  // The rewrite moved turn 3's sha, so read it back rather than trusting the
+  // The rewrite moved snapshot 3's sha, so read it back rather than trusting the
   // object the snapshot handed us — `withLock` reloads, and those are stale now.
-  const turn3 = store.data.turns.find((t) => t.n === 3);
-  // The dropped turn's commit survives as turn 3's git parent, so turn 3's own
-  // diff still resolves — the reason a middle turn is safe to remove at all.
-  assert.strictEqual(git(["cat-file", "-t", turn3.parent]).trim(), "commit");
+  const snapshot3 = store.data.snapshots.find((t) => t.n === 3);
+  // The dropped snapshot's commit survives as snapshot 3's git parent, so snapshot 3's own
+  // diff still resolves — the reason a middle snapshot is safe to remove at all.
+  assert.strictEqual(git(["cat-file", "-t", snapshot3.parent]).trim(), "commit");
   assert.deepStrictEqual(
-    (await g.changedFiles(turn3.parent, turn3.sha)).map((f) => f.path),
+    (await g.changedFiles(snapshot3.parent, snapshot3.sha)).map((f) => f.path),
     ["e.py"],
-    "turn 3 lost its diff when the turn before it went",
+    "snapshot 3 lost its diff when the snapshot before it went",
   );
-  assert.strictEqual(store.isReviewed("e.py", 3), true, "a later turn's review mark was cleared");
-  console.log("a middle turn drops cleanly          ok");
+  assert.strictEqual(store.isReviewed("e.py", 3), true, "a later snapshot's review mark was cleared");
+  console.log("a middle snapshot drops cleanly       ok");
 
   // 13. A revert must leave the newest snapshot agreeing with disk, or the next
-  //     turn opens by recording the reviewer's revert as the agent's own work —
+  //     snapshot opens by recording the reviewer's revert as the agent's own work —
   //     the "D playground.md I never deleted" bug.
   fs.writeFileSync(path.join(root, "g.py"), "GONE = 1\n");
   fs.writeFileSync(path.join(root, "h.py"), "KEPT = 1\n");
-  const added = await snapshotTurn(g, store, { label: "adds two files", agent: "manual" });
+  const added = await takeSnapshot(g, store, { label: "adds two files", agent: "manual" });
   fs.writeFileSync(path.join(root, "h.py"), "KEPT = 2\n");
-  const later = await snapshotTurn(g, store, { label: "touches only h.py", agent: "manual" });
+  const later = await takeSnapshot(g, store, { label: "touches only h.py", agent: "manual" });
 
-  // Revert g.py out of the *earlier* turn, with a later turn sitting on top of it.
-  await g.restoreFile(added.turn.parent, "g.py");
-  await revertPaths(g, store, added.turn.n, ["g.py"]);
+  // Revert g.py out of the *earlier* snapshot, with a later snapshot sitting on top of it.
+  await g.restoreFile(added.snapshot.parent, "g.py");
+  await revertPaths(g, store, added.snapshot.n, ["g.py"]);
   assert.strictEqual(fs.existsSync(path.join(root, "g.py")), false, "g.py should be gone");
 
-  const rewritten = store.data.turns.find((t) => t.n === added.turn.n);
-  const after = store.data.turns.find((t) => t.n === later.turn.n);
+  const rewritten = store.data.snapshots.find((t) => t.n === added.snapshot.n);
+  const after = store.data.snapshots.find((t) => t.n === later.snapshot.n);
   assert.deepStrictEqual(
     (await g.changedFiles(rewritten.parent, rewritten.sha)).map((f) => f.path),
     ["h.py"],
-    "the reverted file should be out of the turn that added it",
+    "the reverted file should be out of the snapshot that added it",
   );
   assert.deepStrictEqual(
     (await g.changedFiles(after.parent, after.sha)).map((f) => f.path),
     ["h.py"],
-    "a later turn's own diff must survive the rewrite untouched",
+    "a later snapshot's own diff must survive the rewrite untouched",
   );
   assert.strictEqual(after.parent, rewritten.sha, "the chain must follow the new shas");
   assert.strictEqual(git(["cat-file", "-t", after.sha]).trim(), "commit");
 
   // The point of all of it: the next snapshot sees nothing to record.
-  const nothing = await snapshotTurn(g, store, { label: "should not exist", agent: "manual" });
-  assert.strictEqual(nothing.created, false, "the revert leaked into the next turn");
-  console.log("revert stays out of the next turn    ok");
+  const nothing = await takeSnapshot(g, store, { label: "should not exist", agent: "manual" });
+  assert.strictEqual(nothing.created, false, "the revert leaked into the next snapshot");
+  console.log("revert stays out of the next snapshot ok");
 
   // 14. The review header's numbers. `--numstat -z` writes a rename as an empty
   //     path field followed by the old and new paths, which naive parsing reads
   //     as one record and gets the counts of the file after it.
   fs.writeFileSync(path.join(root, "h.py"), "KEPT = 3\nMORE = 1\n");
   fs.renameSync(path.join(root, "b.py"), path.join(root, "moved.py"));
-  const counted = await snapshotTurn(g, store, { label: "edit and rename", agent: "manual" });
-  const stat = await g.diffStat(counted.turn.parent, counted.turn.sha);
+  const counted = await takeSnapshot(g, store, { label: "edit and rename", agent: "manual" });
+  const stat = await g.diffStat(counted.snapshot.parent, counted.snapshot.sha);
   assert.deepStrictEqual(stat.get("h.py"), { added: 2, deleted: 1 });
   assert.deepStrictEqual(stat.get("moved.py"), { added: 0, deleted: 0 }, "pure rename: no lines");
   assert.strictEqual(stat.has(""), false, "a rename must not be read as an empty path");
-  console.log("diff stat counts, renames included   ok");
+  console.log("diff stat counts, renames included    ok");
 
-  // 15. Which turns a commit lands. The Turns view derives it rather than
-  //     recording it: a file is committed when disk matches HEAD, and a turn is
+  // 15. Which snapshots a commit lands. The Snapshots view derives it rather than
+  //     recording it: a file is committed when disk matches HEAD, and a snapshot is
   //     landed when every file it still *owns* is. Owns, not touched — otherwise
-  //     a later turn editing the same file again would un-land a committed turn.
+  //     a later snapshot editing the same file again would un-land a committed snapshot.
   const landedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-landed-"));
   const lg = (args) => execFileSync("git", args, { cwd: landedRoot, encoding: "utf8" });
   lg(["init", "-q", "-b", "main", "."]);
@@ -369,38 +369,38 @@ async function main() {
   const lstore = new Store(await resolveLane(landedRoot));
   const taken = [];
   fs.writeFileSync(path.join(landedRoot, "a.txt"), "a1\n");
-  taken.push((await snapshotTurn(lgit, lstore, { label: "adds a", agent: "manual" })).turn);
+  taken.push((await takeSnapshot(lgit, lstore, { label: "adds a", agent: "manual" })).snapshot);
   fs.writeFileSync(path.join(landedRoot, "b.txt"), "b1\n");
-  taken.push((await snapshotTurn(lgit, lstore, { label: "adds b", agent: "manual" })).turn);
+  taken.push((await takeSnapshot(lgit, lstore, { label: "adds b", agent: "manual" })).snapshot);
 
-  // The reviewer commits turn 1's file only — the partial commit that makes
-  // "which turns are committed" a real question.
+  // The reviewer commits snapshot 1's file only — the partial commit that makes
+  // "which snapshots are committed" a real question.
   lg(["add", "a.txt"]);
-  lg(["commit", "-qm", "land turn 1"]);
+  lg(["commit", "-qm", "land snapshot 1"]);
 
-  const landedNow = async () => landedTurns(lgit, lstore.data.turns, await lgit.head());
+  const landedNow = async () => landedSnapshots(lgit, lstore.data.snapshots, await lgit.head());
   let landed = await landedNow();
-  assert.deepStrictEqual([...landed], [1], "only turn 1's file is committed");
+  assert.deepStrictEqual([...landed], [1], "only snapshot 1's file is committed");
 
-  // A third turn rewrites turn 1's file and is not committed. Turn 1 no longer
+  // A third snapshot rewrites snapshot 1's file and is not committed. Snapshot 1 no longer
   // owns a.txt, so it stays landed — judging it on what it touched would flip it
   // back to open over work that is not its own.
   fs.writeFileSync(path.join(landedRoot, "a.txt"), "a2\n");
-  await snapshotTurn(lgit, lstore, { label: "edits a again", agent: "manual" });
+  await takeSnapshot(lgit, lstore, { label: "edits a again", agent: "manual" });
   landed = await landedNow();
-  assert.strictEqual(landed.has(1), true, "a committed turn must not un-land");
-  assert.strictEqual(landed.has(3), false, "the turn that owns a.txt now is open");
+  assert.strictEqual(landed.has(1), true, "a committed snapshot must not un-land");
+  assert.strictEqual(landed.has(3), false, "the snapshot that owns a.txt now is open");
 
-  // `turn commit` is the same answer from the other side: commit through turn 3
-  // and every turn lands, with the working tree never having moved.
-  await lgit.commitSnapshot(lstore.data.turns[2].sha, "land everything");
-  assert.deepStrictEqual([...(await landedNow())].sort(), [1, 2, 3], "all turns land");
+  // `snapshot commit` is the same answer from the other side: commit through snapshot 3
+  // and every snapshot lands, with the working tree never having moved.
+  await lgit.commitSnapshot(lstore.data.snapshots[2].sha, "land everything");
+  assert.deepStrictEqual([...(await landedNow())].sort(), [1, 2, 3], "all snapshots land");
   assert.strictEqual(lg(["status", "--porcelain"]).trim(), "", "the commit must match disk");
-  console.log("commit lands the turns it covers    ok");
+  console.log("commit lands the snapshots it covers  ok");
 
   // 16. How far the Reviewed area can be committed from. A commit is a prefix of
-  //     the lane, so an unbroken run from the earliest turn is the whole rule —
-  //     and adjacency is in the list, never in the numbering, or one dropped turn
+  //     the lane, so an unbroken run from the earliest snapshot is the whole rule —
+  //     and adjacency is in the list, never in the numbering, or one dropped snapshot
   //     would block committing for the rest of the lane's life.
   const run = (spec) => committableRun(spec.map(([n, reviewed]) => ({ n, reviewed })));
   assert.deepStrictEqual(run([]), { through: undefined, blocked: [] });
@@ -410,11 +410,11 @@ async function main() {
     through: 1,
     blocked: [3, 4],
   });
-  // Turn 2 was dropped; 1 and 3 are adjacent in the list and commit together.
+  // Snapshot 2 was dropped; 1 and 3 are adjacent in the list and commit together.
   assert.deepStrictEqual(run([[1, true], [3, true]]), { through: 3, blocked: [] });
-  console.log("committable run is a list prefix     ok");
+  console.log("committable run is a list prefix      ok");
 
-  // 17. The regression the screenshot caught: a turn whose files a later turn
+  // 17. The regression the screenshot caught: a snapshot whose files a later snapshot
   //     rewrote owns nothing, and "every file it owns matches HEAD" is vacuously
   //     true — which read as committed in a repo with no commits of its own.
   const neverRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-never-"));
@@ -428,19 +428,19 @@ async function main() {
   const ngit = new Git(neverRoot);
   const nstore = new Store(await resolveLane(neverRoot));
   fs.writeFileSync(path.join(neverRoot, "x.txt"), "1\n");
-  await snapshotTurn(ngit, nstore, { label: "sets x to 1", agent: "manual" });
+  await takeSnapshot(ngit, nstore, { label: "sets x to 1", agent: "manual" });
   fs.writeFileSync(path.join(neverRoot, "x.txt"), "2\n");
-  await snapshotTurn(ngit, nstore, { label: "sets x to 2", agent: "manual" });
+  await takeSnapshot(ngit, nstore, { label: "sets x to 2", agent: "manual" });
   assert.deepStrictEqual(
-    [...(await landedTurns(ngit, nstore.data.turns, await ngit.head()))],
+    [...(await landedSnapshots(ngit, nstore.data.snapshots, await ngit.head()))],
     [],
-    "no commit was made, so no turn may read as committed",
+    "no commit was made, so no snapshot may read as committed",
   );
   fs.rmSync(neverRoot, { recursive: true, force: true });
-  console.log("a superseded turn is not committed    ok");
+  console.log("a superseded snapshot is not committed ok");
 
-  // 18. Two commits, read back as two groups. A commit made from a turn's
-  //     snapshot has that turn's tree, so which turns it took is recognised
+  // 18. Two commits, read back as two groups. A commit made from a snapshot's
+  //     snapshot has that snapshot's tree, so which snapshots it took is recognised
   //     rather than recorded — and committing through 2 then through 4 must not
   //     collapse into one run of four.
   const twoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-two-"));
@@ -455,14 +455,14 @@ async function main() {
   const tstore = new Store(await resolveLane(twoRoot));
   for (const n of [1, 2, 3, 4]) {
     fs.writeFileSync(path.join(twoRoot, `f${n}.txt`), `${n}\n`);
-    await snapshotTurn(tgit, tstore, { label: `turn ${n}`, agent: "manual" });
+    await takeSnapshot(tgit, tstore, { label: `snapshot ${n}`, agent: "manual" });
   }
-  await tgit.commitSnapshot(tstore.data.turns[1].sha, "first batch\n\nwith a body line");
-  await tgit.commitSnapshot(tstore.data.turns[3].sha, "second batch");
-  const groups = await landedCommits(tgit, tstore.data.turns, await tgit.head());
+  await tgit.commitSnapshot(tstore.data.snapshots[1].sha, "first batch\n\nwith a body line");
+  await tgit.commitSnapshot(tstore.data.snapshots[3].sha, "second batch");
+  const groups = await landedCommits(tgit, tstore.data.snapshots, await tgit.head());
   assert.strictEqual(groups.length, 2, "two commits must read back as two groups");
-  assert.deepStrictEqual(groups[0].turns, [1, 2], "the older commit took turns 1-2");
-  assert.deepStrictEqual(groups[1].turns, [3, 4], "the newer commit took only 3-4");
+  assert.deepStrictEqual(groups[0].snapshots, [1, 2], "the older commit took snapshots 1-2");
+  assert.deepStrictEqual(groups[1].snapshots, [3, 4], "the newer commit took only 3-4");
   assert.strictEqual(groups[0].message.split("\n")[0], "first batch", "subject is the first line");
   assert.ok(groups[0].message.includes("with a body line"), "the full message is carried");
   fs.rmSync(twoRoot, { recursive: true, force: true });

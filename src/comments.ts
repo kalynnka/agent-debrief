@@ -17,7 +17,7 @@ export function revisionUri(sha: string, absPath: string): vscode.Uri {
 
 /** The absolute path a URI names, for both schemes we read.
  *
- * Step-history label URIs show a turn name as their path so the multi-diff row
+ * Step-history label URIs show a snapshot name as their path so the multi-diff row
  * header can display it; the real path rides in the fragment. */
 export function pathOf(uri: vscode.Uri): string {
   if (uri.scheme === "file") {
@@ -87,7 +87,8 @@ export class Comments {
     widget.comments = this.render(thread);
     const stage =
       thread.state === "draft" ? "Draft" : thread.state === "submitted" ? "Submitted" : "Resolved";
-    widget.label = `${stage} · turn ${thread.turn}${thread.outdated ? " · outdated" : ""}`;
+    const outdated = thread.outdated ? " · outdated" : "";
+    widget.label = `${stage} · snapshot ${thread.snapshot}${outdated}`;
     widget.contextValue = thread.id;
     widget.canReply = thread.state === "draft";
     widget.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
@@ -139,7 +140,7 @@ export class Comments {
     };
     const existingId = reply.thread.contextValue;
 
-    // Anchor against the latest turn, from the document the reviewer is reading;
+    // Anchor against the latest snapshot, from the document the reviewer is reading;
     // prepared before taking the lock so the lock is held only for the write.
     const start = reply.thread.range?.start.line ?? 0;
     const end = reply.thread.range?.end.line ?? start;
@@ -148,13 +149,13 @@ export class Comments {
       id: `t${Date.now().toString(36)}${Math.floor(Math.random() * 46656).toString(36)}`,
       anchor: await makeAnchor(
         repo.git,
-        repo.store.latestTurn?.sha,
+        repo.store.latestSnapshot?.sha,
         rel,
         start,
         end,
         document.getText().split("\n"),
       ),
-      turn: repo.store.latestTurn?.n ?? 0,
+      snapshot: repo.store.latestSnapshot?.n ?? 0,
       state: "draft",
       outdated: false,
       comments: [],

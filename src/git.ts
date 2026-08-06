@@ -6,31 +6,33 @@ import { promisify } from "util";
 const exec = promisify(execFile);
 
 /** Where snapshot refs live: outside refs/heads, so `git branch` never lists a
- * turn — and lane-scoped, because refs are shared across a clone's worktrees and
- * unscoped turn numbers collide between two worktrees of one clone. */
-export function turnRef(lane: string, n: number): string {
-  return `refs/octoview/turns/${lane}/${n}`;
+ * snapshot — and lane-scoped, because refs are shared across a clone's worktrees
+ * and unscoped snapshot numbers collide between two worktrees of one clone. */
+export function snapshotRef(lane: string, n: number): string {
+  return `refs/octoview/snapshots/${lane}/${n}`;
 }
 
-export interface Turn {
+export interface Snapshot {
   n: number;
   sha: string;
-  /** The revision this turn is diffed against — the previous turn's sha, HEAD at
-   * snapshot time for the first turn, or the empty tree when HEAD was unborn. */
+  /** The revision this snapshot is diffed against — the previous snapshot's sha,
+   * HEAD at capture time for the first one, or the empty tree when HEAD was
+   * unborn. */
   parent: string;
   label: string;
   /** What the agent said when it finished, in full — the label is its first
-   * line. Absent on turns taken before this was kept, and on any turn snapshotted
-   * without a transcript to read it from. */
+   * line. Absent on snapshots taken before this was kept, and on any snapshot
+   * captured without a transcript to read it from. */
   message?: string;
-  /** Who that message came from. `agent` means the turn described itself and had
-   * therefore finished; `transcript` means the hook answered for it, scraping
-   * whatever was last said — which is what an interrupted turn leaves behind, so
-   * its snapshot may be work in the middle of being done. Absent when neither
-   * happened: a turn from before this was kept, or one snapshotted by hand. */
+  /** Who that message came from. `agent` means the agent described the snapshot
+   * itself and had therefore finished its turn; `transcript` means the hook
+   * answered for it, scraping whatever was last said — which is what an
+   * interrupted turn leaves behind, so the snapshot may be work in the middle of
+   * being done. Absent when neither happened: a snapshot from before this was
+   * kept, or one taken by hand. */
   described?: "agent" | "transcript";
   at: string;
-  /** Which agent produced the turn: claude | codex | copilot | manual. */
+  /** Which agent produced the snapshot: claude | codex | copilot | manual. */
   agent: string;
   /** That agent's session id, when the host exposes one — what makes the
    * feedback round-trip's `--resume` possible later. */
@@ -111,14 +113,14 @@ export class Git {
   }
 
   /** The empty tree's id in this repo's hash algorithm — the diff base for a
-   * turn snapshotted on an unborn HEAD, which has no commit to diff against. */
+   * snapshot taken on an unborn HEAD, which has no commit to diff against. */
   async emptyTree(): Promise<string> {
     return (await this.run(["hash-object", "-t", "tree", "/dev/null"])).trim();
   }
 
   /** Cached: every caller passes a commit sha, whose tree never changes. Which
-   * turns a commit has taken is one of these per turn per refresh, so uncached
-   * this would be a process per turn on a lane of any length. */
+   * snapshots a commit has landed is one of these per snapshot per refresh, so
+   * uncached this would be a process per snapshot on a lane of any length. */
   async treeOf(rev: string): Promise<string> {
     const known = this.trees.get(rev);
     if (known !== undefined) {
@@ -135,9 +137,9 @@ export class Git {
    * The private index is seeded from `seed` first — this is required, not an
    * optimization. Without it `add -A` starts from an empty index, where a file
    * that is tracked but also matched by `.gitignore` looks like a new ignored
-   * file rather than a tracked one — so it is skipped, and every turn reports it
-   * as deleted. On an unborn HEAD there is nothing to seed from and `--empty`
-   * also clears any stale content a previous turn left in the index file. */
+   * file rather than a tracked one — so it is skipped, and every snapshot reports
+   * it as deleted. On an unborn HEAD there is nothing to seed from and `--empty`
+   * also clears any stale content a previous snapshot left in the index file. */
   async writeSnapshotTree(indexFile: string, seed: string | undefined): Promise<string> {
     await fs.mkdir(path.dirname(indexFile), { recursive: true });
     const env = { GIT_INDEX_FILE: indexFile };
@@ -155,7 +157,7 @@ export class Git {
   }
 
   /** A revision and its ancestors, newest first, with each one's full message —
-   * how a commit that landed some turns is recognised and named. */
+   * how a commit that landed some snapshots is recognised and named. */
   async commitsFrom(rev: string, limit: number): Promise<{ sha: string; message: string }[]> {
     const out = await this.run([
       "log",
@@ -289,8 +291,8 @@ export class Git {
    * simply absent from the map.
    *
    * Every caller passes a commit sha, so a (rev, path) answer can never change —
-   * which is what makes the cache sound, and what keeps the Turns view's
-   * per-turn comparisons off the process table once it is warm. */
+   * which is what makes the cache sound, and what keeps the Snapshots view's
+   * per-snapshot comparisons off the process table once it is warm. */
   async entriesAt(rev: string, paths: string[]): Promise<Map<string, TreeEntry>> {
     const unseen = paths.filter((file) => !this.entries.has(`${rev}:${file}`));
     if (unseen.length > 0) {
@@ -370,10 +372,10 @@ export class Git {
 
   /** Which of `paths` still hold on disk exactly the content they had at `rev`.
    *
-   * Blob ids, not `git diff <rev>`: a file the turn created but nobody has staged
-   * is untracked, and `git diff` calls every untracked path deleted, which would
-   * report the newest turn's own files as drifted. A path absent from both sides
-   * counts as unchanged — that is a deletion still holding. */
+   * Blob ids, not `git diff <rev>`: a file the snapshot created but nobody has
+   * staged is untracked, and `git diff` calls every untracked path deleted, which
+   * would report the newest snapshot's own files as drifted. A path absent from
+   * both sides counts as unchanged — that is a deletion still holding. */
   async unchangedSince(rev: string, paths: string[]): Promise<Set<string>> {
     if (paths.length === 0) {
       return new Set();
@@ -403,9 +405,9 @@ export class Git {
   /** Commit a revision's tree as its own commit on the current branch, leaving
    * the working tree alone.
    *
-   * This is what "commit through turn N" means: the snapshot is the content, so
-   * the index is loaded from it and `git commit` records that — the working tree
-   * never moves, and everything later turns did stays uncommitted on disk.
+   * This is what "commit through snapshot N" means: the snapshot is the content,
+   * so the index is loaded from it and `git commit` records that — the working
+   * tree never moves, and everything later snapshots did stays uncommitted on disk.
    *
    * `git commit` rather than plumbing, so the repo's hooks, signing and reflog
    * behave as they do for any other commit. That is also why the index is put
@@ -424,7 +426,7 @@ export class Git {
 
   /** Put one path back to how it was at `rev`, in the working tree only — the
    * index belongs to the reviewer. A path the revision does not have is removed,
-   * which is what "how it was" means for a file the turn added. */
+   * which is what "how it was" means for a file the snapshot added. */
   async restoreFile(rev: string, filePath: string): Promise<void> {
     if ((await this.blobAt(rev, filePath)) === undefined) {
       await fs.rm(path.join(this.root, filePath), { force: true });

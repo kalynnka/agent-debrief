@@ -1,31 +1,35 @@
 import * as vscode from "vscode";
 
-/** Turn rows hang off their own scheme so a row can be decorated with the status
- * the *turn* gave the file, rather than whatever git says about the working tree
+/** Snapshot rows hang off their own scheme so a row can be decorated with the status
+ * the *snapshot* gave the file, rather than whatever git says about the working tree
  * right now. The path is the file's absolute path — which is what the icon theme
  * reads and what diagnostics are keyed by — and the query is the status letter,
  * so the decoration provider needs no lookup table to answer. */
-export const TURN_SCHEME = "octoview-turn";
+export const SNAPSHOT_SCHEME = "octoview-snapshot";
 
-export function turnFileUri(absPath: string, status: string): vscode.Uri {
-  return vscode.Uri.from({ scheme: TURN_SCHEME, path: absPath, query: status });
+export function snapshotFileUri(absPath: string, status: string): vscode.Uri {
+  return vscode.Uri.from({ scheme: SNAPSHOT_SCHEME, path: absPath, query: status });
 }
 
-/** The queries that mark a turn row rather than a file row. A status letter is
+/** The queries that mark a snapshot row rather than a file row. A status letter is
  * never one of these words, so the two cannot collide. */
 const FROZEN = "frozen";
 
-/** A reverted-away turn's row. Its path names no file — it only has to be unique
- * per turn, so the decoration is cached per row. This is what greys the label:
+/** A reverted-away snapshot's row. Its path names no file — it only has to be unique
+ * per snapshot, so the decoration is cached per row. This is what greys the label:
  * `TreeItem.label` carries no colour of its own, and the row's icon slot belongs
- * to the agent. Being committed needs no such mark — those turns sit under their
+ * to the agent. Being committed needs no such mark — those snapshots sit under their
  * commit, and position says it. */
-export function frozenTurnUri(repoRoot: string, n: number): vscode.Uri {
-  return vscode.Uri.from({ scheme: TURN_SCHEME, path: `${repoRoot}/turn/${n}`, query: FROZEN });
+export function frozenSnapshotUri(repoRoot: string, n: number): vscode.Uri {
+  return vscode.Uri.from({
+    scheme: SNAPSHOT_SCHEME,
+    path: `${repoRoot}/snapshot/${n}`,
+    query: FROZEN,
+  });
 }
 
 /** `git diff --name-status` letters, coloured as git's own decorations colour
- * them so a turn row and a Changes row read the same. */
+ * them so a snapshot row and a Changes row read the same. */
 const COLORS: Record<string, string> = {
   A: "gitDecoration.addedResourceForeground",
   M: "gitDecoration.modifiedResourceForeground",
@@ -44,14 +48,14 @@ const NAMES: Record<string, string> = {
   T: "Type changed",
 };
 
-/** Colour and badge for a turn's file row: the status letter, or — when the
+/** Colour and badge for a snapshot's file row: the status letter, or — when the
  * language server has something to say about the file — the problem count in
  * the list's warning/error colour, which is the louder fact of the two. */
-export class TurnDecorations implements vscode.FileDecorationProvider, vscode.Disposable {
+export class SnapshotDecorations implements vscode.FileDecorationProvider, vscode.Disposable {
   private changed = new vscode.EventEmitter<vscode.Uri[]>();
   readonly onDidChangeFileDecorations = this.changed.event;
   private readonly listener: vscode.Disposable;
-  /** Turn URIs already asked about, by the file they point at, one per status
+  /** Snapshot URIs already asked about, by the file they point at, one per status
    * letter. A row's URI carries that letter, so it is never the URI a diagnostics
    * event names — this is the way back from the file to the rows showing it. */
   private readonly rows = new Map<string, Map<string, vscode.Uri>>();
@@ -75,7 +79,7 @@ export class TurnDecorations implements vscode.FileDecorationProvider, vscode.Di
   }
 
   provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
-    if (uri.scheme !== TURN_SCHEME) {
+    if (uri.scheme !== SNAPSHOT_SCHEME) {
       return undefined;
     }
     if (uri.query === FROZEN) {
@@ -83,7 +87,7 @@ export class TurnDecorations implements vscode.FileDecorationProvider, vscode.Di
       // and greyed, and a badge would just cost width the label needs.
       return new vscode.FileDecoration(
         undefined,
-        "Reverted — nothing of this turn is left",
+        "Reverted — nothing of this snapshot is left",
         new vscode.ThemeColor("disabledForeground"),
       );
     }

@@ -2,9 +2,9 @@ import * as path from "path";
 
 import { Git } from "./git";
 
-/** A line of work, keyed by the checked-out branch (PRD §4.2). Turn numbering,
+/** A line of work, keyed by the checked-out branch (PRD §4.2). Snapshot numbering,
  * review state and comments are all per-lane, and everything shared across a
- * clone's worktrees — turn refs, state files — hangs off the git common dir,
+ * clone's worktrees — snapshot refs, state files — hangs off the git common dir,
  * because `.git` is a file in a linked worktree and refs are shared. */
 export interface Lane {
   /** Top of this worktree, as git reports it (symlinks resolved). */

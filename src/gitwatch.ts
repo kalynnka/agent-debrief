@@ -50,7 +50,7 @@ export async function gitApi(): Promise<GitAPI> {
   return (await extension.activate()).getAPI(1);
 }
 
-/** What the Turns view actually reads out of git: the lane, and which paths git
+/** What the Snapshots view actually reads out of git: the lane, and which paths git
  * is calling changed. Compared as a whole to tell a real change from a re-run. */
 interface Shape {
   branch: string;
@@ -69,10 +69,10 @@ function shapeOf(repository: GitRepository): Shape {
 
 /** git's own change events, collapsed into one.
  *
- * The Turns view is computed from what is on disk — the status letter, the
+ * The Snapshots view is computed from what is on disk — the status letter, the
  * problem count, which row may still be reverted — so a terminal `git restore`
  * or `gh pr checkout` is otherwise invisible to it, and a stale row offers a
- * revert that would undo more than its own turn. */
+ * revert that would undo more than its own snapshot. */
 export class GitWatch implements vscode.Disposable {
   private moved = new vscode.EventEmitter<boolean>();
   /** Fires once the dust settles. True when the checkout itself changed, which
@@ -107,7 +107,7 @@ export class GitWatch implements vscode.Disposable {
   }
 
   /** Paths whose changes are staged, relative to the repo root. Staging is how a
-   * reviewer marks a change taken, so a turn's row can say that its file has
+   * reviewer marks a change taken, so a snapshot's row can say that its file has
    * already been accepted — the one thing Source Control cannot say back. */
   stagedPaths(root: string): Set<string> {
     const repository = this.api.getRepository(vscode.Uri.file(root));
@@ -141,7 +141,7 @@ export class GitWatch implements vscode.Disposable {
   }
 
   /** git reports every file an agent writes, one event each, while rebuilding the
-   * view costs two git processes per open turn — so the burst becomes one event. */
+   * view costs two git processes per open snapshot — so the burst becomes one event. */
   private schedule(checkoutMoved: boolean): void {
     this.checkoutMoved ||= checkoutMoved;
     if (this.timer !== undefined) {

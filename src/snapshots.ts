@@ -1,8 +1,8 @@
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { frozenTurnUri, turnFileUri } from "./decorations";
-import { ChangedFile, Turn } from "./git";
+import { frozenSnapshotUri, snapshotFileUri } from "./decorations";
+import { ChangedFile, Snapshot } from "./git";
 import { GitWatch } from "./gitwatch";
 import { Repo, Repos } from "./repos";
 import { committableRun, landedCommits } from "./review";
@@ -12,47 +12,47 @@ export class RepoNode {
   constructor(readonly repo: Repo) {}
 }
 
-/** Which of a turn's files a row stands for. A turn read only in part sits in
- * both areas at once — Source Control's own answer to a file that is half
+/** Which of a snapshot's files a row stands for. A snapshot read only in part
+ * sits in both areas at once — Source Control's own answer to a file that is half
  * staged — and each of its two rows shows, and acts on, only its own half. */
 export type Part = "all" | "reviewed" | "unreviewed";
 
-export class TurnNode {
-  readonly kind = "turn";
+export class SnapshotNode {
+  readonly kind = "snapshot";
   constructor(
     readonly repo: Repo,
-    readonly turn: Turn,
-    /** How many of the turn's files still differ from what it started from. At
-     * zero the turn has been reverted away entirely and is frozen: its snapshot
+    readonly snapshot: Snapshot,
+    /** How many of the snapshot's files still differ from what it started from.
+     * At zero it has been reverted away entirely and is frozen: the snapshot
      * still records what it did, but nothing on disk is its doing any more. */
     readonly live: number,
-    /** No later turn has written over any file this one changed, so every one of
-     * them can still be put back — which is what dropping the turn does. Where
-     * it sits in the order does not matter: a dropped turn's commit stays
-     * reachable as the git parent of the turn after it. */
+    /** No later snapshot has written over any file this one changed, so every one
+     * of them can still be put back — which is what dropping it does. Where it
+     * sits in the order does not matter: a dropped snapshot's commit stays
+     * reachable as the git parent of the snapshot after it. */
     readonly droppable: boolean,
-    /** How many of those files are marked reviewed at this turn. */
+    /** How many of those files are marked reviewed at this snapshot. */
     readonly viewed: number,
-    /** Nothing uncommitted is this turn's doing: every file it still owns is on
-     * disk exactly as HEAD holds it. Judged on the files it *owns* rather than on
-     * everything it touched, so a later turn editing one of them again cannot
-     * un-land a turn whose own work is already in a commit. */
+    /** Nothing uncommitted is this snapshot's doing: every file it still owns is
+     * on disk exactly as HEAD holds it. Judged on the files it *owns* rather than
+     * on everything it touched, so a later snapshot editing one of them again
+     * cannot un-land a snapshot whose own work is already in a commit. */
     readonly landed: boolean,
     readonly part: Part = "all",
   ) {}
 
-  /** Every file the turn still owns is marked reviewed at it — so the row offers
-   * to unmark, and never both at once. A turn with nothing live left counts as
-   * read: there is nothing there to read. */
+  /** Every file the snapshot still owns is marked reviewed at it — so the row
+   * offers to unmark, and never both at once. A snapshot with nothing live left
+   * counts as read: there is nothing there to read. */
   get reviewed(): boolean {
     return this.viewed === this.live;
   }
 
-  /** The same turn as one of its halves. */
-  showing(part: Part): TurnNode {
-    return new TurnNode(
+  /** The same snapshot as one of its halves. */
+  showing(part: Part): SnapshotNode {
+    return new SnapshotNode(
       this.repo,
-      this.turn,
+      this.snapshot,
       this.live,
       this.droppable,
       this.viewed,
@@ -61,11 +61,11 @@ export class TurnNode {
     );
   }
 
-  /** Whether one of the turn's files belongs on this row. */
+  /** Whether one of the snapshot's files belongs on this row. */
   shows(file: string): boolean {
     return (
       this.part === "all" ||
-      this.repo.store.isReviewed(file, this.turn.n) === (this.part === "reviewed")
+      this.repo.store.isReviewed(file, this.snapshot.n) === (this.part === "reviewed")
     );
   }
 }
@@ -74,18 +74,18 @@ export class FileNode {
   readonly kind = "file";
   constructor(
     readonly repo: Repo,
-    readonly turn: Turn,
+    readonly snapshot: Snapshot,
     readonly file: ChangedFile,
     readonly reviewed: boolean,
     readonly threadCount: number,
-    /** This turn's version of the file is the one on disk, so reverting it undoes
-     * this turn and nothing else. False once a later turn has written over it —
-     * revert that one first, and this row becomes the top of the stack. */
+    /** This snapshot's version of the file is the one on disk, so reverting it
+     * undoes this snapshot and nothing else. False once a later one has written
+     * over it — revert that first, and this row becomes the top of the stack. */
     readonly revertable: boolean,
     /** The file has staged changes: taken, in the sense the commit will keep. */
     readonly staged: boolean,
     /** The file on disk is what HEAD holds — this change is committed, and the
-     * turn's remaining work is whatever is not. */
+     * snapshot's remaining work is whatever is not. */
     readonly landed: boolean,
   ) {}
 }
@@ -93,40 +93,40 @@ export class FileNode {
 export type Area = "committed" | "reviewed" | "unreviewed";
 
 /** One of a repository's areas, after Source Control's staged/unstaged pair —
- * with a third for work that has left the review entirely. Marking a turn
+ * with a third for work that has left the review entirely. Marking a snapshot
  * reviewed moves it between the first two; committing moves it out of both, so
  * the state is a position rather than an icon.
  *
- * The committed area holds commits rather than turns: a turn that has landed is
- * a fact about a commit, and reading it back that way is how a lane committed in
- * two batches stays two batches. */
+ * The committed area holds commits rather than snapshots: a snapshot that has
+ * landed is a fact about a commit, and reading it back that way is how a lane
+ * committed in two batches stays two batches. */
 export class GroupNode {
   readonly kind = "group";
   constructor(
     readonly repo: Repo,
     readonly area: Area,
-    readonly turns: TurnNode[],
+    readonly snapshots: SnapshotNode[],
     readonly commits: CommitNode[],
-    /** The last turn a commit could run through, and the reviewed turns stranded
-     * after a gap. Both are meaningless outside the reviewed area, which is the
-     * only one that can be committed from. */
+    /** The last snapshot a commit could run through, and the reviewed snapshots
+     * stranded after a gap. Both are meaningless outside the reviewed area, which
+     * is the only one that can be committed from. */
     readonly through: number | undefined,
     readonly blocked: Set<number>,
   ) {}
 }
 
-/** A commit of this lane, over the turns it took. */
+/** A commit of this lane, over the snapshots it took. */
 export class CommitNode {
   readonly kind = "commit";
   constructor(
     readonly repo: Repo,
     readonly sha: string,
     readonly message: string,
-    readonly turns: TurnNode[],
+    readonly snapshots: SnapshotNode[],
   ) {}
 }
 
-export type Node = RepoNode | GroupNode | CommitNode | TurnNode | FileNode;
+export type Node = RepoNode | GroupNode | CommitNode | SnapshotNode | FileNode;
 
 /** Agents whose own mark ships in `media/`, lifted from the vendor's own VS Code
  * extension. Claude's is brand-coloured and reads on either theme; Codex's is
@@ -137,7 +137,7 @@ const AGENT_LOGOS: Record<string, { light: string; dark: string }> = {
 };
 
 /** Agents with no logo to hand but a codicon that means something: Copilot is
- * the one agent the codicon set draws, and a turn you snapshotted yourself is a
+ * the one agent the codicon set draws, and a snapshot you took yourself is a
  * person, not an agent. Anything else — including an agent this build has never
  * heard of — gets the sparkle, which is the point: unknown is still an agent. */
 const AGENT_ICONS: Record<string, string> = {
@@ -156,33 +156,33 @@ function struckThrough(text: string): string {
   return [...text].map((character) => `${character}̶`).join("");
 }
 
-/** What a row covers: the one file of a file row, and of a turn row the files it
- * shows — every file of the turn, or one half of them when the turn is split
+/** What a row covers: the one file of a file row, and of a snapshot row the files
+ * it shows — every file of the snapshot, or one half of them when it is split
  * across the two areas. The review and revert commands act on a set, and this is
  * where the two scopes become the same set. */
-export async function filesOf(node: FileNode | TurnNode): Promise<ChangedFile[]> {
+export async function filesOf(node: FileNode | SnapshotNode): Promise<ChangedFile[]> {
   if (node.kind === "file") {
     return [node.file];
   }
-  const files = await node.repo.git.changedFiles(node.turn.parent, node.turn.sha);
+  const files = await node.repo.git.changedFiles(node.snapshot.parent, node.snapshot.sha);
   return files.filter((file) => node.shows(file.path));
 }
 
-/** Repository → turn → file. A repo appears once it has turns and not before —
- * a workspace of several clones is mostly repos you are not reviewing, and rows
- * reading "no turns yet" are the noise this view exists to cut. Snapshotting is
- * unaffected: every repo in the workspace is still captured, and shows up here
- * the moment it has something to show. */
-export class TurnsProvider implements vscode.TreeDataProvider<Node> {
+/** Repository → snapshot → file. A repo appears once it has snapshots and not
+ * before — a workspace of several clones is mostly repos you are not reviewing,
+ * and rows reading "no snapshots yet" are the noise this view exists to cut.
+ * Snapshotting is unaffected: every repo in the workspace is still captured, and
+ * shows up here the moment it has something to show. */
+export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
   private changed = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.changed.event;
 
-  /** Selected turn numbers per repo root — the scope every "these turns" action
+  /** Selected snapshot numbers per repo root — the scope every "these snapshots" action
    * works on, and the tree's own selection is where it comes from.
    *
    * Numbers rather than the selected nodes: a refresh rebuilds every node from
    * `store.data`, so the objects the tree handed us are ones this provider has
-   * already thrown away. A turn number outlives that. */
+   * already thrown away. A snapshot number outlives that. */
   private selected = new Map<string, Set<number>>();
 
   constructor(
@@ -196,8 +196,8 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
     this.changed.fire(undefined);
   }
 
-  /** Take the tree's selection as the scope. A file row counts for its turn and a
-   * repo row for all of its turns, so selecting a heading means what it looks
+  /** Take the tree's selection as the scope. A file row counts for its snapshot and a
+   * repo row for all of its snapshots, so selecting a heading means what it looks
    * like it means. */
   setSelection(nodes: readonly Node[]): void {
     const next = new Map<string, Set<number>>();
@@ -208,44 +208,46 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
     };
     for (const node of nodes) {
       if (node.kind === "repo") {
-        node.repo.store.data.turns.forEach((turn) => add(node.repo, turn.n));
+        node.repo.store.data.snapshots.forEach((snapshot) => add(node.repo, snapshot.n));
       } else if (node.kind === "group") {
-        node.turns.forEach((turn) => add(node.repo, turn.turn.n));
-        node.commits.forEach((c) => c.turns.forEach((turn) => add(node.repo, turn.turn.n)));
+        node.snapshots.forEach((snapshot) => add(node.repo, snapshot.snapshot.n));
+        node.commits.forEach((c) =>
+          c.snapshots.forEach((snapshot) => add(node.repo, snapshot.snapshot.n)),
+        );
       } else if (node.kind === "commit") {
-        node.turns.forEach((turn) => add(node.repo, turn.turn.n));
+        node.snapshots.forEach((snapshot) => add(node.repo, snapshot.snapshot.n));
       } else {
-        add(node.repo, node.turn.n);
+        add(node.repo, node.snapshot.n);
       }
     }
     this.selected = next;
   }
 
-  /** The selected turns of a repo that still exist, in turn order — empty when
+  /** The selected snapshots of a repo that still exist, in snapshot order — empty when
    * none of it is selected, which each caller answers for itself. Gaps are fine:
-   * each turn's diff is self-contained (parent → sha), so a non-contiguous
-   * selection reads as exactly those turns' history. */
-  selectedTurns(repo: Repo): Turn[] {
+   * each snapshot's diff is self-contained (parent → sha), so a non-contiguous
+   * selection reads as exactly those snapshots' history. */
+  selectedSnapshots(repo: Repo): Snapshot[] {
     const set = this.selected.get(repo.root);
     if (set === undefined) {
       return [];
     }
-    return repo.store.data.turns.filter((t) => set.has(t.n));
+    return repo.store.data.snapshots.filter((t) => set.has(t.n));
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
     if (node.kind === "repo") {
-      const count = node.repo.store.data.turns.length;
+      const count = node.repo.store.data.snapshots.length;
       const item = new vscode.TreeItem(node.repo.name, vscode.TreeItemCollapsibleState.Expanded);
-      item.description = `${node.repo.lane.name} · ${count} turn${count === 1 ? "" : "s"}`;
+      item.description = `${node.repo.lane.name} · ${count} snapshot${count === 1 ? "" : "s"}`;
       item.iconPath = new vscode.ThemeIcon("repo");
       item.contextValue = "repo";
       item.tooltip = node.repo.root;
-      // The whole lane at once: every turn's net change, the same diff the
+      // The whole lane at once: every snapshot's net change, the same diff the
       // header button gives for a selection.
       item.command = {
-        command: "octoview.openTurn",
-        title: "Open Turn Diff",
+        command: "octoview.openSnapshot",
+        title: "Open Snapshot Diff",
         arguments: [node],
       };
       return item;
@@ -253,7 +255,7 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
 
     if (node.kind === "group") {
       const committed = node.area === "committed";
-      const count = committed ? node.commits.length : node.turns.length;
+      const count = committed ? node.commits.length : node.snapshots.length;
       const item = new vscode.TreeItem(
         committed ? "Commits" : node.area === "reviewed" ? "Reviewed" : "Unreviewed",
         // Committed work is history: it folds away, and the two areas that still
@@ -263,7 +265,7 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
           : vscode.TreeItemCollapsibleState.Expanded,
       );
       const stranded = node.blocked.size;
-      const unit = committed ? "commit" : "turn";
+      const unit = committed ? "commit" : "snapshot";
       item.description =
         `${count} ${unit}${count === 1 ? "" : "s"}` +
         (node.through !== undefined ? ` · through ${node.through}` : "") +
@@ -274,22 +276,26 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
       item.contextValue = `group-${node.area}`;
       item.tooltip = new vscode.MarkdownString(
         committed
-          ? `**Commits**\n\nThe turns each commit took. Read back from git rather ` +
+          ? `**Commits**\n\nThe snapshots each commit took. Read back from git rather ` +
             `than recorded, so amending or rebasing moves them.`
           : node.area === "reviewed"
-            ? `**Reviewed**\n\nTurns you have read. A commit takes them from the ` +
+            ? `**Reviewed**\n\nSnapshots you have read. A commit takes them from the ` +
               `earliest one onwards, so only an unbroken run can be landed` +
               (stranded > 0
-                ? ` — ${stranded} of these sit after a turn you have not read yet.`
+                ? ` — ${stranded} of these sit after a snapshot you have not read yet.`
                 : `.`)
-            : `**Unreviewed**\n\nMark a turn reviewed to move it up. Marking only some ` +
+            : `**Unreviewed**\n\nMark a snapshot reviewed to move it up. Marking only some ` +
               `of its files moves those, and the rest stay here.`,
       );
       if (!committed) {
         // The area's own net diff: everything you have approved, or everything
         // left to read, in one tab. The committed area spans commits, which have
         // no single diff between them.
-        item.command = { command: "octoview.openTurn", title: "Open Turn Diff", arguments: [node] };
+        item.command = {
+          command: "octoview.openSnapshot",
+          title: "Open Snapshot Diff",
+          arguments: [node],
+        };
       }
       return item;
     }
@@ -297,9 +303,9 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
     if (node.kind === "commit") {
       const [subject] = node.message.split("\n");
       const item = new vscode.TreeItem(subject, vscode.TreeItemCollapsibleState.Collapsed);
-      const first = node.turns[0]?.turn.n;
-      const last = node.turns[node.turns.length - 1]?.turn.n;
-      const span = first === last ? `turn ${first}` : `turns ${first}–${last}`;
+      const first = node.snapshots[0]?.snapshot.n;
+      const last = node.snapshots[node.snapshots.length - 1]?.snapshot.n;
+      const span = first === last ? `snapshot ${first}` : `snapshots ${first}–${last}`;
       item.description = `${node.sha.slice(0, 7)} · ${span}`;
       item.iconPath = new vscode.ThemeIcon("git-commit");
       item.contextValue = "commit";
@@ -311,18 +317,22 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
           (body === "" ? "" : `${body}\n\n`) +
           `\`${node.sha.slice(0, 7)}\` · ${span}`,
       );
-      item.command = { command: "octoview.openTurn", title: "Open Turn Diff", arguments: [node] };
+      item.command = {
+        command: "octoview.openSnapshot",
+        title: "Open Snapshot Diff",
+        arguments: [node],
+      };
       return item;
     }
 
-    if (node.kind === "turn") {
+    if (node.kind === "snapshot") {
       const frozen = node.live === 0;
-      const newest = node.turn.n === node.repo.store.latestTurn?.n;
+      const newest = node.snapshot.n === node.repo.store.latestSnapshot?.n;
       // The number leads and the agent's summary follows it, because a label is
-      // truncated from the end: what has to survive a narrow sidebar is which turn
+      // truncated from the end: what has to survive a narrow sidebar is which snapshot
       // this is. A long summary will still be cut off — a tree row is one line and
       // the sidebar is as wide as it is — so the hover carries it in full.
-      const title = `${node.turn.n}. ${node.turn.label}`;
+      const title = `${node.snapshot.n}. ${node.snapshot.label}`;
       const item = new vscode.TreeItem(
         frozen ? struckThrough(title) : title,
         frozen
@@ -331,43 +341,44 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
             ? vscode.TreeItemCollapsibleState.Expanded
             : vscode.TreeItemCollapsibleState.Collapsed,
       );
-      // An explicit identity, because the same turn is two rows once it is half
+      // An explicit identity, because the same snapshot is two rows once it is half
       // read — and because this is what decides whether VS Code treats a row as
       // new. A new row takes the collapsible state given above; an old one keeps
-      // whatever the reviewer left it at. Being the newest turn is part of the
-      // identity, so a turn opens itself when it arrives and folds away again
+      // whatever the reviewer left it at. Being the newest snapshot is part of the
+      // identity, so a snapshot opens itself when it arrives and folds away again
       // when the next one supersedes it.
-      item.id = `${node.repo.root}|${node.part}|turn|${node.turn.n}|${newest ? "new" : "old"}`;
-      const at = new Date(node.turn.at);
-      const logo = AGENT_LOGOS[node.turn.agent];
-      // Every turn keeps its agent's mark, reverted or not: the row still says
-      // who wrote it, and one icon for every turn is what makes the column line
+      const age = newest ? "new" : "old";
+      item.id = `${node.repo.root}|${node.part}|snapshot|${node.snapshot.n}|${age}`;
+      const at = new Date(node.snapshot.at);
+      const logo = AGENT_LOGOS[node.snapshot.agent];
+      // Every snapshot keeps its agent's mark, reverted or not: the row still says
+      // who wrote it, and one icon for every snapshot is what makes the column line
       // up. Being reverted is said by the decoration instead.
       item.iconPath =
         logo === undefined
-          ? new vscode.ThemeIcon(AGENT_ICONS[node.turn.agent] ?? "sparkle")
+          ? new vscode.ThemeIcon(AGENT_ICONS[node.snapshot.agent] ?? "sparkle")
           : {
               light: vscode.Uri.joinPath(this.media, logo.light),
               dark: vscode.Uri.joinPath(this.media, logo.dark),
             };
-      // A whole turn gets no description: the sidebar is narrow and the label is
+      // A whole snapshot gets no description: the sidebar is narrow and the label is
       // what gets truncated first, so everything else lives in the hover. A half
-      // of one has to say which half it is, and how much of the turn that is.
+      // of one has to say which half it is, and how much of the snapshot that is.
       const shown = node.part === "reviewed" ? node.viewed : node.live - node.viewed;
       if (node.part !== "all") {
         item.description = `${shown} of ${node.live}`;
       }
       const hover = new vscode.MarkdownString(
-        `**${title}**\n\n${node.turn.agent} · ${at.toLocaleString()}\n\n`,
+        `**${title}**\n\n${node.snapshot.agent} · ${at.toLocaleString()}\n\n`,
       );
       item.tooltip = hover;
       // One state per row, so the reviewed and unreviewed actions are never both
-      // offered. A frozen turn is neither: it holds its number rather than
+      // offered. A frozen snapshot is neither: it holds its number rather than
       // disappearing, and has nothing left to review. A half row takes its state
       // from which half it is, so marking it acts on exactly the files it shows.
       //
-      // Dropping is offered only on a whole turn, and only while every file it
-      // touched can still be given back: reverting half a turn and then removing
+      // Dropping is offered only on a whole snapshot, and only while every file it
+      // touched can still be given back: reverting half a snapshot and then removing
       // the record of all of it would leave the other half with nothing to
       // undo it by.
       const state = frozen
@@ -378,46 +389,46 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
             ? "reviewed"
             : "unreviewed";
       const droppable = node.droppable && node.part === "all";
-      item.contextValue = `turn-${state}${droppable ? "-droppable" : ""}`;
+      item.contextValue = `snapshot-${state}${droppable ? "-droppable" : ""}`;
       if (frozen) {
         // The grey comes from the decoration provider; the strike is in the label
         // itself. Neither is something a TreeItem can express on its own.
-        item.resourceUri = frozenTurnUri(node.repo.root, node.turn.n);
+        item.resourceUri = frozenSnapshotUri(node.repo.root, node.snapshot.n);
         hover.appendMarkdown(
-          `Every change this turn made has been reverted, so there is nothing ` +
+          `Every change this snapshot made has been reverted, so there is nothing ` +
             `left of it on disk.\n\n` +
             (node.droppable
               ? `Drop it to take it out of the history.`
-              : `A later turn has written over files it changed — drop that one ` +
+              : `A later snapshot has written over files it changed — drop that one ` +
                 `first.`),
         );
         return item;
       }
       hover.appendMarkdown(
         node.part === "all"
-          ? `${node.live} file(s) still changed by this turn` +
+          ? `${node.live} file(s) still changed by this snapshot` +
               (node.reviewed ? `, all marked reviewed` : ``) +
               (node.landed ? `, all committed.` : `.`)
-          : `${shown} of this turn's ${node.live} file(s), the ones you have ` +
+          : `${shown} of this snapshot's ${node.live} file(s), the ones you have ` +
               `${node.part === "reviewed" ? "read" : "not read yet"}. The rest are in ` +
               `${node.part === "reviewed" ? "Unreviewed" : "Reviewed"}.`,
       );
-      if (node.turn.described === "transcript") {
+      if (node.snapshot.described === "transcript") {
         hover.appendMarkdown(
-          `\n\nRecorded by the hook rather than described by the agent — this turn ` +
+          `\n\nRecorded by the hook rather than described by the agent — this snapshot ` +
             `may have been cut off before it was finished.`,
         );
       }
-      if (node.turn.message !== undefined) {
-        hover.appendMarkdown(`\n\n---\n\n${node.turn.message}`);
+      if (node.snapshot.message !== undefined) {
+        hover.appendMarkdown(`\n\n---\n\n${node.snapshot.message}`);
       }
-      // Clicking the row reads the turn, and building a multi-turn scope does not:
+      // Clicking the row reads the snapshot, and building a multi-snapshot scope does not:
       // VS Code runs a tree item's command only when the selection is a single
       // element, so a ctrl- or shift-click extends the scope silently and the
       // header's net diff is what opens it.
       item.command = {
-        command: "octoview.openTurn",
-        title: "Open Turn Diff",
+        command: "octoview.openSnapshot",
+        title: "Open Snapshot Diff",
         arguments: [node],
       };
       return item;
@@ -436,7 +447,7 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
     const landing = node.landed ? " committed" : node.staged ? " staged" : "";
     const mark = node.reviewed ? "✓  " : "";
     item.description = `${mark}${node.file.status}${landing}${where}${notes}`;
-    item.resourceUri = turnFileUri(abs, node.file.status);
+    item.resourceUri = snapshotFileUri(abs, node.file.status);
     item.tooltip = `${node.file.path} — ${node.file.status}${landing}`;
     item.contextValue = `file-${node.reviewed ? "reviewed" : "unreviewed"}${
       node.revertable ? "-revertable" : ""
@@ -452,26 +463,26 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
   async getChildren(node?: Node): Promise<Node[]> {
     if (node === undefined) {
       return this.repos.all
-        .filter((repo) => repo.store.data.turns.length > 0)
+        .filter((repo) => repo.store.data.snapshots.length > 0)
         .map((repo) => new RepoNode(repo));
     }
     if (node.kind === "repo") {
       // Three areas, and empty ones are hidden the way Source Control hides them.
-      // The turns are measured once here and handed down, so opening an area or a
+      // The snapshots are measured once here and handed down, so opening an area or a
       // commit costs nothing.
       const nodes = await this.shapeOf(node.repo);
-      const at = new Map(nodes.map((turn) => [turn.turn.n, turn]));
+      const at = new Map(nodes.map((snapshot) => [snapshot.snapshot.n, snapshot]));
       const commits = await landedCommits(
         node.repo.git,
-        node.repo.store.data.turns,
+        node.repo.store.data.snapshots,
         await node.repo.git.head(),
       );
-      const taken = new Set(commits.flatMap((commit) => commit.turns));
-      // Only what a commit has not already taken can be committed: a landed turn
+      const taken = new Set(commits.flatMap((commit) => commit.snapshots));
+      // Only what a commit has not already taken can be committed: a landed snapshot
       // is out of the running, and the run starts again after it.
-      const open = nodes.filter((turn) => !taken.has(turn.turn.n));
+      const open = nodes.filter((snapshot) => !taken.has(snapshot.snapshot.n));
       const { through, blocked } = committableRun(
-        open.map((turn) => ({ n: turn.turn.n, reviewed: turn.reviewed })),
+        open.map((snapshot) => ({ n: snapshot.snapshot.n, reviewed: snapshot.reviewed })),
       );
       const stranded = new Set(blocked);
       const areas: GroupNode[] = [
@@ -485,13 +496,13 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
                 node.repo,
                 commit.sha,
                 commit.message,
-                commit.turns.flatMap((n) => at.get(n) ?? []),
+                commit.snapshots.flatMap((n) => at.get(n) ?? []),
               ),
           ),
           undefined,
           new Set(),
         ),
-        // A turn read only in part sits in both areas at once, as one half each.
+        // A snapshot read only in part sits in both areas at once, as one half each.
         // Marking a file is a move rather than a state, the way staging one is:
         // what you have read is in Reviewed, and what is left is where you left
         // it.
@@ -499,8 +510,8 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
           node.repo,
           "reviewed",
           open
-            .filter((turn) => turn.viewed > 0 || turn.reviewed)
-            .map((turn) => (turn.reviewed ? turn : turn.showing("reviewed"))),
+            .filter((snapshot) => snapshot.viewed > 0 || snapshot.reviewed)
+            .map((snapshot) => (snapshot.reviewed ? snapshot : snapshot.showing("reviewed"))),
           [],
           through,
           stranded,
@@ -509,91 +520,98 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
           node.repo,
           "unreviewed",
           open
-            .filter((turn) => !turn.reviewed)
-            .map((turn) => (turn.viewed === 0 ? turn : turn.showing("unreviewed"))),
+            .filter((snapshot) => !snapshot.reviewed)
+            .map((snapshot) => (snapshot.viewed === 0 ? snapshot : snapshot.showing("unreviewed"))),
           [],
           undefined,
           new Set(),
         ),
       ];
-      return areas.filter((area) => area.turns.length + area.commits.length > 0);
+      return areas.filter((area) => area.snapshots.length + area.commits.length > 0);
     }
     if (node.kind === "group") {
-      return node.area === "committed" ? node.commits : node.turns;
+      return node.area === "committed" ? node.commits : node.snapshots;
     }
     if (node.kind === "commit") {
-      return node.turns;
+      return node.snapshots;
     }
     if (node.kind === "file") {
       return [];
     }
-    return this.filesOfTurn(node);
+    return this.filesOfSnapshot(node);
   }
 
-  /** Every turn of a repo, measured. Whether a turn still has anything to show
+  /** Every snapshot of a repo, measured. Whether a snapshot still has anything to show
    * has to be known before it is expanded — and before it can be put in an area —
-   * so all of it happens here. The two commits either side of a turn never move,
+   * so all of it happens here. The two commits either side of a snapshot never move,
    * so this is cached after the first pass and the lane costs one `hash-object`
    * and one `ls-tree` per refresh.
    *
    * Public because the commit action re-reads it rather than trusting the tree:
    * a `git restore` in a terminal can move what is reviewable between the row
    * being drawn and the button being pressed. */
-  async shapeOf(repo: Repo): Promise<TurnNode[]> {
-    const turns = repo.store.data.turns;
-    // Whether a turn still has anything to show has to be known before it is
-    // expanded, so every turn is measured here. The two commits either side of
-    // a turn never move, so all of this is cached after the first pass and the
+  async shapeOf(repo: Repo): Promise<SnapshotNode[]> {
+    const snapshots = repo.store.data.snapshots;
+    // Whether a snapshot still has anything to show has to be known before it is
+    // expanded, so every snapshot is measured here. The two commits either side of
+    // a snapshot never move, so all of this is cached after the first pass and the
     // lane costs one `hash-object` per refresh.
     const changed = await Promise.all(
-      turns.map((turn) => repo.git.changedFiles(turn.parent, turn.sha)),
+      snapshots.map((snapshot) => repo.git.changedFiles(snapshot.parent, snapshot.sha)),
     );
     const disk = await repo.git.blobsOnDisk([
       ...new Set(changed.flat().map((file) => file.path)),
     ]);
-    // Which turns a commit has taken. HEAD is resolved per refresh rather than
+    // Which snapshots a commit has taken. HEAD is resolved per refresh rather than
     // cached — it is the one revision in play that moves — and the rule lives
-    // with the other turn semantics, because the CLI reports the same answer.
-    const commits = await landedCommits(repo.git, turns, await repo.git.head());
-    const landed = new Set(commits.flatMap((commit) => commit.turns));
+    // with the other snapshot semantics, because the CLI reports the same answer.
+    const commits = await landedCommits(repo.git, snapshots, await repo.git.head());
+    const landed = new Set(commits.flatMap((commit) => commit.snapshots));
     const shape = await Promise.all(
       changed.map(async (files, i) => {
         const paths = files.map((file) => file.path);
         const [before, after] = await Promise.all([
-          repo.git.blobsAt(turns[i].parent, paths),
-          repo.git.blobsAt(turns[i].sha, paths),
+          repo.git.blobsAt(snapshots[i].parent, paths),
+          repo.git.blobsAt(snapshots[i].sha, paths),
         ]);
-        // A file is the turn's doing while disk differs from where it started,
-        // and is still the turn's to give back while disk matches where it
-        // ended. Neither means a later turn wrote over it, and until that turn
+        // A file is the snapshot's doing while disk differs from where it started,
+        // and is still the snapshot's to give back while disk matches where it
+        // ended. Neither means a later snapshot wrote over it, and until that snapshot
         // goes first this one cannot be put back.
         const live = paths.filter((file) => disk.get(file) !== before.get(file));
         const owned = live.filter((file) => disk.get(file) === after.get(file));
         return {
           live: live.length,
           droppable: owned.length === live.length,
-          // Only the files the turn still owns: one it no longer changes is not
-          // on the worklist, so it cannot be what leaves the turn unreviewed.
-          viewed: live.filter((file) => repo.store.isReviewed(file, turns[i].n)).length,
-          landed: landed.has(turns[i].n),
+          // Only the files the snapshot still owns: one it no longer changes is not
+          // on the worklist, so it cannot be what leaves the snapshot unreviewed.
+          viewed: live.filter((file) => repo.store.isReviewed(file, snapshots[i].n)).length,
+          landed: landed.has(snapshots[i].n),
         };
       }),
     );
-    return turns.map(
+    return snapshots.map(
       (t, i) =>
-        new TurnNode(repo, t, shape[i].live, shape[i].droppable, shape[i].viewed, shape[i].landed),
+        new SnapshotNode(
+          repo,
+          t,
+          shape[i].live,
+          shape[i].droppable,
+          shape[i].viewed,
+          shape[i].landed,
+        ),
     );
   }
 
-  private async filesOfTurn(node: TurnNode): Promise<FileNode[]> {
-    const files = await node.repo.git.changedFiles(node.turn.parent, node.turn.sha);
+  private async filesOfSnapshot(node: SnapshotNode): Promise<FileNode[]> {
+    const files = await node.repo.git.changedFiles(node.snapshot.parent, node.snapshot.sha);
     const paths = files.map((file) => file.path);
-    const intact = await node.repo.git.unchangedSince(node.turn.sha, paths);
-    // The mirror of `intact`: a file back at the turn's *starting* point has had
-    // this turn's change undone, so there is nothing left to review and the row
+    const intact = await node.repo.git.unchangedSince(node.snapshot.sha, paths);
+    // The mirror of `intact`: a file back at the snapshot's *starting* point has had
+    // this snapshot's change undone, so there is nothing left to review and the row
     // goes. The snapshot still records the change — it remains a true statement
-    // about what the turn did — but the worklist should not still be asking.
-    const undone = await node.repo.git.unchangedSince(node.turn.parent, paths);
+    // about what the snapshot did — but the worklist should not still be asking.
+    const undone = await node.repo.git.unchangedSince(node.snapshot.parent, paths);
     const head = await node.repo.git.head();
     const landed =
       head === undefined ? new Set<string>() : await node.repo.git.unchangedSince(head, paths);
@@ -604,9 +622,9 @@ export class TurnsProvider implements vscode.TreeDataProvider<Node> {
         (file) =>
           new FileNode(
             node.repo,
-            node.turn,
+            node.snapshot,
             file,
-            node.repo.store.isReviewed(file.path, node.turn.n),
+            node.repo.store.isReviewed(file.path, node.snapshot.n),
             node.repo.store.threadsFor(file.path).filter((t) => t.state === "draft").length,
             intact.has(file.path),
             staged.has(file.path),

@@ -3,9 +3,9 @@ import * as vscode from "vscode";
 
 import { SCHEME, pathOf, revisionUri } from "./comments";
 import { FileRow } from "./files";
-import { ChangedFile, Turn } from "./git";
+import { ChangedFile, Snapshot } from "./git";
 import { Repo, Repos } from "./repos";
-import { FileNode } from "./turns";
+import { FileNode } from "./snapshots";
 
 /** Serves file content at a snapshot revision, so a diff can show a side that
  * no longer exists on disk. The revision URI names an absolute path, so which
@@ -22,7 +22,7 @@ export class RevisionContentProvider implements vscode.TextDocumentContentProvid
   }
 }
 
-/** Where a review's opening note is served from. Its query is the turns it
+/** Where a review's opening note is served from. Its query is the snapshots it
  * covers, in order; an empty query is the empty left-hand side that makes the
  * note render as one added block rather than as a file with no changes. */
 export const NOTE_SCHEME = "octoview-note";
@@ -31,18 +31,18 @@ export const NOTE_SCHEME = "octoview-note";
  * extension so the icon theme draws it as a note rather than as source. */
 const NOTE_NAME = "agent notes.md";
 
-function noteUri(repo: Repo, turns: Turn[], text: boolean): vscode.Uri {
+function noteUri(repo: Repo, snapshots: Snapshot[], text: boolean): vscode.Uri {
   return vscode.Uri.from({
     scheme: NOTE_SCHEME,
     path: path.join(repo.root, NOTE_NAME),
-    query: text ? turns.map((turn) => turn.n).join(",") : "",
+    query: text ? snapshots.map((snapshot) => snapshot.n).join(",") : "",
   });
 }
 
-/** What the agent said when it finished each turn, as a document — so a review
+/** What the agent said when it finished each snapshot, as a document — so a review
  * can open with it. The tab title and the tree row have room for its first line
  * only; this is the rest of it, which is where the reasoning and the caveats
- * are. A turn snapshotted before messages were kept falls back to its label. */
+ * are. A snapshot taken before messages were kept falls back to its label. */
 export class NoteContentProvider implements vscode.TextDocumentContentProvider {
   constructor(private readonly repos: Repos) {}
 
@@ -55,12 +55,13 @@ export class NoteContentProvider implements vscode.TextDocumentContentProvider {
       throw new Error(`octoview: ${uri.path} is not inside any repository in this workspace`);
     }
     const wanted = new Set(uri.query.split(","));
-    return located.repo.store.data.turns
-      .filter((turn) => wanted.has(String(turn.n)))
+    return located.repo.store.data.snapshots
+      .filter((snapshot) => wanted.has(String(snapshot.n)))
       .map(
-        (turn) =>
-          `turn ${turn.n} · ${turn.agent} · ${new Date(turn.at).toLocaleString()}\n\n` +
-          `${turn.message ?? turn.label}\n`,
+        (snapshot) =>
+          `snapshot ${snapshot.n} · ${snapshot.agent} · ` +
+          `${new Date(snapshot.at).toLocaleString()}\n\n` +
+          `${snapshot.message ?? snapshot.label}\n`,
       )
       .join("\n———\n\n");
   }
@@ -72,8 +73,8 @@ export class NoteContentProvider implements vscode.TextDocumentContentProvider {
  * the fix for both. A window reload restores tabs before the extension has
  * activated, so nothing is serving the `octoview:` scheme yet and the editor
  * comes back unresolved — the tab is still there, but its content never arrives.
- * And a revert rewrites turn commits, which leaves a tab pointed at a snapshot
- * that is no longer any turn's; `moved` carries it to the one that replaced it.
+ * And a revert rewrites snapshot commits, which leaves a tab pointed at a snapshot
+ * that is no longer any snapshot's; `moved` carries it to the one that replaced it.
  *
  * Only plain diff tabs. The multi-diff editor's input type is not in the stable
  * API — it arrives as `unknown` — so a stacked or step-history tab is left alone
@@ -106,38 +107,38 @@ export async function reopenRevisionTabs(moved: Map<string, string>): Promise<vo
   }
 }
 
-/** Open the selected turns' net change: the native multi-diff editor, one row
+/** Open the selected snapshots' net change: the native multi-diff editor, one row
  * per changed file, base → last selected snapshot. Everything the diff editor
  * gives — word-level highlights, line numbers, comments, open-file — works
- * untouched; the turn-by-turn flow lives in `openStepHistory`, reachable per
+ * untouched; the snapshot-by-snapshot flow lives in `openStepHistory`, reachable per
  * file.
  *
  * The rows come from the caller rather than from one diff across the span: a
  * non-contiguous selection would otherwise show files that only an unselected
- * turn in the gap had touched. A change a later selected turn reverted nets out
+ * snapshot in the gap had touched. A change a later selected snapshot reverted nets out
  * and does not appear either way.
  *
  * Returns the title it used, which is the only handle a multi-diff tab has. */
 export async function openStackedDiff(
   repo: Repo,
-  turns: Turn[],
+  snapshots: Snapshot[],
   rows: FileRow[],
 ): Promise<string | undefined> {
-  const base = turns[0].parent;
-  const last = turns[turns.length - 1];
+  const base = snapshots[0].parent;
+  const last = snapshots[snapshots.length - 1];
   if (rows.length === 0) {
     vscode.window.showInformationMessage(
-      `Octoview: turns ${turns[0].n}→${last.n} in ${repo.name} net out to no changes.`,
+      `Octoview: snapshots ${snapshots[0].n}→${last.n} in ${repo.name} net out to no changes.`,
     );
     return undefined;
   }
-  const isLatest = last.n === repo.store.latestTurn?.n;
+  const isLatest = last.n === repo.store.latestSnapshot?.n;
   const added = rows.reduce((n, row) => n + row.stat.added, 0);
   const deleted = rows.reduce((n, row) => n + row.stat.deleted, 0);
   const span =
-    turns.length === 1
-      ? `turn ${turns[0].n} — ${turns[0].label}`
-      : `turns ${turns[0].n}→${last.n} net`;
+    snapshots.length === 1
+      ? `snapshot ${snapshots[0].n} — ${snapshots[0].label}`
+      : `snapshots ${snapshots[0].n}→${last.n} net`;
   const title = `${repo.name}: ${span} · +${added} −${deleted}`;
   if (rows.length === 1) {
     // A one-row multi-diff leaves the rest of the tab empty; the plain diff
@@ -154,18 +155,19 @@ export async function openStackedDiff(
     return title;
   }
   // The agent's own account of the work, first: a diff is easier to read for
-  // knowing what the turn was trying to do, and this is the one place with room
-  // for the whole message. With one turn and no message there is nothing to say
+  // knowing what the snapshot was trying to do, and this is the one place with room
+  // for the whole message. With one snapshot and no message there is nothing to say
   // that the tab title has not said already; with several, the run of labels is
   // still worth having as a contents page.
-  const guided = turns.length > 1 || turns.some((turn) => turn.message !== undefined);
+  const guided =
+    snapshots.length > 1 || snapshots.some((snapshot) => snapshot.message !== undefined);
   const resources = [
     ...(guided
       ? [
           [
             vscode.Uri.file(path.join(repo.root, NOTE_NAME)),
-            noteUri(repo, turns, false),
-            noteUri(repo, turns, true),
+            noteUri(repo, snapshots, false),
+            noteUri(repo, snapshots, true),
           ],
         ]
       : []),
@@ -212,34 +214,38 @@ async function counted(
   return stat === undefined ? "+0 −0" : `+${stat.added} −${stat.deleted}`;
 }
 
-/** Open one file's evolution as native diff rows: each selected turn that
+/** Open one file's evolution as native diff rows: each selected snapshot that
  * touched the file contributes its own parent → sha transition, in order, so
  * scrolling the tab replays the file step by step with real diffs — word-level
- * highlights and comments included. Each row's header names its turn, and the
+ * highlights and comments included. Each row's header names its snapshot, and the
  * view opens as its own tab so closing it lands back on whatever was showing. */
-export async function openStepHistory(repo: Repo, rel: string, turns: Turn[]): Promise<void> {
+export async function openStepHistory(
+  repo: Repo,
+  rel: string,
+  snapshots: Snapshot[],
+): Promise<void> {
   const abs = path.join(repo.root, rel);
-  const steps: Turn[] = [];
-  for (const turn of turns) {
-    const files = await repo.git.changedFiles(turn.parent, turn.sha);
+  const steps: Snapshot[] = [];
+  for (const snapshot of snapshots) {
+    const files = await repo.git.changedFiles(snapshot.parent, snapshot.sha);
     if (files.some((f) => f.path === rel || f.oldPath === rel)) {
-      steps.push(turn);
+      steps.push(snapshot);
     }
   }
   if (steps.length === 0) {
-    vscode.window.showInformationMessage(`Octoview: no selected turn touched ${rel}.`);
+    vscode.window.showInformationMessage(`Octoview: no selected snapshot touched ${rel}.`);
     return;
   }
-  const latest = repo.store.latestTurn?.n;
+  const latest = repo.store.latestSnapshot?.n;
   if (steps.length === 1) {
     // One step is one diff; the plain editor shows it at full height instead
     // of a single multi-diff row floating over empty space.
-    const turn = steps[0];
+    const snapshot = steps[0];
     await vscode.commands.executeCommand(
       "vscode.diff",
-      revisionUri(turn.parent, abs),
-      turn.n === latest ? vscode.Uri.file(abs) : revisionUri(turn.sha, abs),
-      `${path.basename(rel)}: t${turn.n} — ${turn.label}`,
+      revisionUri(snapshot.parent, abs),
+      snapshot.n === latest ? vscode.Uri.file(abs) : revisionUri(snapshot.sha, abs),
+      `${path.basename(rel)}: t${snapshot.n} — ${snapshot.label}`,
       { preview: false },
     );
     return;
@@ -250,19 +256,22 @@ export async function openStepHistory(repo: Repo, rel: string, turns: Turn[]): P
   if (vscode.window.tabGroups.activeTabGroup.activeTab?.isPreview === true) {
     await vscode.commands.executeCommand("workbench.action.keepEditor");
   }
-  const resources = steps.map((turn) => [
+  const resources = steps.map((snapshot) => [
     // The multi-diff row header renders this first URI, so its path names the
-    // turn; pathOf recovers the real path from the fragment.
+    // snapshot; pathOf recovers the real path from the fragment.
     vscode.Uri.from({
       scheme: SCHEME,
-      path: path.join(path.dirname(abs), `t${turn.n} — ${turn.label.replaceAll("/", "∕")}`),
-      query: turn.sha,
+      path: path.join(
+        path.dirname(abs),
+        `s${snapshot.n} — ${snapshot.label.replaceAll("/", "∕")}`,
+      ),
+      query: snapshot.sha,
       fragment: abs,
     }),
-    revisionUri(turn.parent, abs),
-    turn.n === latest ? vscode.Uri.file(abs) : revisionUri(turn.sha, abs),
+    revisionUri(snapshot.parent, abs),
+    snapshot.n === latest ? vscode.Uri.file(abs) : revisionUri(snapshot.sha, abs),
   ]);
-  // Every row header already names the file's directory and its turn, so the tab
+  // Every row header already names the file's directory and its snapshot, so the tab
   // only has to say which file and how far it runs. VS Code appends its own
   // "(N files)" to a multi-diff title — here N is the step count, and there is no
   // way to suppress it — which is one more reason to keep the label short.
@@ -273,20 +282,21 @@ export async function openStepHistory(repo: Repo, rel: string, turns: Turn[]): P
   );
 }
 
-/** Open turn N-1 → turn N for one file.
+/** Open snapshot N-1 → snapshot N for one file.
  *
- * For the newest turn the right-hand side is the real file on disk, so the
+ * For the newest snapshot the right-hand side is the real file on disk, so the
  * language server attaches and hovers, types, and go-to-definition work while
- * reading. Older turns diff two revisions and are read-only by nature. */
+ * reading. Older snapshots diff two revisions and are read-only by nature. */
 export async function openDiff(repo: Repo, node: FileNode): Promise<void> {
   const abs = path.join(repo.root, node.file.path);
-  const isLatest = node.turn.n === repo.store.latestTurn?.n;
-  const left = revisionUri(node.turn.parent, abs);
-  const right = isLatest ? vscode.Uri.file(abs) : revisionUri(node.turn.sha, abs);
-  const counts = await counted(repo, node.turn.parent, node.turn.sha, node.file);
+  const isLatest = node.snapshot.n === repo.store.latestSnapshot?.n;
+  const left = revisionUri(node.snapshot.parent, abs);
+  const right = isLatest ? vscode.Uri.file(abs) : revisionUri(node.snapshot.sha, abs);
+  const counts = await counted(repo, node.snapshot.parent, node.snapshot.sha, node.file);
   const title = isLatest
-    ? `${repo.name}/${node.file.path} — turn ${node.turn.n} (working tree) · ${counts}`
-    : `${repo.name}/${node.file.path} — turn ${node.turn.n - 1} → ${node.turn.n} · ${counts}`;
+    ? `${repo.name}/${node.file.path} — snapshot ${node.snapshot.n} (working tree) · ${counts}`
+    : `${repo.name}/${node.file.path} — snapshot ${node.snapshot.n - 1} → ` +
+      `${node.snapshot.n} · ${counts}`;
   await vscode.commands.executeCommand("vscode.diff", left, right, title, {
     preview: true,
   });
