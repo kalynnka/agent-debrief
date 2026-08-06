@@ -188,13 +188,15 @@ export async function openStackedDiff(
 
 /** A multi-diff row's header label, ticked when the file has been viewed.
  *
- * The tick has to ride in the name because nothing else about that header is
- * ours: its toolbar is a proposed-API menu, and the label is built with
- * `setFile(uri, {strikethrough})` — no `fileDecorations`, so a `FileDecoration`
- * badge never reaches it. The extension stays on the end, so the icon theme still
+ * The tick rides in the name because nothing else about that header can hold it:
+ * the label is built with `setFile(uri, {strikethrough})` — no `fileDecorations`,
+ * so a `FileDecoration` badge never reaches it — and the row's toolbar takes
+ * buttons, not state. The extension stays on the end, so the icon theme still
  * recognises the file, and the tick costs nothing else: `vscode.changes` leaves
  * `goToFileUri` unset, so Open File follows the editor's own URI rather than this
- * one, and still opens the real file. */
+ * one, and still opens the real file.
+ *
+ * Baked in when the tab opens: a mark made later moves this only on reopen. */
 function viewedLabel(absPath: string, viewed: boolean): vscode.Uri {
   if (!viewed) {
     return vscode.Uri.file(absPath);

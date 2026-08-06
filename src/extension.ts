@@ -240,20 +240,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return at === undefined ? undefined : { repo: located.repo, rel: located.rel, at };
   };
 
-  /** The row of a review tab the cursor is in. A multi-diff's rows are ordinary
-   * editors, so the active one names the file; which snapshot the mark belongs at
-   * is that row's own last snapshot, the same answer `markRows` gives.
+  /** One row of the review tab in front of you: which file it is, whether it is
+   * already marked, and the snapshot the mark belongs at — that row's own last
+   * snapshot, the same answer `markRows` gives.
    *
-   * Either side of the row resolves — the mark's snapshot comes from the row, not
-   * from the revision the cursor happens to be on. */
-  const activeRow = async (): Promise<{ repo: Repo; rel: string; at: number } | undefined> => {
+   * `uri` is the row a toolbar button acted on; without one it is the row the
+   * cursor is in. Either side of a row resolves, because the snapshot comes from
+   * the row rather than from the revision the URI happens to name. */
+  const rowAt = async (
+    uri: vscode.Uri | undefined,
+  ): Promise<{ repo: Repo; rel: string; at: number; reviewed: boolean } | undefined> => {
     const review = activeReview();
-    const editor = vscode.window.activeTextEditor;
-    if (review === undefined || editor === undefined) {
+    const target = uri ?? vscode.window.activeTextEditor?.document.uri;
+    if (review === undefined || target === undefined) {
       return undefined;
     }
-    const uri = editor.document.uri;
-    const located = repos.locate(uri.scheme === SCHEME ? pathOf(uri) : uri.fsPath);
+    const located = repos.locate(target.scheme === SCHEME ? pathOf(target) : target.fsPath);
     if (located === undefined || located.repo !== review.repo) {
       return undefined;
     }
@@ -266,6 +268,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           repo: review.repo,
           rel: row.file.path,
           at: row.snapshots[row.snapshots.length - 1].n,
+          reviewed: row.reviewed,
         };
   };
 
@@ -273,11 +276,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * for its own file; a review tab gets the actions for everything it covers, and
    * the tick for whichever row the cursor is in.
    *
-   * A multi-diff's per-row toolbar is a proposed-API menu
-   * (`contribMultiDiffEditorMenus`), so the tick cannot sit on the row itself —
-   * the tab-level tick, following the focused row, is what replaces it. */
+   * The row's own toolbar carries a tick too (`octoview.toggleRowViewed`), for
+   * the mouse. This one is what the keyboard aims at, and it is also the only one
+   * that says whether the file it is pointed at has been read. */
   const trackActiveDiff = async (): Promise<void> => {
-    const active = activeDiff() ?? (await activeRow());
+    const active = activeDiff() ?? (await rowAt(undefined));
     const review = activeReview();
     const rows = review === undefined ? [] : await rowsFor(review.repo, review.snapshots);
     await vscode.commands.executeCommand("setContext", "octoview.inDiff", active !== undefined);
@@ -584,17 +587,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // The tick where GitHub puts it: on the file you are reading, not on a row in
   // a list somewhere else.
+  const markOne = async (
+    target: { repo: Repo; rel: string; at: number },
+    viewed: boolean,
+  ): Promise<void> => {
+    await mark(target.repo, [target.rel], viewed ? target.at : undefined);
+    snapshots.refresh();
+    await trackActiveDiff();
+    // Inside a review the row header cannot answer: its ✓ is baked into the URI
+    // the tab was opened with, and reopening the tab to move it would throw away
+    // the reviewer's place. This is the acknowledgement until then.
+    vscode.window.setStatusBarMessage(
+      `Octoview: ${path.basename(target.rel)} ${viewed ? "marked viewed" : "unmarked"}`,
+      3000,
+    );
+  };
+
   const markHere = async (viewed: boolean): Promise<void> => {
-    const active = activeDiff() ?? (await activeRow());
+    const active = activeDiff() ?? (await rowAt(undefined));
     if (active === undefined) {
       throw new Error("octoview: no snapshot diff is showing");
     }
-    await mark(active.repo, [active.rel], viewed ? active.at : undefined);
-    snapshots.refresh();
-    await trackActiveDiff();
+    await markOne(active, viewed);
   };
   register("octoview.markViewedHere", () => markHere(true));
   register("octoview.markUnviewedHere", () => markHere(false));
+
+  /** The tick on a multi-diff row's own toolbar. The menu it sits in is proposed
+   * API (`contribMultiDiffEditorMenus`, opted into by the manifest), and it hands
+   * the command that row's URI — which is the only way to know which row was
+   * clicked, since the cursor may well be in another one.
+   *
+   * One button that toggles, because a menu item's `when` cannot ask whether
+   * *this* row is reviewed: context keys are per window, not per row. */
+  register("octoview.toggleRowViewed", async (uri: unknown) => {
+    if (!(uri instanceof vscode.Uri)) {
+      throw new Error("octoview: the row toolbar gave no resource to act on");
+    }
+    const row = await rowAt(uri);
+    if (row === undefined) {
+      throw new Error("octoview: that row is not part of the review in front of you");
+    }
+    await markOne(row, !row.reviewed);
+  });
 
   // The snapshot-level actions, on the review tab and scoped to the snapshots that tab
   // was opened for — not to whatever the tree happens to have selected now.

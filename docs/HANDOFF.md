@@ -53,6 +53,16 @@ real reuse. Prefer fail-fast errors over fallback control flow. Package manager
 is pnpm with `nodeLinker: hoisted` (`pnpm-workspace.yaml`) — do not reintroduce
 an npm lockfile or the symlinked layout.
 
+**One proposed API is opted into** (owner decision 2026-08-06):
+`contribMultiDiffEditorMenus`, for the tick on a multi-diff row's own toolbar
+(`multiDiffEditor/resource/title`, which hands the command that row's URI). VS
+Code allows this because octoview is run from source in the Extension
+Development Host — it is not installed from the marketplace. The price is that
+**this build cannot be published as-is**, and a VS Code update can change or
+withdraw the proposal, which shows up as the row button silently vanishing.
+Everything else keeps working when it does, and `⌘⌥V` does the same job from the
+keyboard. Do not add a second proposal without asking.
+
 ---
 
 ## 3. Where things are

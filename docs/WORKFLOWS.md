@@ -75,14 +75,22 @@ For the **newest** snapshot the right-hand side of a diff is the real file on di
 so the language server attaches — hover, types and go-to-definition all work while
 you read. Older snapshots diff two revisions and are read-only by nature.
 
-Tick a file as you read it with `⌘⌥V` (`ctrl+alt+v` elsewhere), which marks the
-row your cursor is in — and the tick button in the tab's title bar follows the
-focused row, so it says whether *this* file is read and toggles it back.
+Tick a file as you read it three ways: the **✓ on the row's own header**, beside
+Open File; `⌘⌥V` (`ctrl+alt+v` elsewhere), which marks the row your cursor is in;
+or the tick in the tab's title bar, which follows the focused row and says
+whether *this* file has been read. The row button is a plain toggle — the row
+already says which state it is in.
+
+That row button rides on a proposed VS Code API, which is affordable only
+because Octoview runs from source rather than from the marketplace. If a VS Code
+update withdraws it the button disappears; nothing else changes, and the
+keystroke still works.
 
 A multi-diff row header shows `✓ files.ts` once that file is marked viewed. The
 header is baked in when the tab opens, so the mark you just made appears there
-only on reopen — the sidebar and the title-bar button are what answer in the
-meantime. **Mark All Files Viewed** reopens the tab for you.
+only on reopen — the status bar says so at the time, and the sidebar and the
+title-bar button are what answer afterwards. **Mark All Files Viewed** reopens
+the tab for you.
 
 ---
 

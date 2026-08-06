@@ -20,6 +20,10 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "//enabledApiProposals": "The tick on a multi-diff row's own toolbar. Development-only: VS Code allows a proposed API for an extension run from source, so this build cannot be published as-is, and a VS Code update can withdraw the proposal — the button disappears, everything else keeps working.",
+  "enabledApiProposals": [
+    "contribMultiDiffEditorMenus"
+  ],
   "extensionDependencies": [
     "vscode.git"
   ],
@@ -37,7 +41,8 @@
       "octoview": [
         {
           "id": "octoview.snapshots",
-          "name": "Snapshots"
+          "name": "Snapshots",
+          "icon": "media/icon.svg"
         }
       ]
     },
@@ -158,6 +163,12 @@
         "title": "Commit Reviewed Snapshots",
         "category": "Octoview",
         "icon": "$(git-commit)"
+      },
+      {
+        "command": "octoview.toggleRowViewed",
+        "title": "Mark Viewed / Not Viewed",
+        "category": "Octoview",
+        "icon": "$(check)"
       }
     ],
     "menus": {
@@ -247,9 +258,20 @@
           "group": "octoview@1"
         }
       ],
+      "multiDiffEditor/resource/title": [
+        {
+          "command": "octoview.toggleRowViewed",
+          "when": "octoview.inReview && resourceScheme != octoview-note",
+          "group": "navigation@1"
+        }
+      ],
       "commandPalette": [
         {
           "command": "octoview.openFile",
+          "when": "false"
+        },
+        {
+          "command": "octoview.toggleRowViewed",
           "when": "false"
         },
         {
