@@ -19,6 +19,7 @@ const {
   landedSnapshots,
   makeAnchor,
   revertPaths,
+  stashedSince,
   sweepLanes,
   takeSnapshot,
 } = require("../out/review");
@@ -736,6 +737,55 @@ async function main() {
   );
   fs.rmSync(midRoot, { recursive: true, force: true });
   console.log("mid-merge is nobody's work            ok");
+
+  // 24. `git stash` is the one thing that makes every snapshot look reverted
+  //     without anything being reverted (docs/GIT.md D5's residue). Octoview cannot
+  //     tell it from a real revert by looking at the tree, so it asks the one
+  //     question it can answer: has the stash moved since the last snapshot?
+  const stashRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-stash-"));
+  const sg = (args) => execFileSync("git", args, { cwd: stashRoot, encoding: "utf8" });
+  sg(["init", "-q", "-b", "main", "."]);
+  sg(["config", "user.email", "t@t"]);
+  sg(["config", "user.name", "t"]);
+  fs.writeFileSync(path.join(stashRoot, "s.txt"), "base\n");
+  sg(["add", "."]);
+  sg(["commit", "-qm", "base"]);
+  const sgit = new Git(stashRoot);
+  const sstore = new Store(await resolveLane(stashRoot));
+  fs.writeFileSync(path.join(stashRoot, "s.txt"), "agent work\n");
+  const stashed = await takeSnapshot(sgit, sstore, { label: "work", agent: "manual" });
+  assert.strictEqual(stashed.created, true);
+  assert.strictEqual(stashed.snapshot.stash, "", "no stash yet, and that is not the same as unknown");
+  assert.strictEqual(await stashedSince(sgit, sstore), false, "nothing has happened yet");
+
+  sg(["stash", "-q"]);
+  assert.strictEqual(
+    (await sgit.unchangedSince(stashed.snapshot.parent, ["s.txt"])).has("s.txt"),
+    true,
+    "the stash put the file back — which is exactly what a revert looks like",
+  );
+  assert.strictEqual(await stashedSince(sgit, sstore), true, "but the stash moved, and that shows");
+
+  sg(["stash", "pop", "-q"]);
+  assert.strictEqual(
+    await stashedSince(sgit, sstore),
+    false,
+    "popping empties the stash back to where the snapshot found it",
+  );
+
+  // A snapshot from before the field exists says nothing rather than guessing: a
+  // false alarm on every old lane would teach people to ignore the real one.
+  await sstore.withLock((state) => {
+    delete state.snapshots[state.snapshots.length - 1].stash;
+  });
+  sg(["stash", "-q"]);
+  assert.strictEqual(
+    await stashedSince(sgit, sstore),
+    false,
+    "an unrecorded stash tip is unknown, not zero",
+  );
+  fs.rmSync(stashRoot, { recursive: true, force: true });
+  console.log("a stash is not a revert               ok");
   console.log("a merge's files are not the agent's   ok");
 
   fs.rmSync(root, { recursive: true, force: true });

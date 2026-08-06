@@ -23,6 +23,7 @@ import {
   dropSnapshot,
   landedCommits,
   revertPaths,
+  stashedSince,
   sweepLanes,
   takeSnapshot,
 } from "./review";
@@ -438,6 +439,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // not an obstacle. Without this a snapshot whose files were each reverted one by
     // one could never be undone, and its empty row would be there for good.
     const undone = await node.repo.git.unchangedSince(node.snapshot.parent, paths);
+    // Everything back at its starting point, and the stash has moved since the last
+    // snapshot: the likeliest reading is that a stash put it there, not that the
+    // reviewer undid it. Dropping now would delete the record of work that is sitting
+    // safely in the stash — and once popped, the row would have been right all along.
+    // Narrow on purpose: reverting a file that is still live is unaffected.
+    if (
+      paths.length > 0 &&
+      paths.every((file) => undone.has(file)) &&
+      (await stashedSince(node.repo.git, node.repo.store))
+    ) {
+      vscode.window.showWarningMessage(
+        `Octoview: the stash has moved since the last snapshot, so this looks reverted ` +
+          `because it is stashed, not because it was undone. Pop the stash — or take a ` +
+          `snapshot to make this the new starting point — before dropping anything.`,
+      );
+      return;
+    }
     const blocked = changed.filter((file) => !intact.has(file.path) && !undone.has(file.path));
     if (blocked.length > 0) {
       vscode.window.showWarningMessage(

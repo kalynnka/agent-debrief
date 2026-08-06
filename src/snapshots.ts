@@ -10,6 +10,7 @@ import {
   foreignPaths,
   landedCommits,
   LaneSweep,
+  stashedSince,
   sweepLanes,
 } from "./review";
 
@@ -226,6 +227,12 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
    * `store.data`, so the objects the tree handed us are ones this provider has
    * already thrown away. A snapshot number outlives that. */
   private selected = new Map<string, Set<number>>();
+
+  /** Repos whose stash has moved since their newest snapshot. A frozen row says
+   * the snapshot's changes were reverted; when a stash did it, that reads as
+   * "thrown away" for work that is safe, so the row has to say which it is.
+   * Measured once per refresh in `getChildren`, because `getTreeItem` is sync. */
+  private stashed = new Set<string>();
 
   constructor(
     private readonly repos: Repos,
@@ -445,12 +452,17 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
         // itself. Neither is something a TreeItem can express on its own.
         item.resourceUri = frozenSnapshotUri(node.repo.root, node.snapshot.n);
         hover.appendMarkdown(
-          `Every change this snapshot made has been reverted, so there is nothing ` +
-            `left of it on disk.\n\n` +
-            (node.droppable
-              ? `Drop it to take it out of the history.`
-              : `A later snapshot has written over files it changed — drop that one ` +
-                `first.`),
+          this.stashed.has(node.repo.root)
+            ? `Nothing of this snapshot is on disk — but the stash has moved since the ` +
+                `last snapshot, so the likeliest reason is that it is **stashed**, not ` +
+                `that it was undone. Pop the stash to bring it back. Dropping is ` +
+                `refused while this is true.`
+            : `Every change this snapshot made has been reverted, so there is nothing ` +
+                `left of it on disk.\n\n` +
+                (node.droppable
+                  ? `Drop it to take it out of the history.`
+                  : `A later snapshot has written over files it changed — drop that one ` +
+                    `first.`),
         );
         return item;
       }
@@ -556,6 +568,11 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       // Three areas, and empty ones are hidden the way Source Control hides them.
       // The snapshots are measured once here and handed down, so opening an area or a
       // commit costs nothing.
+      if (await stashedSince(node.repo.git, node.repo.store)) {
+        this.stashed.add(node.repo.root);
+      } else {
+        this.stashed.delete(node.repo.root);
+      }
       const nodes = await this.shapeOf(node.repo);
       const at = new Map(nodes.map((snapshot) => [snapshot.snapshot.n, snapshot]));
       const commits = await landedCommits(

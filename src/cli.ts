@@ -19,8 +19,8 @@ import { labelOf, summaryFromTranscript } from "./transcript";
 
 /** Bumped when a payload's shape changes; clients refuse a version they do not
  * know. 2 renamed every `turn` field and `turns` array to `snapshot`; 3 records
- * the HEAD a snapshot was taken at. */
-const SCHEMA_VERSION = 3;
+ * the HEAD a snapshot was taken at; 4 adds the stash tip beside it. */
+const SCHEMA_VERSION = 4;
 
 const USAGE = `usage: octoview <command> [options]
 

@@ -45,6 +45,14 @@ export interface Snapshot {
    * snapshot's, some of what this snapshot appears to have done was not the
    * agent's doing. Absent on snapshots taken before this was recorded. */
   head?: string;
+  /** `refs/stash` when the snapshot was taken, or `""` when there was no stash.
+   *
+   * A stash puts the working tree back where the snapshot started, which is
+   * exactly what a reviewer reverting the snapshot looks like — so without this
+   * the rows report work as thrown away when it is sitting safely in the stash.
+   * Absent on snapshots taken before this was recorded, which is not the same as
+   * `""` and must not be read as one. */
+  stash?: string;
 }
 
 export interface ChangedFile {
@@ -218,6 +226,22 @@ export class Git {
   async branches(): Promise<Set<string>> {
     const out = await this.run(["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
     return new Set(out.split("\n").filter((name) => name !== ""));
+  }
+
+  /** The stash's tip, or `""` when the repo has none.
+   *
+   * Empty string rather than undefined, because a snapshot records this and the
+   * two answers have to stay apart: `""` is "there was no stash", `undefined` is
+   * "this snapshot predates the field and cannot say". */
+  async stashTip(): Promise<string> {
+    try {
+      return (await this.run(["rev-parse", "--verify", "-q", "refs/stash"])).trim();
+    } catch (error) {
+      if ((error as { code?: number }).code === 1) {
+        return "";
+      }
+      throw error;
+    }
   }
 
   /** Every ref under a prefix, full names. */

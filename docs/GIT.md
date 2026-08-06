@@ -63,10 +63,10 @@ verified against the working repos rather than read off the PRD.
 | Command | Today | Should |
 |---|---|---|
 | `git restore <path>`, `git checkout -- <path>` | `GitWatch` fires, rows recompute, a file back at its starting content drops off its snapshot's worklist. Already designed for. | Unchanged. |
-| `git stash`, `git stash pop`/`apply` | A stash makes every snapshot look reverted — frozen, struck through, **droppable** — and a pop puts them all back. A stash is not an operation git considers itself inside, so `operationInProgress` returns undefined and D5's gate does not catch it. Verified. | **Open** — see D5's residue. |
+| `git stash`, `git stash pop`/`apply` | A stash makes every snapshot look reverted, and `operationInProgress` cannot see it — a stash is a completed act, not something git is inside. So the snapshot records `refs/stash` instead: when it has moved, the frozen row says *stashed* rather than *reverted*, and Drop is refused. | Unchanged. |
 | `git clean -fd` | Deletes untracked files a snapshot created; those snapshots go frozen. | Unchanged. |
 | `git am` | Commits, so HEAD moves and D3's rule marks what it brought. | Unchanged. |
-| `git apply` | **Open.** It patches the worktree without moving HEAD — verified — so there is no move for `foreignPaths` to read, and the patch is credited to the agent. | Needs a signal that is not HEAD. |
+| `git apply` | It patches the worktree without moving HEAD, so there is no move to read. Answered by a **turn-start snapshot** instead: a hook takes one before the agent runs, so the human's edits land in their own snapshot and the agent's diff starts after them. | Unchanged. |
 | Conflict resolution during merge/rebase | Refused. `operationInProgress` reads git's own marker files, and a snapshot is not taken while one exists. | Unchanged. |
 
 ### D. Commands that move the index only
@@ -155,7 +155,7 @@ branch. `state.json` stands in, holding every sha, so a lane can be put back wit
 `git update-ref` while the objects last. The window is `gc.pruneExpire`: git's
 knob, not one octoview invents.
 
-**D3 — Foreign changes are attributed to the agent.** *(fixed, with one residue)*
+**D3 — Foreign changes are attributed to the agent.** *(fixed)*
 `git pull` between two snapshots puts everyone else's work in the agent's next
 snapshot, under its name and its message.
 
@@ -170,12 +170,26 @@ them.
 *Done: the subtraction.* `foreignPaths` marks the paths a HEAD move brought in,
 and they carry `⇣` on the review row and the tree row.
 
-*Residue: `git apply`.* The rule reads a HEAD move, and `git apply` patches the
-worktree without moving HEAD — verified. A patch applied by hand is therefore
-still credited to the agent. Catching it needs a signal that is not HEAD, and
-there may not be an honest one: by the time a snapshot is taken, a hand-applied
-patch and a hand-typed edit are the same bytes with the same provenance. Worth
-naming rather than pretending.
+*And `git apply`, which moves no HEAD.* There is no signal in git for it — by the
+time a snapshot is taken, a hand-applied patch and a hand-typed edit are the same
+bytes with the same provenance. So the answer is not detection but **a second
+snapshot**: take one *before* the agent's turn starts, attributed to the human,
+and everything they did lands in their own snapshot rather than the agent's next
+one. The agent's diff then begins where the human's edits ended.
+
+This needed no code — `--agent manual` already exists — only a hook beside the
+Stop one:
+
+```json
+"UserPromptSubmit": [{ "hooks": [{ "type": "command",
+  "command": "node <octoview>/out/cli.js snapshot --agent manual --label 'before the turn'" }]}]
+```
+
+Verified end to end: patch `f.txt` by hand with `git apply`, prompt, and snapshot
+1 is `M f.txt [manual]` while snapshot 2 is `A agent.txt [claude]`. Snapshotting is
+idempotent, so a turn where the human changed nothing costs nothing. What it does
+*not* cover is an edit made while the agent is mid-turn — that still lands in the
+agent's snapshot, and no arrangement of hooks can separate it.
 
 **D4 — Detached HEAD has no lane of its own.** *(fixed)*
 `resolveLane` fell back to the worktree directory name, so every detached state
@@ -183,20 +197,28 @@ in a clone shared one lane, a bisect run appended to it a snapshot at a time, an
 a clone whose directory happened to share a name with a branch appended to that
 branch's lane. It is `detached/<sha7>` now.
 
-**D5 — Destructive actions stay offered while git is mid-operation.** *(fixed, with one residue)*
+**D5 — Destructive actions stay offered while git is mid-operation.** *(fixed)*
 A merge or rebase in progress makes snapshots look frozen, and a frozen row
 offered **Drop** — which deletes the ref, and with it the only remaining copy of
 work that is perfectly alive. Revert and Drop now refuse while
 `operationInProgress` answers, and say which operation to finish first.
 
-*Residue: `git stash`.* Verified — after a stash, `operationInProgress` returns
-undefined, because a stash is a completed act rather than something git is inside.
-So a stash still makes every snapshot look frozen and every frozen row still
-offers **Drop**. Octoview cannot tell "the reviewer reverted this" from "the
-reviewer stashed it": both leave the worktree back where the snapshot started.
-Watching whether `refs/stash` has moved since the last snapshot would catch the
-common case, at the cost of a heuristic where everything else here is derived.
-Not built, and not decided.
+*And `git stash`, which git does not consider itself inside.* Verified —
+`operationInProgress` returns undefined after a stash, so that gate cannot catch
+it. A stash leaves the worktree exactly where a reviewer undoing the snapshot
+would: octoview cannot tell them apart by looking.
+
+So the snapshot records `refs/stash` alongside HEAD (schema 4), and `stashedSince`
+asks the one question it can answer: has the stash moved? When it has, the frozen
+row's hover says **stashed, not reverted**, and Drop is refused with the same
+reason. It is narrow — reverting a file that is still live is untouched — and it
+errs toward silence: a snapshot from before the field existed says nothing rather
+than guessing, because a false alarm on every old lane teaches people to ignore
+the real one.
+
+**This is the one heuristic in the codebase**, and it is deliberate: everything
+else here is derived from git. The alternative was leaving a button that deletes
+the last record of work sitting safely in a stash.
 
 ## 4. Plan
 
@@ -279,10 +301,14 @@ agent edits after the merge goes back to being theirs.
 **Phase 4 — Write it down.** ✅ **Done.** PRD §4.2 and §4.8 reconciled as each
 phase landed; this catalogue is the contract; WORKFLOWS and HANDOFF follow.
 
-**Still open, both named above and neither scheduled:** `git apply` (D3's residue)
-and `git stash` (D5's residue). Each needs a decision about accepting a heuristic
-where the rest of this document derives its answers from git, which is why neither
-was taken unilaterally.
+**Phase 5 — the two residues.** ✅ **Done.** `git stash` answered by recording
+`refs/stash` (schema 4); `git apply` answered by the turn-start hook. Every row of
+the catalogue now reads "Unchanged", bar the two entries §5 says are deliberately
+not followed.
+*Verified:* 45 checks pass (24 smoke + 21 cli). The stash check proves a stash puts
+the file back exactly as a revert would, that the moved tip is what distinguishes
+them, that popping clears it, and that an unrecorded tip reads as unknown rather
+than as zero.
 
 ## 5. Deliberately not followed
 

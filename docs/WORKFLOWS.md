@@ -106,6 +106,20 @@ Edit such a file yourself and it goes back to being the agent's: the top layer i
 the one that counts, and hiding a real edit would be the worse mistake. `Notes.md`
 names the move at the top when there was one.
 
+Edits *you* make between turns are not the agent's either, and a `git apply` moves
+no HEAD for the mark to notice. The answer is a second hook, beside the Stop one,
+that snapshots when you send a prompt — so your own edits land in a `manual`
+snapshot and the agent's turn starts after them:
+
+```json
+"UserPromptSubmit": [{ "hooks": [{ "type": "command",
+  "command": "node <octoview>/out/cli.js snapshot --agent manual --label 'before the turn'" }]}]
+```
+
+Snapshotting is idempotent, so a turn where you changed nothing costs nothing. An
+edit made *while* the agent is running still lands in its snapshot — no hook can
+separate that.
+
 A multi-diff row header shows `✓ files.ts` once that file is marked viewed. The
 header is baked in when the tab opens, so the mark you just made appears there
 only on reopen — the status bar says so at the time, and the sidebar and the
@@ -179,7 +193,18 @@ honest: the ordering never shifts under you.
 Dropping a snapshot does not strand the ones after it. The one that follows was
 committed with it as its git parent, so the chain stays reachable.
 
-### 4.4 A snapshot you reverted piece by piece
+### 4.4 A stash is not a revert
+
+`git stash` puts the working tree back exactly where a snapshot started, which is
+indistinguishable from you having undone it — every snapshot goes frozen at once.
+Octoview records `refs/stash` with each snapshot, so when the stash has moved
+since the last one the row says **stashed**, not reverted, and Drop is refused.
+Pop the stash and everything comes back; or take a snapshot, which makes the
+stashed state the new starting point.
+
+This is the one guess in the tool. Everything else it shows is derived from git.
+
+### 4.5 A snapshot you reverted piece by piece
 
 Once nothing of a snapshot is left on disk it goes **frozen** — struck through and
 greyed, holding its number rather than vanishing, so the snapshots around it keep

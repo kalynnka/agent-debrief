@@ -48,7 +48,7 @@ export interface State {
   threads: Thread[];
 }
 
-const emptyState = (): State => ({ schemaVersion: 3, snapshots: [], reviewed: {}, threads: [] });
+const emptyState = (): State => ({ schemaVersion: 4, snapshots: [], reviewed: {}, threads: [] });
 
 /** Per-lane persistence under the clone's common dir, so every worktree of a
  * clone agrees on where state lives and nothing ever appears in `git status`.

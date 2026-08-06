@@ -95,6 +95,7 @@ export async function takeSnapshot(
       agent: opts.agent,
       session: opts.session,
       head,
+      stash: await git.stashTip(),
     };
     state.snapshots.push(snapshot);
     await carryForward(git, state, sha, files);
@@ -149,6 +150,27 @@ export async function adoptLane(git: Git, lane: Lane): Promise<void> {
       await git.deleteRef(snapshotRef(origin.from, snapshot.n));
     }
   }
+}
+
+/** Whether the stash has moved since the newest snapshot was taken.
+ *
+ * `git stash` is the one thing that makes every snapshot look reverted without
+ * anything being reverted: the working tree goes back to where the snapshot
+ * started, which is the same shape as a reviewer undoing it file by file. Octoview
+ * cannot tell those apart from the tree alone, and the cost of guessing wrong is
+ * a reviewer dropping the last record of work that is sitting safely in a stash.
+ *
+ * So it asks the one question it can answer: did the stash move? A heuristic, and
+ * the only one in this file — everything else here is derived. It errs toward
+ * saying no: a snapshot from before the field existed says nothing rather than
+ * guessing, because a false alarm on every old lane would teach people to ignore
+ * it. */
+export async function stashedSince(git: Git, store: Store): Promise<boolean> {
+  const latest = store.latestSnapshot;
+  if (latest?.stash === undefined) {
+    return false;
+  }
+  return (await git.stashTip()) !== latest.stash;
 }
 
 /** The paths a snapshot shows that were not the agent's doing.
