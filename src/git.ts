@@ -63,6 +63,12 @@ export interface ChangedFile {
   oldPath?: string;
 }
 
+/** One commit of a chain: what it changed, and what it left there. */
+export interface ChainCommit {
+  sha: string;
+  files: { path: string; blob: string | undefined }[];
+}
+
 export interface DiffStat {
   added: number;
   deleted: number;
@@ -94,6 +100,10 @@ export class Git {
   private readonly stats = new Map<string, Map<string, DiffStat>>();
   /** `<rev>` → its tree, for the revisions whose trees get compared repeatedly. */
   private readonly trees = new Map<string, string>();
+  /** `<rev>..<base>|<renames>` → the walk between them. Two commits never change
+   * what lies between them, so this is sound for the life of the process — and it
+   * is what keeps a second structural redraw from re-reading a whole lane. */
+  private readonly chains = new Map<string, ChainCommit[]>();
 
   constructor(readonly root: string) {}
 
@@ -278,6 +288,71 @@ export class Git {
 
   async deleteRef(ref: string): Promise<void> {
     await this.run(["update-ref", "-d", ref]);
+  }
+
+  /** Every commit from `rev` back to (not including) `base`, with the paths each
+   * changed and the blob it left there — the whole snapshot chain in one process.
+   *
+   * The alternative is `changedFiles` plus `blobsAt` per snapshot, which is two
+   * processes each and the reason a long lane took seconds to draw: at ~8ms of
+   * spawn overhead apiece, a thousand snapshots is two thousand processes for
+   * data one `git log` already holds.
+   *
+   * A snapshot's git parent *is* the revision it is diffed against, so the raw
+   * output for a commit is exactly what `changedFiles(parent, sha)` reports —
+   * same `-M`, same statuses. An all-zero post-image is git's way of saying the
+   * path is gone, and reads back as undefined.
+   *
+   * Commits the caller does not know about — a dropped snapshot still linking the
+   * chain — come back too, and are ignored by not being asked for. */
+  async chain(
+    rev: string,
+    base: string | undefined,
+    /** `-M` reports a rename as one record naming only the new path, which is
+     * what `changedFiles` does and what a snapshot's own file list should say.
+     * A caller replaying commits into a running path→blob map needs the opposite:
+     * without renames a rename is a delete and an add, so the old path is
+     * correctly forgotten instead of keeping a stale blob for ever. */
+    renames = true,
+  ): Promise<ChainCommit[]> {
+    const key = `${rev}..${base ?? ""}|${String(renames)}`;
+    const cached = this.chains.get(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const args = ["log", "--format=%H", "--raw", "--no-abbrev", renames ? "-M" : "--no-renames", "-z", rev];
+    if (base !== undefined && (await this.has(base))) {
+      args.push(`^${base}`);
+    }
+    const parts = (await this.run(args)).split("\0");
+    const commits: ChainCommit[] = [];
+    let i = 0;
+    while (i < parts.length) {
+      const token = parts[i].replace(/^\n/, "");
+      if (token === "") {
+        i++;
+        continue;
+      }
+      if (!token.startsWith(":")) {
+        commits.push({ sha: token, files: [] });
+        i++;
+        continue;
+      }
+      // `:<oldmode> <newmode> <oldblob> <newblob> <status>` then its path, or two
+      // paths when the status is a rename or copy.
+      const fields = token.slice(1).split(" ");
+      const status = fields[4] ?? "";
+      const renamed = status.startsWith("R") || status.startsWith("C");
+      const blob = fields[3] ?? "";
+      const gone = /^0+$/.test(blob);
+      commits[commits.length - 1]?.files.push({
+        path: renamed ? parts[i + 2] : parts[i + 1],
+        blob: gone ? undefined : blob,
+      });
+      i += renamed ? 3 : 2;
+    }
+    this.chains.set(key, commits);
+    return commits;
   }
 
   /** Changed files between two revisions. Rename detection is forced on (`-M`)

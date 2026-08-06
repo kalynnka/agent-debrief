@@ -367,21 +367,28 @@ interface LaneContent {
 }
 
 async function laneContent(git: Git, snapshots: Snapshot[]): Promise<LaneContent> {
-  const changed = await Promise.all(
-    snapshots.map((snapshot) => git.changedFiles(snapshot.parent, snapshot.sha)),
+  // One `git log --raw` over the snapshot chain, rather than a `changedFiles` and
+  // a `blobsAt` per snapshot. Same data — a snapshot's git parent is the revision
+  // it is diffed against — for one process instead of two per snapshot, which is
+  // what stopped a long-lived lane costing seconds to draw.
+  const newest = snapshots[snapshots.length - 1];
+  const chain = new Map(
+    (await git.chain(newest.sha, snapshots[0].parent)).map((commit) => [commit.sha, commit.files]),
   );
-  const paths = changed.map((files) => files.map((file) => file.path));
+  const paths: string[][] = [];
   const held = new Map<string, Map<number, string | undefined>>();
-  await Promise.all(
-    snapshots.map(async (snapshot, i) => {
-      const blobs = await git.blobsAt(snapshot.sha, paths[i]);
-      for (const file of paths[i]) {
-        const versions = held.get(file) ?? new Map<number, string | undefined>();
-        versions.set(i, blobs.get(file));
-        held.set(file, versions);
-      }
-    }),
-  );
+  for (const [i, snapshot] of snapshots.entries()) {
+    // A snapshot whose commit the walk did not reach is one git has collected, or
+    // one a rewrite left off the chain. It changed nothing we can prove, so it
+    // claims nothing.
+    const files = chain.get(snapshot.sha) ?? [];
+    paths.push(files.map((file) => file.path));
+    for (const file of files) {
+      const versions = held.get(file.path) ?? new Map<number, string | undefined>();
+      versions.set(i, file.blob);
+      held.set(file.path, versions);
+    }
+  }
   return { paths, held };
 }
 
@@ -397,7 +404,13 @@ async function laneContent(git: Git, snapshots: Snapshot[]): Promise<LaneContent
  * file it owns matches" is then vacuously true — which once marked 28 of 36
  * snapshots committed in a repo that had never been committed to. A snapshot with
  * no changed paths does not exist, so this can never be vacuous. */
-function present(content: LaneContent, index: number, at: Map<string, string>): boolean {
+function present(
+  content: LaneContent,
+  index: number,
+  /** Blobs at a revision. A missing key and a recorded `undefined` mean the same
+   * thing — the path is not there — which is also what a deletion looks like. */
+  at: Map<string, string | undefined>,
+): boolean {
   return content.paths[index].every((file) => {
     for (const [i, blob] of content.held.get(file) ?? []) {
       if (i >= index && blob === at.get(file)) {
@@ -432,14 +445,30 @@ export async function landedCommits(
   const base = history.findIndex((commit) => commit.sha === snapshots[0].parent);
   const walk = (base < 0 ? history : history.slice(0, base)).reverse();
   const content = await laneContent(git, snapshots);
-  const files = [...new Set(content.paths.flat())];
+  const files = new Set(content.paths.flat());
+  // What each commit of the walk holds for those paths, replayed rather than
+  // asked for. Reading it per commit was a `ls-tree` each — the second place this
+  // grew without bound, after the snapshot chain. Start from the lane's base and
+  // apply what every commit changed: one `log --raw` for the whole branch, and
+  // `--no-renames` so a rename retires the old path instead of leaving a stale
+  // blob behind it.
+  const at = new Map<string, string | undefined>(
+    walk.length === 0 ? [] : await git.blobsAt(walk[0].sha, [...files]),
+  );
+  const changedBy = new Map(
+    (await git.chain(head, snapshots[0].parent, false)).map((commit) => [commit.sha, commit.files]),
+  );
   const pending = new Set(snapshots.map((_, i) => i));
   const grouped: LandedCommit[] = [];
   for (const commit of walk) {
+    for (const file of changedBy.get(commit.sha) ?? []) {
+      if (files.has(file.path)) {
+        at.set(file.path, file.blob);
+      }
+    }
     if (pending.size === 0) {
       break;
     }
-    const at = await git.blobsAt(commit.sha, files);
     // Insertion order is ascending index, so the numbers come out in order.
     const took = [...pending].filter((i) => present(content, i, at));
     if (took.length === 0) {

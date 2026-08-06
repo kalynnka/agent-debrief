@@ -310,6 +310,36 @@ the file back exactly as a revert would, that the moved tip is what distinguishe
 them, that popping clears it, and that an unrecorded tip reads as unknown rather
 than as zero.
 
+## 4. What keeps it affordable
+
+A long-lived branch is the case that breaks a review tool, and the numbers matter
+more than the intent. Measured on a five-repo workspace, and each of these is the
+answer to a question that was once asked per snapshot:
+
+| | git subprocesses |
+|---|---|
+| cold draw (opening the window) | 47 |
+| structural redraw (a snapshot lands, a commit, a branch moves) | 15 |
+| working-tree redraw (an agent mid-turn, per write burst) | 6 |
+
+Three rules hold that:
+
+- **History is not measured.** Whether a snapshot is still on disk, still
+  revertable, still unread are questions about work in front of you. A landed
+  snapshot is a receipt.
+- **Chains are read in one process, not one per commit.** `git log --raw` already
+  holds every path and blob of a walk; asking per commit cost two subprocesses a
+  snapshot, at ~8ms of spawn overhead each, and was the whole of the linear term.
+  `landedCommits` is now flat: 7 subprocesses at 10 snapshots and at 67.
+- **A redraw only recomputes what moved.** The working tree decides file rows; HEAD,
+  the refs and `state.json` decide everything else.
+
+Nothing here is a retention policy, a cap, or a warning. A reviewer with a
+thousand snapshots on `master` is not doing anything wrong, and the tool should
+not be the one to tell them otherwise: state costs about a kilobyte a snapshot,
+and a snapshot's objects are the files it changed, which git would be storing
+anyway.
+
 ## 5. Deliberately not followed
 
 - **Pushing snapshots.** They stay in the clone that made them. A review is a
