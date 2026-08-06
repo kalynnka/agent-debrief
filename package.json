@@ -362,6 +362,7 @@
     }
   },
   "scripts": {
+    "dev": "code -n --extensionDevelopmentPath=\"$PWD\" --enable-proposed-api=octoverse.octoview --inspect-extensions=9229 ../octoverse.code-workspace && pnpm run watch",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "node test/smoke.js && node test/cli.js"

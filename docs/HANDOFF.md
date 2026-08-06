@@ -68,6 +68,27 @@ withdraw the proposal, which shows up as the row button silently vanishing.
 Everything else keeps working when it does, and `⌘⌥V` does the same job from the
 keyboard. Do not add a second proposal without asking.
 
+**Running it takes one window, not two** (owner decision 2026-08-06). F5 needs a
+parent window to host the debugger, which leaves you editing octoview in one
+window and using it in another. The dev host is only a window launched with a
+flag, so launch it directly instead:
+
+```bash
+pnpm dev     # in octoview/
+```
+
+That opens the octoverse workspace with octoview running in it and octoview's own
+source in the same tree, then starts the compiler. Edit, then **⌘R** to reload:
+the extension host restarts in the same process, so it picks up `out/**` and
+keeps the flags. `package.json` is the exception — a manifest change needs the
+window relaunched, which is the same trap as F5-not-reload above.
+
+The price is breakpoints. The JS debugger is an extension living in the host you
+would be pausing, so a window cannot debug itself. `pnpm dev` holds
+`--inspect-extensions=9229` open for when you need them: attach from a second
+window with the **Attach to Octoview** config, or go back to F5. The port is
+fixed, so only one such window at a time.
+
 ---
 
 ## 3. Where things are

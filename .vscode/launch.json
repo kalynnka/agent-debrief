@@ -16,6 +16,22 @@
       ],
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "npm: watch"
+    },
+    {
+      // For the one-window setup: `pnpm dev` opens the octoverse workspace with
+      // octoview already running in it, and holds port 9229 open. This attaches
+      // to that window's extension host.
+      //
+      // Run it from a *different* window. The JS debugger is itself an extension
+      // living in the host you are pausing, so attaching to your own window and
+      // hitting a breakpoint stops the debugger along with the extension.
+      "name": "Attach to Octoview",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "restart": true,
+      "outFiles": ["${workspaceFolder}/out/**/*.js"],
+      "skipFiles": ["<node_internals>/**"]
     }
   ]
 }
