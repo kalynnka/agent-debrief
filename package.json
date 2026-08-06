@@ -169,6 +169,11 @@
         "title": "Mark Viewed / Not Viewed",
         "category": "Octoview",
         "icon": "$(check)"
+      },
+      {
+        "command": "octoview.openNote",
+        "title": "Read the Whole Note",
+        "category": "Octoview"
       }
     ],
     "menus": {
@@ -272,6 +277,10 @@
         },
         {
           "command": "octoview.toggleRowViewed",
+          "when": "false"
+        },
+        {
+          "command": "octoview.openNote",
           "when": "false"
         },
         {

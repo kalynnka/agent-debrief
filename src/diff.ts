@@ -40,6 +40,16 @@ function noteUri(repo: Repo, snapshots: Snapshot[], text: boolean): vscode.Uri {
   });
 }
 
+/** The note on its own, as a document — what the sidebar hover links to when the
+ * message is longer than a hover can hold. An editor scrolls, selects and copies,
+ * none of which a hover does.
+ *
+ * Its own tab, not the preview slot: the preview slot is usually holding the
+ * review this note belongs to, and reading the note is not a reason to lose it. */
+export async function openNote(repo: Repo, snapshots: Snapshot[]): Promise<void> {
+  await vscode.window.showTextDocument(noteUri(repo, snapshots, true), { preview: false });
+}
+
 /** What the agent said when it finished each snapshot, as a document — so a review
  * can open with it. The tab title and the tree row have room for its first line
  * only; this is the rest of it, which is where the reasoning and the caveats

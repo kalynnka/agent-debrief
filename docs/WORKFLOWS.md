@@ -66,10 +66,16 @@ The first row of a multi-file review is `Notes.md`: what the agent said when it
 finished each of the snapshots you selected, in full. The tab title says only
 which snapshots and how big, and the tree row has room for the first line — this
 is the whole of it, and it is meant to be read before the diff. It is a diff row
-like any other, so it shows the message as text; hover the snapshot's row in the
-sidebar to read the same message rendered. The `prepare-change-review` skill is
-what tells an agent to close a turn with a message worth putting there: kind,
-goal, how, test numbers, what to look at.
+like any other, so it shows the message as text. The `prepare-change-review`
+skill is what tells an agent to close a turn with a message worth putting there:
+kind, goal, how, test numbers, what to look at — in plain text, because nothing
+renders that row.
+
+Hovering a snapshot's row in the sidebar shows its state and the message's
+opening paragraph, rendered. A hover clips rather than scrolls, so the rest is a
+click away: **Read the whole note** opens the message as its own document, which
+scrolls and copies like any other. (VS Code's own `⌘K ⌘I` focuses a hover and
+makes it scrollable, if you would rather stay there.)
 
 For the **newest** snapshot the right-hand side of a diff is the real file on disk,
 so the language server attaches — hover, types and go-to-definition all work while

@@ -419,8 +419,27 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
             `may have been cut off before it was finished.`,
         );
       }
+      // A message runs to a page, and a hover clips it without scrolling: what a
+      // reviewer sees is a paragraph cut off mid-sentence with no way to reach
+      // the rest. So the hover carries its opening and a way in — the note opens
+      // as a document, which scrolls, selects and copies like any other.
+      //
+      // (VS Code's own answer, `workbench.action.showHover` — ⌘K ⌘I — focuses a
+      // hover and makes it scrollable. It works here, and it is not something to
+      // make a reviewer know.)
       if (node.snapshot.message !== undefined) {
-        hover.appendMarkdown(`\n\n---\n\n${node.snapshot.message}`);
+        const opening = node.snapshot.message
+          .split(/\n{2,}/)
+          .slice(1)
+          .find((paragraph) => paragraph.trim() !== "");
+        if (opening !== undefined) {
+          hover.appendMarkdown(`\n\n---\n\n${opening}`);
+        }
+        // A command link needs the string trusted; the command it names is ours
+        // and takes no input from the message.
+        hover.isTrusted = true;
+        const args = encodeURIComponent(JSON.stringify([node.repo.root, node.snapshot.n]));
+        hover.appendMarkdown(`\n\n[Read the whole note](command:octoview.openNote?${args})`);
       }
       // Clicking the row reads the snapshot, and building a multi-snapshot scope does not:
       // VS Code runs a tree item's command only when the selection is a single

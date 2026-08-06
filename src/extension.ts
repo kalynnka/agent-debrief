@@ -9,6 +9,7 @@ import {
   NoteContentProvider,
   RevisionContentProvider,
   openDiff,
+  openNote,
   openStackedDiff,
   openStepHistory,
   reopenRevisionTabs,
@@ -473,6 +474,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ? node.repo.store.data.snapshots
           : node.snapshots.map((snapshot) => snapshot.snapshot);
     await openReview(node.repo, scope);
+  });
+
+  /** Open one snapshot's note as a document. Reached from the link in the
+   * sidebar hover, which is a markdown command link and can therefore carry only
+   * serialisable arguments — the repository root and the snapshot number, looked
+   * back up here. */
+  register("octoview.openNote", async (root: string, n: number) => {
+    const repo = repos.all.find((candidate) => candidate.root === root);
+    const snapshot = repo?.store.data.snapshots.find((candidate) => candidate.n === n);
+    if (repo === undefined || snapshot === undefined) {
+      throw new Error(`octoview: no snapshot ${n} in ${root}`);
+    }
+    await openNote(repo, [snapshot]);
   });
 
   // Commit the reviewed snapshots of one repository. A commit is a prefix of the
