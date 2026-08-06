@@ -249,14 +249,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // version is still the one that a revert would undo — and a `git checkout` or
   // `gh pr checkout` moves the lane itself, which is a different review entirely.
   context.subscriptions.push(
-    gitWatch.onDidChange((checkoutMoved) => {
+    gitWatch.onDidChange((moved) => {
       void (async () => {
-        if (checkoutMoved) {
+        if (moved.checkout) {
           await repos.discover(workspaceFolders());
           rewatch();
           comments.refresh();
         }
-        snapshots.refresh();
+        // An agent writing files moves the working tree and nothing else, and the
+        // working tree decides only the file rows. Redrawing what landed, what is
+        // abandoned and where the stash is — none of which it can have touched —
+        // is what made a mid-turn redraw cost as much as the interval between two.
+        snapshots.refresh(moved.structure);
       })();
     }),
   );

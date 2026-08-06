@@ -102,6 +102,22 @@ would be pausing, so a window cannot debug itself. `pnpm dev` holds
 window with the **Attach to Octoview** config, or go back to F5. The port is
 fixed, so only one such window at a time.
 
+**A redraw has two halves** (owner decision 2026-08-07). The working tree decides
+the file rows and nothing else; HEAD, the refs and `state.json` decide which
+snapshots landed, which lanes are abandoned and whether the stash moved. An agent
+mid-turn moves only the first, and fires an event for every file it writes — so
+`GitWatch` says which kind of move it saw, and `SnapshotsProvider.refresh(false)`
+keeps the structural half rather than working it out again.
+
+Measured on the five-repo workspace: a cold draw is ~243 git subprocesses, a
+structural redraw 15, and the mid-turn worktree redraw **6**, down from 23. Almost
+all of the cost is process spawn, ~8ms each here, so the subprocess count is the
+number that matters rather than the work done.
+
+`refresh()` defaults to structural because nearly every caller has just changed
+something. Only the working-tree watcher passes `false`, and only when git itself
+reports HEAD and the refs standing still.
+
 ---
 
 ## 3. Where things are

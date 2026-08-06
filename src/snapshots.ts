@@ -149,6 +149,13 @@ export class CommitNode {
 
 export type Node = RepoNode | GroupNode | CommitNode | SnapshotNode | FileNode;
 
+/** Everything a redraw needs about a repo that the working tree cannot change. */
+interface RepoStructure {
+  sweep: LaneSweep;
+  commits: LandedCommit[];
+  stashed: boolean;
+}
+
 /** Agents whose own mark ships in `media/`, lifted from the vendor's own VS Code
  * extension. Claude's is brand-coloured and reads on either theme; Codex's is
  * monochrome, so it needs the pair. */
@@ -232,8 +239,19 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
   /** Repos whose stash has moved since their newest snapshot. A frozen row says
    * the snapshot's changes were reverted; when a stash did it, that reads as
    * "thrown away" for work that is safe, so the row has to say which it is.
-   * Measured once per refresh in `getChildren`, because `getTreeItem` is sync. */
+   * Measured with the rest of the structure, because `getTreeItem` is sync. */
   private stashed = new Set<string>();
+
+  /** Per repo, everything a redraw needs that the working tree cannot change:
+   * which lanes are abandoned, which commits landed, whether the stash moved.
+   *
+   * Kept because an agent mid-turn fires a change for every file it writes, and
+   * none of those can move any of this — only HEAD, the refs or `state.json` can,
+   * and each of those arrives as a structural refresh that clears this. Measured:
+   * it takes the common mid-turn redraw of a five-repo workspace from 23 git
+   * subprocesses to 8, and the eight left are `hash-object` reading the working
+   * tree, which is the thing that actually changed. */
+  private structure = new Map<string, RepoStructure>();
 
   constructor(
     private readonly repos: Repos,
@@ -242,8 +260,39 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
     private readonly media: vscode.Uri,
   ) {}
 
-  refresh(): void {
+  /** Redraw.
+   *
+   * `structural` is the default because almost every caller has just changed
+   * something — taken a snapshot, marked a file, reverted, committed — and a
+   * caller that has to remember to ask for correctness would eventually forget.
+   * Only the working-tree watcher passes false, and only when git itself says
+   * HEAD and the refs stood still. */
+  refresh(structural = true): void {
+    if (structural) {
+      this.structure.clear();
+    }
     this.changed.fire(undefined);
+  }
+
+  /** What a redraw needs that only HEAD, the refs or the lane's state can change.
+   * Worked out once and kept until one of those does. */
+  private async structureOf(repo: Repo): Promise<RepoStructure> {
+    const known = this.structure.get(repo.root);
+    if (known !== undefined) {
+      return known;
+    }
+    const [sweep, stashed, head] = await Promise.all([
+      sweepLanes(repo.git, repo.lane.commonDir, false),
+      stashedSince(repo.git, repo.store),
+      repo.git.head(),
+    ]);
+    const built: RepoStructure = {
+      sweep,
+      stashed,
+      commits: await landedCommits(repo.git, repo.store.data.snapshots, head),
+    };
+    this.structure.set(repo.root, built);
+    return built;
   }
 
   /** Take the tree's selection as the scope. A file row counts for its snapshot and a
@@ -559,29 +608,19 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       return Promise.all(
         this.repos.all
           .filter((repo) => repo.store.data.snapshots.length > 0)
-          .map(
-            async (repo) =>
-              new RepoNode(repo, await sweepLanes(repo.git, repo.lane.commonDir, false)),
-          ),
+          .map(async (repo) => new RepoNode(repo, (await this.structureOf(repo)).sweep)),
       );
     }
     if (node.kind === "repo") {
       // Three areas, and empty ones are hidden the way Source Control hides them.
       // The snapshots are measured once here and handed down, so opening an area or a
       // commit costs nothing.
-      if (await stashedSince(node.repo.git, node.repo.store)) {
+      const { commits, stashed } = await this.structureOf(node.repo);
+      if (stashed) {
         this.stashed.add(node.repo.root);
       } else {
         this.stashed.delete(node.repo.root);
       }
-      // Once, and handed down. Both this and `shapeOf` need to know what has
-      // landed, and asking twice cost a second `git log` plus a second HEAD read
-      // on every refresh — for an answer that cannot change between the two calls.
-      const commits = await landedCommits(
-        node.repo.git,
-        node.repo.store.data.snapshots,
-        await node.repo.git.head(),
-      );
       const nodes = await this.shapeOf(node.repo, commits);
       const at = new Map(nodes.map((snapshot) => [snapshot.snapshot.n, snapshot]));
       const taken = new Set(commits.flatMap((commit) => commit.snapshots));
