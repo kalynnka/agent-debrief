@@ -46,6 +46,10 @@ of the work and which snapshots matter to you.
 label is only the first line; the full message is the report that agent wrote
 when it finished: the goal, the approach, the test numbers, what to look at.
 
+A snapshot is a unit of work, not a session — one turn often left several, each
+describing its own part. Read a run of them as one narrative rather than
+assuming one per agent.
+
     octoview status --json | jq -r '.snapshots[] | select(.n >= 7) | "── \(.n) [\(.agent)]\n\(.message // .label)\n"'
 
 Pick the range deliberately. The newest two or three usually carry the live

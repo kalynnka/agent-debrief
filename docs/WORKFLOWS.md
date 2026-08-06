@@ -324,9 +324,15 @@ not checked.
 
 That report is also the snapshot's own record: its first line becomes the sidebar
 row and the whole of it becomes the note the review opens with. So it leads with
-`<kind>: <what the snapshot did>` in one line, then a paragraph giving the goal, the
-approach, the test numbers and where to look — a pull request's description at one
-snapshot's scale — and only then the per-file detail.
+`<kind>: <what the snapshot did>` in one line, then one short paragraph each for
+the goal, the approach, the test numbers and where to look — a pull request's
+description at one snapshot's scale — and only then the per-file detail. The note
+is a diff row, which renders no markdown, so the skill tells agents to write it
+as plain text rather than as markup you would have to read through.
+
+An agent may snapshot several times in one turn, and the skill tells it to: one
+snapshot per unit of work, so each part arrives with its own message, reverts on
+its own, and can be the point a commit stops at.
 
 ### 7.2 Picking up a branch it does not remember
 

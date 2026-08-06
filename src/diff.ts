@@ -43,7 +43,10 @@ function noteUri(repo: Repo, snapshots: Snapshot[], text: boolean): vscode.Uri {
 /** What the agent said when it finished each snapshot, as a document — so a review
  * can open with it. The tab title and the tree row have room for its first line
  * only; this is the rest of it, which is where the reasoning and the caveats
- * are. A snapshot taken before messages were kept falls back to its label. */
+ * are. A snapshot taken before messages were kept falls back to its label.
+ *
+ * A diff row renders no markdown, so this is read exactly as it is written —
+ * which is what `prepare-change-review` writes the message for. */
 export class NoteContentProvider implements vscode.TextDocumentContentProvider {
   constructor(private readonly repos: Repos) {}
 
@@ -60,12 +63,19 @@ export class NoteContentProvider implements vscode.TextDocumentContentProvider {
       .filter((snapshot) => wanted.has(String(snapshot.n)))
       .map(
         (snapshot) =>
-          `snapshot ${snapshot.n} · ${snapshot.agent} · ` +
+          `Snapshot ${snapshot.n} · ${titleCase(snapshot.agent)} · ` +
           `${new Date(snapshot.at).toLocaleString()}\n\n` +
           `${snapshot.message ?? snapshot.label}\n`,
       )
       .join("\n———\n\n");
   }
+}
+
+/** An agent's name as a name: the field is a lowercase id (`claude`, `codex`,
+ * `manual`) and this line is a heading a person reads. Anything the build has
+ * never heard of still gets capitalised rather than dropped. */
+function titleCase(agent: string): string {
+  return agent === "" ? agent : `${agent[0].toUpperCase()}${agent.slice(1)}`;
 }
 
 /** Open our revision-backed diff tabs again, following any snapshot that moved.

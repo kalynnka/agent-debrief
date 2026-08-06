@@ -50,11 +50,11 @@ skill `recover-change-context` is the one you want.
        octoview snapshot --agent <host> --json -m "$(cat <<'EOF'
        <kind>: <what the turn did>
 
-       <the paragraph>
+       <the paragraphs>
        EOF
        )"
 
-   Pass the front page only — the one-line summary and the paragraph. The
+   Pass the front page only — the one-line summary and the paragraphs. The
    per-file detail belongs in your reply, not in the note a review opens with.
    `--label` is unnecessary: the first line is the label.
 
@@ -72,6 +72,32 @@ skill `recover-change-context` is the one you want.
 5. **Stop.** The human reviews in their editor. Their comments come back to you
    as one batch: `octoview review batch --json`.
 
+## A turn is not one snapshot
+
+Nothing limits a turn to one. A snapshot costs a commit object and a ref, and it
+is the unit the human reads, reverts and commits — so it should hold **one unit
+of work**, not one session of it. Whenever a piece of the work is finished and
+would stand on its own in a review, snapshot it and say what it did, then start
+the next piece.
+
+    …schema and migration done…      octoview snapshot -m "feat(schema): …"
+    …managers updated…               octoview snapshot -m "feat(managers): …"
+    …call sites and tests…           octoview snapshot -m "test: …"   ← closes the turn
+
+The human gets what they would otherwise have to ask for: a change landed in the
+order they read it, each part revertable on its own, and a commit prefix that can
+stop at the part they have actually cleared.
+
+Two rules make it worth doing rather than noise:
+
+- **Each message describes its own snapshot**, not the turn so far. The reader
+  sees them as separate rows and reverts them separately.
+- **The last one still closes the turn**, taken as the final act before you
+  reply, so nothing is left for the hook to catch. Work done *after* a snapshot
+  is uncaptured until something captures it — and when that something is the
+  Stop hook, it lands with whatever sentence you happened to end on. That is
+  what a `described: "transcript"` snapshot is, and step 1 is the way back.
+
 ## The closing message is the review's front page
 
 Octoview keeps the message a snapshot was recorded with — the one you pass to
@@ -81,25 +107,39 @@ becomes that snapshot's row in the sidebar**, cut at 72 characters, and the
 files. It is the only thing the human reads before the diff, so write it for that
 job.
 
-Lead with these two, in this order, ahead of any per-file detail:
+**Nothing renders it.** The review shows the message in a diff row, which draws
+no markdown at all — every `**`, every `[label](path)`, every `##` arrives as
+literal characters in the reader's face. Write plain text: name a file as
+`src/cli.ts:220`, not as a link, and let a blank line do the work bold would
+have done. The sidebar hover does render markdown, so anything that reads well
+both ways — a `-` list, a backticked identifier — is fine; anything that only
+works rendered is not.
+
+So give each part its own paragraph, in this order, ahead of any per-file
+detail:
 
     <kind>: <what this turn did>        ← one line, ≤72 characters
 
-    <one paragraph, four to six sentences>
+    The problem or goal. What was wrong, or what was wanted — the condition
+    itself, not a restatement of the request.
+
+    How, in summary. The approach, and the one or two decisions inside it a
+    reviewer would otherwise have to reconstruct from the diff.
+
+    Test status, in real numbers — 37 checks pass (18 smoke + 19 cli), never
+    "tests pass" — and a plain statement of what you did not run. A pre-existing
+    failure is the first clause, not the last.
+
+    What to look at. Where the risk is, which file to read first, and any
+    assumption you took that the human may want to reject.
 
 `kind` is the set the commit subjects use — `feat`, `fix`, `docs`, `chore`,
 `refactor`, `test`, `perf` — so the row says what sort of change it is before it
-says anything else. The paragraph then says, in this order:
+says anything else.
 
-1. **The problem or goal.** What was wrong, or what was wanted — the condition
-   itself, not a restatement of the request.
-2. **How, in summary.** The approach, and the one or two decisions inside it a
-   reviewer would otherwise have to reconstruct from the diff.
-3. **Test status, in real numbers** — `37 checks pass (18 smoke + 19 cli)`, never
-   "tests pass" — and a plain statement of what you did not run. A pre-existing
-   failure is the first clause, not the last.
-4. **What to look at.** Where the risk is, which file to read first, and any
-   assumption you took that the human may want to reject.
+Four paragraphs, two or three sentences each, and the reader can stop after any
+of them. One dense block holding all four is the same words arranged so that
+none of them can be skipped.
 
 Then the per-file detail, in the human's reading order: schema and data model
 first, then managers and logic, then call sites and tests. For each file: what
@@ -107,8 +147,8 @@ changed, why, and anything you did not verify. Distinguish claims (yours) from
 evidence (command output).
 
 It is one snapshot's worth of change, so it is a pull request's description at a
-tenth of the length. Aim for a paragraph a reviewer reads in fifteen seconds and
-is then ready to read the diff.
+tenth of the length. Aim for something a reviewer reads in fifteen seconds and is
+then ready to read the diff.
 
 It is also what the *next* agent on this branch will read to work out what
 happened here, long after this session is gone — see `recover-change-context`.
@@ -125,6 +165,10 @@ Write it for a reader who has none of your context.
 - **Detail with no statement in front of it.** A wall of per-file notes leaves
   the reviewer to derive the goal from the diff, which is the work the message
   exists to save.
+- **Markup nobody renders.** `Read [cli.ts:220](src/cli.ts#L220) first` is read
+  exactly like that, brackets and all, by the one reader it was written for. The
+  reply you type in chat is rendered; this is not. Keep them in different
+  registers.
 
 ## Landing a reviewed prefix
 
