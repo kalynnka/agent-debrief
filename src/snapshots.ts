@@ -5,7 +5,13 @@ import { abandonedRepoUri, frozenSnapshotUri, snapshotFileUri } from "./decorati
 import { ChangedFile, Snapshot } from "./git";
 import { GitWatch } from "./gitwatch";
 import { Repo, Repos } from "./repos";
-import { committableRun, landedCommits, LaneSweep, sweepLanes } from "./review";
+import {
+  committableRun,
+  foreignPaths,
+  landedCommits,
+  LaneSweep,
+  sweepLanes,
+} from "./review";
 
 export class RepoNode {
   readonly kind = "repo";
@@ -95,6 +101,11 @@ export class FileNode {
     /** The file on disk is what HEAD holds — this change is committed, and the
      * snapshot's remaining work is whatever is not. */
     readonly landed: boolean,
+    /** It arrived with a HEAD move under this snapshot — a pull, a merge, a reset —
+     * and the snapshot still holds it exactly as that move left it. In the diff it
+     * is indistinguishable from the agent's work, which is the whole reason to say
+     * so on the row. */
+    readonly foreign: boolean,
   ) {}
 }
 
@@ -503,10 +514,19 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
     // Committed and staged cannot both hold — staged means the index differs from
     // HEAD — so one word covers where the change has got to.
     const landing = node.landed ? " committed" : node.staged ? " staged" : "";
+    // Louder than the landing mark and in front of it: whose change this is comes
+    // before how far along it is.
+    const origin = node.foreign ? "  ⇣ not the agent's" : "";
     const mark = node.reviewed ? "✓  " : "";
-    item.description = `${mark}${node.file.status}${landing}${where}${notes}`;
+    item.description = `${mark}${node.file.status}${landing}${origin}${where}${notes}`;
     item.resourceUri = snapshotFileUri(abs, node.file.status);
-    item.tooltip = `${node.file.path} — ${node.file.status}${landing}`;
+    item.tooltip = node.foreign
+      ? new vscode.MarkdownString(
+          `${node.file.path} — ${node.file.status}${landing}\n\n**Not the agent's change.** ` +
+            `It arrived when HEAD moved under this snapshot, and the snapshot holds it ` +
+            `exactly as that move left it.`,
+        )
+      : `${node.file.path} — ${node.file.status}${landing}`;
     item.contextValue = `file-${node.reviewed ? "reviewed" : "unreviewed"}${
       node.revertable ? "-revertable" : ""
     }`;
@@ -682,6 +702,11 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
     const landed =
       head === undefined ? new Set<string>() : await node.repo.git.unchangedSince(head, paths);
     const staged = this.gitWatch.stagedPaths(node.repo.root);
+    const brought = await foreignPaths(
+      node.repo.git,
+      node.repo.store.data.snapshots,
+      node.snapshot,
+    );
     return files
       .filter((file) => !undone.has(file.path) && node.shows(file.path))
       .map(
@@ -695,6 +720,7 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
             intact.has(file.path),
             staged.has(file.path),
             landed.has(file.path),
+            brought.has(file.path),
           ),
       );
   }

@@ -151,6 +151,42 @@ export async function adoptLane(git: Git, lane: Lane): Promise<void> {
   }
 }
 
+/** The paths a snapshot shows that were not the agent's doing.
+ *
+ * A snapshot diffs against the snapshot before it, never against HEAD, so a pull
+ * or a merge in between lands inside the diff looking exactly like work the agent
+ * did. HEAD is on the record, so the move is knowable: whatever `diff(H0, H1)`
+ * touched arrived with it.
+ *
+ * A path counts as the move's only while the snapshot still holds it exactly as
+ * the move left it. Where the two differ the agent wrote over it afterwards, and
+ * the top layer is theirs — attributing it elsewhere would hide a real edit,
+ * which is the failure worth avoiding here. False negatives are safe; false
+ * positives are not.
+ *
+ * Empty when either revision is gone — a rebase can strand one — because a claim
+ * about what a move brought needs the move to still be there to read. */
+export async function foreignPaths(
+  git: Git,
+  all: Snapshot[],
+  snapshot: Snapshot,
+): Promise<Set<string>> {
+  const from = all[all.indexOf(snapshot) - 1]?.head;
+  const to = snapshot.head;
+  if (from === undefined || to === undefined || from === to) {
+    return new Set();
+  }
+  if (!(await git.has(from)) || !(await git.has(to))) {
+    return new Set();
+  }
+  const paths = (await git.changedFiles(from, to)).map((file) => file.path);
+  const [atMove, atSnapshot] = await Promise.all([
+    git.blobsAt(to, paths),
+    git.blobsAt(snapshot.sha, paths),
+  ]);
+  return new Set(paths.filter((file) => atMove.get(file) === atSnapshot.get(file)));
+}
+
 /** What a sweep found, whether or not it was allowed to act. */
 export interface LaneSweep {
   /** Lanes whose branch is gone. Dropping their refs is the whole of what
@@ -159,6 +195,11 @@ export interface LaneSweep {
   /** Lanes git has already collected the snapshots of — nothing left to review,
    * so the record goes with them. */
   collected: string[];
+  /** Refs under `refs/octoview/` that no lane claims — the pre-lane POC scheme's
+   * unscoped `refs/octoview/turns/<n>`, and anything a half-finished operation
+   * left behind. Nothing can read them, and they pin their objects exactly as a
+   * live snapshot's ref does. */
+  stray: string[];
 }
 
 /** Every lane the clone holds state for, named by the directory that spells it
@@ -204,18 +245,24 @@ async function laneDirs(commonDir: string): Promise<{ name: string; dir: string 
  * authority: a lane is closed because its branch is, and forgotten because git
  * already collected it. */
 export async function sweepLanes(git: Git, commonDir: string, apply: boolean): Promise<LaneSweep> {
-  const sweep: LaneSweep = { closed: [], collected: [] };
+  const sweep: LaneSweep = { closed: [], collected: [], stray: [] };
   // One listing rather than a `show-ref` per lane: the tree runs this on every
   // refresh to decide whether to offer the button, and the answer is almost always
   // "nothing", which should cost one git process rather than one per lane.
   const branches = await git.branches();
+  // Which refs any lane still speaks for, live or dead — what is left over is what
+  // nothing can read.
+  const claimed = new Set<string>();
   for (const { name, dir } of await laneDirs(commonDir)) {
-    if (branches.has(name)) {
-      continue;
-    }
     const store = new Store({ root: git.root, commonDir, name, dir });
     await store.load();
     const snapshots = store.data.snapshots;
+    for (const snapshot of snapshots) {
+      claimed.add(snapshotRef(name, snapshot.n));
+    }
+    if (branches.has(name)) {
+      continue;
+    }
     const held = await Promise.all(
       snapshots.map((snapshot) => git.refExists(snapshotRef(name, snapshot.n))),
     );
@@ -238,6 +285,12 @@ export async function sweepLanes(git: Git, commonDir: string, apply: boolean): P
       if (apply) {
         await fs.rm(dir, { recursive: true, force: true });
       }
+    }
+  }
+  sweep.stray = (await git.refsUnder("refs/octoview/")).filter((ref) => !claimed.has(ref));
+  if (apply) {
+    for (const ref of sweep.stray) {
+      await git.deleteRef(ref);
     }
   }
   return sweep;

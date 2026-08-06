@@ -40,6 +40,20 @@ function workspaceFolders(): string[] {
   return (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
 }
 
+/** A multi-diff row's resource URI carries the row's marks in its file name —
+ * `✓ ` once read, `⇣ ` when the change was not the agent's — because that name is
+ * the only place a row has to say anything. They are display only, so they come
+ * off again before the path is matched against a real file. Without this, the row
+ * toolbar's tick could mark a file but never unmark it: the second press resolved
+ * `src/✓ files.ts`, which is nothing. */
+const ROW_MARKS = /^(?:[✓⇣] )+/;
+
+function unmarked(fsPath: string): string {
+  const base = path.basename(fsPath);
+  const bare = base.replace(ROW_MARKS, "");
+  return bare === base ? fsPath : path.join(path.dirname(fsPath), bare);
+}
+
 /** Every path a set of changes occupies. A rename holds two, and putting it back
  * has to account for both of them. */
 function touched(files: ChangedFile[]): string[] {
@@ -263,7 +277,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (review === undefined || target === undefined) {
       return undefined;
     }
-    const located = repos.locate(target.scheme === SCHEME ? pathOf(target) : target.fsPath);
+    const located = repos.locate(
+      target.scheme === SCHEME ? pathOf(target) : unmarked(target.fsPath),
+    );
     if (located === undefined || located.repo !== review.repo) {
       return undefined;
     }
@@ -521,7 +537,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Re-read rather than trust the row: a branch can be created or deleted in a
     // terminal between the tree being drawn and the button being pressed.
     const found = await sweepLanes(repo.git, repo.lane.commonDir, false);
-    const lanes = [...found.closed, ...found.collected];
+    const lanes = [...found.closed, ...found.collected, ...found.stray];
     if (lanes.length === 0) {
       vscode.window.showInformationMessage(
         `Octoview: every lane in ${repo.name} still has its branch.`,
@@ -538,6 +554,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ...found.collected.map(
             (name) => `${name} — git already took its snapshots; only the record is left`,
           ),
+          ...found.stray.map((ref) => `${ref} — a ref no lane claims`),
           "",
           "Octoview deletes no commits. It stops holding the refs that keep them " +
             "alive, and git decides from there: a grace period, then the next `git gc`.",
@@ -558,7 +575,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     rewatch();
     snapshots.refresh();
     vscode.window.showInformationMessage(
-      `Octoview: let go of ${done.closed.length} lane(s), forgot ${done.collected.length}. ` +
+      `Octoview: let go of ${done.closed.length} lane(s), forgot ${done.collected.length}, ` +
+        `dropped ${done.stray.length} stray ref(s). ` +
         `Run \`git gc\` when you want the space back.`,
     );
   });

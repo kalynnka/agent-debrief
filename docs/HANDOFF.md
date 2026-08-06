@@ -128,6 +128,13 @@ Its working tree is **clean** — the owner reverted that change after reviewing
 it. The snapshots survive anyway, which is the model working as intended: a
 snapshot records what the tree was, not what it still is.
 
+**`octoview gc` now reports these as stray** (owner decision 2026-08-06), because
+no lane claims them and they pin their objects the way any snapshot ref does. That
+reverses the "leave the specimens be" line below: what the specimens documented —
+the virgin-index bug — is pinned by a regression test now, which is a better place
+for it. `gc` still deletes no objects; it drops the refs and leaves the rest to
+git.
+
 `inky` has one POC snapshot, `c269621`, with a phantom `D .python-version` from the
 virgin-index bug — a before-and-after specimen. Both repos also carry POC-era
 top-level files (`.git/octoview/{index,state.json}`) beside the new per-lane

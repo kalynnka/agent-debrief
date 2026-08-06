@@ -229,8 +229,16 @@ octoview deletes no commits, but a snapshot commit is in no reflog, so once git
 collects them nothing will name them again. The sweep re-runs on press rather than
 trusting the row, since a branch can appear or vanish in a terminal in between.
 
-*Still open:* the leftover `refs/octoview/turns/1` in inky and kraken, from the
-pre-lane POC scheme that nothing reads.
+**Phase 2d — stray refs.** ✅ **Done.** The sweep also reports refs under
+`refs/octoview/` that no lane claims — the pre-lane POC scheme's unscoped
+`refs/octoview/turns/<n>`, and anything a half-finished operation left behind.
+Nothing can read them and they pin their objects exactly as a live snapshot's ref
+does. Live dry runs find one in inky and two in kraken.
+
+This reverses HANDOFF §4's "leave the specimens be": those refs were kept as a
+before-and-after specimen of the virgin-index bug, which is now pinned by a
+regression test instead. `octoview gc` does not delete their objects either — the
+same hand-to-git rule applies.
 
 **Phase 3a — Attribute honestly (fixes D5, half of D3).** ✅ **Done.**
 `Snapshot.head` (schema 3), the note's HEAD-moved line, `mid-operation` as a named
@@ -240,9 +248,24 @@ lands a real merge under a snapshot and asserts the recorded HEAD moved, then
 drives an actually-conflicting merge and asserts the snapshot is refused with
 `mid-operation` — not with `unchanged`, which would have hidden it.
 
-**Phase 3b — The subtraction (D3's other half).**
-Show the paths a HEAD move brought in apart from the agent's own work. Touches
-what a snapshot's diff means, so it wants its own sitting.
+**Phase 3b — The subtraction (D3's other half).** ✅ **Done.**
+`foreignPaths` marks the paths a HEAD move brought in, and they say so where a
+reviewer reads: `⇣` on the multi-diff row, `⇣ not the agent's` on the tree row,
+and a hover saying why. The rule is deliberately one-sided — a path counts as the
+move's only while the snapshot still holds it exactly as the move left it, so an
+agent edit on top of a merged file stays the agent's. False negatives are safe;
+false positives hide a real edit.
+*Found on the way:* the row marks live in the resource URI's file name, and
+nothing stripped them off again — so the row toolbar's tick could mark a file but
+never unmark it, because the second press tried to resolve `src/✓ files.ts`. That
+was already broken for ticked rows before `⇣` existed.
+*Verified:* 44 checks pass (23 smoke + 21 cli). The new check merges a branch
+under a snapshot and asserts the merged file is not the agent's while the agent's
+own file is, that nothing is foreign when HEAD did not move, and that a file the
+agent edits after the merge goes back to being theirs.
+
+**Phase 4 — Write it down.** ✅ **Done.** PRD §4.2 and §4.8 reconciled as each
+phase landed; this catalogue is the contract; WORKFLOWS and HANDOFF follow.
 
 **Phase 4 — Write it down.**
 PRD §4.2 and §4.8 reconciled with what was built, this catalogue kept as the

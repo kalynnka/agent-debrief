@@ -1,5 +1,6 @@
 import { ChangedFile, DiffStat, Snapshot } from "./git";
 import { Repo } from "./repos";
+import { foreignPaths } from "./review";
 
 /** One file in the net change of a set of snapshots, with the snapshots that touched it.
  * A snapshot's own file rows say what that snapshot did; this says what a review of
@@ -13,6 +14,10 @@ export class FileRow {
     readonly snapshots: Snapshot[],
     readonly stat: DiffStat,
     readonly reviewed: boolean,
+    /** Every snapshot that touched this file got it from a HEAD move rather than
+     * from the agent — a pull, a merge, a reset. One snapshot's own edit anywhere
+     * in the span is enough to make it the agent's again. */
+    readonly foreign: boolean,
   ) {}
 }
 
@@ -59,6 +64,15 @@ export async function rowsFor(repo: Repo, snapshots: Snapshot[]): Promise<FileRo
       }
     }
   }
+  const all = repo.store.data.snapshots;
+  const brought = new Map(
+    await Promise.all(
+      snapshots.map(
+        async (snapshot) =>
+          [snapshot.n, await foreignPaths(repo.git, all, snapshot)] as [number, Set<string>],
+      ),
+    ),
+  );
   for (const [file, list] of touching) {
     const status = net.get(file);
     // Absent from its own span's diff: the snapshots put it back where they found
@@ -73,6 +87,7 @@ export async function rowsFor(repo: Repo, snapshots: Snapshot[]): Promise<FileRo
         list,
         counts.get(file) ?? { added: 0, deleted: 0 },
         repo.store.isReviewed(file, list[list.length - 1].n),
+        list.every((snapshot) => brought.get(snapshot.n)?.has(file) ?? false),
       ),
     );
   }

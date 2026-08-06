@@ -200,9 +200,12 @@ async function gcCommand(args: string[]): Promise<number> {
   for (const name of sweep.collected) {
     process.stdout.write(`  collected  ${name}  — git already took the snapshots\n`);
   }
-  if (sweep.closed.length + sweep.collected.length === 0) {
+  for (const ref of sweep.stray) {
+    process.stdout.write(`  stray      ${ref}  — no lane claims it\n`);
+  }
+  if (sweep.closed.length + sweep.collected.length + sweep.stray.length === 0) {
     process.stdout.write("  every lane still has its branch\n");
-  } else if (sweep.closed.length > 0) {
+  } else if (sweep.closed.length + sweep.stray.length > 0) {
     // The refs were the only thing keeping them: say what actually frees the disk,
     // since octoview deliberately never runs it.
     process.stdout.write("\nrun `git gc` when you want the objects back.\n");

@@ -104,8 +104,8 @@ function headMoved(all: Snapshot[], snapshot: Snapshot): string {
   }
   return (
     `HEAD moved under this snapshot: ${previous.head.slice(0, 7)} → ` +
-    `${snapshot.head.slice(0, 7)}. Some of what follows arrived with that move ` +
-    `rather than from the agent.\n\n`
+    `${snapshot.head.slice(0, 7)}. Files marked ⇣ arrived with that move rather ` +
+    `than from the agent.\n\n`
   );
 }
 
@@ -224,7 +224,7 @@ export async function openStackedDiff(
       const abs = path.join(repo.root, row.file.path);
       const absOld = path.join(repo.root, row.file.oldPath ?? row.file.path);
       return [
-        viewedLabel(abs, row.reviewed),
+        viewedLabel(abs, row.reviewed, row.foreign),
         revisionUri(base, absOld),
         isLatest ? vscode.Uri.file(abs) : revisionUri(last.sha, abs),
       ];
@@ -245,11 +245,17 @@ export async function openStackedDiff(
  * one, and still opens the real file.
  *
  * Baked in when the tab opens: a mark made later moves this only on reopen. */
-function viewedLabel(absPath: string, viewed: boolean): vscode.Uri {
-  if (!viewed) {
+function viewedLabel(absPath: string, viewed: boolean, foreign: boolean): vscode.Uri {
+  // A multi-diff row shows the file's own name, so anything a reviewer needs to
+  // know about the row has to be in that name. `⇣` marks a change that arrived
+  // with a HEAD move rather than from the agent — the diff cannot tell them apart,
+  // and reading someone else's merge as the agent's work is the error worth a
+  // character of width.
+  const marks = `${viewed ? "✓ " : ""}${foreign ? "⇣ " : ""}`;
+  if (marks === "") {
     return vscode.Uri.file(absPath);
   }
-  return vscode.Uri.file(path.join(path.dirname(absPath), `✓ ${path.basename(absPath)}`));
+  return vscode.Uri.file(path.join(path.dirname(absPath), `${marks}${path.basename(absPath)}`));
 }
 
 /** How much of a file changed, for a tab title. The per-file toolbar a diff

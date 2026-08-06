@@ -49,6 +49,12 @@ right now as its own snapshot, and the agent's next snapshot diffs against it.
 If nothing has changed since the last one, nothing is taken — snapshotting is
 idempotent, so an idle interrupt cannot pollute the numbering.
 
+And nothing is taken while git is part-way through a merge, rebase, cherry-pick,
+revert or bisect. Conflict markers and half-applied commits are not the agent's
+work and not yours yet, so a snapshot then would be a record nobody could read.
+Finish or abort the operation and the next snapshot picks it all up. Revert and
+Drop refuse for the same reason — mid-merge, the rows describe git's work.
+
 ---
 
 ## 2. Reading a change
@@ -91,6 +97,14 @@ That row button rides on a proposed VS Code API, which is affordable only
 because Octoview runs from source rather than from the marketplace. If a VS Code
 update withdraws it the button disappears; nothing else changes, and the
 keystroke still works.
+
+A row marked `⇣` is **not the agent's change**. It arrived when HEAD moved under
+that snapshot — a pull, a merge, a reset — and the snapshot holds it exactly as
+that move left it. A snapshot diffs against the snapshot before it and never
+against HEAD, so without the mark someone else's merge reads as the agent's work.
+Edit such a file yourself and it goes back to being the agent's: the top layer is
+the one that counts, and hiding a real edit would be the worse mistake. `Notes.md`
+names the move at the top when there was one.
 
 A multi-diff row header shows `✓ files.ts` once that file is marked viewed. The
 header is baked in when the tab opens, so the mark you just made appears there
@@ -264,7 +278,29 @@ about what octoview may commit for you, not about what git has already done.
 
 Nothing is recorded, so amend, reset and rebase all just move the answer.
 
-### 5.6 Reverting after a commit
+### 5.6 Letting go of a dead branch
+
+Delete a branch and its lane is left holding refs nobody can reach. Those refs are
+**GC roots** — while octoview holds one, `git gc --prune=now` cannot collect the
+snapshot. That is the only real leak, and it is why cleanup exists at all.
+
+The repo row goes warning-coloured with a count and grows a bin; `octoview gc
+[--dry-run]` does the same from a terminal. Both do exactly one thing: **let go of
+the refs.** No commit is deleted. From that moment the snapshots are ordinary
+unreachable objects and git's own retention decides — its grace period, then your
+next `git gc`. A lane whose objects git has already taken is then forgotten,
+because there is nothing left to review.
+
+Octoview has no age window, no per-lane cap, and no opinion about when your work
+goes stale. It also never runs `git gc` for you.
+
+**What cannot be undone.** Once git collects them, they are gone: a snapshot commit
+sits in *no* reflog, so nothing names it after the ref goes — unlike a deleted
+branch, whose commits `git reflog` can still find for 90 days. Until git collects
+them, `state.json` holds every sha and a lane can be put back with `git
+update-ref`. Widen that window with `gc.pruneExpire` if you want longer.
+
+### 5.7 Reverting after a commit
 
 Revert does not know the work is committed. It will put files back, creating an
 uncommitted diff against your own commit — recoverable with `git restore`, but

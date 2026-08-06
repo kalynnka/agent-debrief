@@ -98,6 +98,26 @@ Two rules make it worth doing rather than noise:
   Stop hook, it lands with whatever sentence you happened to end on. That is
   what a `described: "transcript"` snapshot is, and step 1 is the way back.
 
+## When no snapshot is taken
+
+`octoview snapshot` reports `created: false` for two different reasons, and only
+one of them is routine.
+
+`nothing changed` is the normal one — an idle turn, or work you already
+snapshotted. Nothing to do.
+
+`<operation> is in progress` means git is part-way through a merge, rebase,
+cherry-pick, revert or bisect. The working tree holds conflict markers or
+half-applied commits, which are nobody's work yet, so nothing is recorded. Do not
+work around it. Say so, finish or abort the operation, and the next snapshot picks
+everything up.
+
+One more thing worth saying in your message when it applies: if HEAD moved while
+you worked — you pulled, merged, or the human committed — the review will mark
+those files `⇣ not the agent's`. Do not claim them. Octoview works that out from
+the recorded HEAD, but a sentence naming what arrived saves the reviewer the
+guess.
+
 ## The closing message is the review's front page
 
 Octoview keeps the message a snapshot was recorded with — the one you pass to

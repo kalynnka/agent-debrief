@@ -220,6 +220,12 @@ export class Git {
     return new Set(out.split("\n").filter((name) => name !== ""));
   }
 
+  /** Every ref under a prefix, full names. */
+  async refsUnder(prefix: string): Promise<string[]> {
+    const out = await this.run(["for-each-ref", "--format=%(refname)", prefix]);
+    return out.split("\n").filter((ref) => ref !== "");
+  }
+
   /** Whether a ref exists — how a lane learns its branch is gone. */
   async refExists(ref: string): Promise<boolean> {
     try {

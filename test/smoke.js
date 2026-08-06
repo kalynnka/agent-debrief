@@ -14,6 +14,7 @@ const {
   adoptLane,
   committableRun,
   dropSnapshot,
+  foreignPaths,
   landedCommits,
   landedSnapshots,
   makeAnchor,
@@ -611,7 +612,7 @@ async function main() {
 
   assert.deepStrictEqual(
     await sweepLanes(ggit, common, false),
-    { closed: [], collected: [] },
+    { closed: [], collected: [], stray: [] },
     "a lane whose branch is alive is never swept",
   );
 
@@ -626,7 +627,7 @@ async function main() {
 
   assert.deepStrictEqual(
     await sweepLanes(ggit, common, false),
-    { closed: ["doomed"], collected: [] },
+    { closed: ["doomed"], collected: [], stray: [] },
     "the dead lane is found",
   );
   assert.strictEqual(
@@ -651,7 +652,7 @@ async function main() {
   assert.strictEqual(await ggit.has(dsnap.snapshot.sha), false, "the real cleanup takes it");
   assert.deepStrictEqual(
     await sweepLanes(ggit, common, true),
-    { closed: [], collected: ["doomed"] },
+    { closed: [], collected: ["doomed"], stray: [] },
     "and only then is there nothing left to review",
   );
   assert.ok(!fs.existsSync(doomed.dir), "so the record goes with its snapshots");
@@ -708,8 +709,34 @@ async function main() {
   assert.strictEqual(refused.reason, "mid-operation", "and the reason is not 'unchanged'");
   mg(["merge", "--abort"]);
   assert.strictEqual(await mgit.operationInProgress(), undefined, "and it clears when git is done");
+  mg(["switch", "-q", "main"]);
+
+  // 23. The subtraction (docs/GIT.md D3b). shared.txt arrived with the merge and
+  //     the snapshot holds it exactly as the merge left it, so it is not the
+  //     agent's. agent.txt the agent wrote itself. A file the agent edited *after*
+  //     the merge stays theirs — the top layer is the one that counts, since
+  //     hiding a real edit is the failure worth avoiding.
+  const all2 = mstore2.data.snapshots;
+  const brought = await foreignPaths(mgit, all2, all2[1]);
+  assert.ok(brought.has("shared.txt"), "the merge's file is not the agent's");
+  assert.ok(!brought.has("agent.txt"), "the agent's own file stays theirs");
+  assert.deepStrictEqual(
+    [...(await foreignPaths(mgit, all2, all2[0]))],
+    [],
+    "nothing is foreign when HEAD did not move",
+  );
+
+  fs.writeFileSync(path.join(midRoot, "shared.txt"), "agent edited the merged file\n");
+  const third = await takeSnapshot(mgit, mstore2, { label: "edit after merge", agent: "manual" });
+  assert.strictEqual(third.created, true);
+  assert.deepStrictEqual(
+    [...(await foreignPaths(mgit, mstore2.data.snapshots, third.snapshot))],
+    [],
+    "HEAD did not move under snapshot 3, so nothing there is the merge's",
+  );
   fs.rmSync(midRoot, { recursive: true, force: true });
   console.log("mid-merge is nobody's work            ok");
+  console.log("a merge's files are not the agent's   ok");
 
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });
