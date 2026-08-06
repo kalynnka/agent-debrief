@@ -140,8 +140,15 @@ export class GitWatch implements vscode.Disposable {
     );
   }
 
-  /** git reports every file an agent writes, one event each, while rebuilding the
-   * view costs two git processes per open snapshot — so the burst becomes one event. */
+  /** git reports every file an agent writes, one event each, so the burst becomes
+   * one event.
+   *
+   * 400ms rather than 200: a warm refresh of a five-repo workspace measured 27 git
+   * subprocesses and ~200ms, almost all of it process-spawn overhead at ~8ms each.
+   * At 200ms the refreshes arrived about as fast as they finished, so an agent
+   * mid-turn kept the view rebuilding continuously. Half a second of staleness
+   * buys back the headroom, and nothing here is what the reviewer is watching
+   * while an agent types. */
   private schedule(checkoutMoved: boolean): void {
     this.checkoutMoved ||= checkoutMoved;
     if (this.timer !== undefined) {
@@ -152,6 +159,6 @@ export class GitWatch implements vscode.Disposable {
       const moved = this.checkoutMoved;
       this.checkoutMoved = false;
       this.moved.fire(moved);
-    }, 200);
+    }, 400);
   }
 }

@@ -131,11 +131,12 @@ multi-diff editor takes a title and a list of resources and nothing else, and th
 only collapse commands VS Code has are `collapseAll` and `expandAll` — all or
 nothing. There is no way for an extension to fold one row.
 
-A multi-diff row header shows `✓ files.ts` once that file is marked viewed. The
-header is baked in when the tab opens, so the mark you just made appears there
-only on reopen — the status bar says so at the time, and the sidebar and the
-title-bar button are what answer afterwards. **Mark All Files Viewed** reopens
-the tab for you.
+**Ticking a file inside a review reopens the tab**, which is how the row goes
+away: a multi-diff's resource list and every row's `✓` are fixed when the tab
+opens, so nothing about it can change in place. The row you ticked is the one you
+have just finished with, which is why that is worth the scroll position it costs.
+Outside a review — a single-file diff — nothing reopens and the status bar
+acknowledges the tick instead.
 
 ---
 

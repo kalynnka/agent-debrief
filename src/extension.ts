@@ -768,10 +768,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   ): Promise<void> => {
     await mark(target.repo, [target.rel], viewed ? target.at : undefined);
     snapshots.refresh();
+    // Inside a review, reopening is the only way the tab can answer: a multi-diff's
+    // resource list and every row's ✓ are fixed when it opens. Reopening is also
+    // what takes the file out of the review, since read files are left out — which
+    // is as close to folding a row as the editor allows.
+    //
+    // It costs the reviewer's place in the tab. That is the trade: a row that
+    // disappears when you tick it is worth more than a scroll position, because
+    // the row you ticked is the one you have just finished with.
+    const review = activeReview();
+    if (review !== undefined) {
+      await reopenReview(review);
+      return;
+    }
     await trackActiveDiff();
-    // Inside a review the row header cannot answer: its ✓ is baked into the URI
-    // the tab was opened with, and reopening the tab to move it would throw away
-    // the reviewer's place. This is the acknowledgement until then.
     vscode.window.setStatusBarMessage(
       `Octoview: ${path.basename(target.rel)} ${viewed ? "marked viewed" : "unmarked"}`,
       3000,

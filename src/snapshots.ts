@@ -8,6 +8,7 @@ import { Repo, Repos } from "./repos";
 import {
   committableRun,
   foreignPaths,
+  LandedCommit,
   landedCommits,
   LaneSweep,
   stashedSince,
@@ -573,13 +574,16 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       } else {
         this.stashed.delete(node.repo.root);
       }
-      const nodes = await this.shapeOf(node.repo);
-      const at = new Map(nodes.map((snapshot) => [snapshot.snapshot.n, snapshot]));
+      // Once, and handed down. Both this and `shapeOf` need to know what has
+      // landed, and asking twice cost a second `git log` plus a second HEAD read
+      // on every refresh — for an answer that cannot change between the two calls.
       const commits = await landedCommits(
         node.repo.git,
         node.repo.store.data.snapshots,
         await node.repo.git.head(),
       );
+      const nodes = await this.shapeOf(node.repo, commits);
+      const at = new Map(nodes.map((snapshot) => [snapshot.snapshot.n, snapshot]));
       const taken = new Set(commits.flatMap((commit) => commit.snapshots));
       // Only what a commit has not already taken can be committed: a landed snapshot
       // is out of the running, and the run starts again after it.
@@ -653,7 +657,7 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
    * Public because the commit action re-reads it rather than trusting the tree:
    * a `git restore` in a terminal can move what is reviewable between the row
    * being drawn and the button being pressed. */
-  async shapeOf(repo: Repo): Promise<SnapshotNode[]> {
+  async shapeOf(repo: Repo, landedIn?: LandedCommit[]): Promise<SnapshotNode[]> {
     const snapshots = repo.store.data.snapshots;
     // Whether a snapshot still has anything to show has to be known before it is
     // expanded, so every snapshot is measured here. The two commits either side of
@@ -668,7 +672,9 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
     // Which snapshots a commit has taken. HEAD is resolved per refresh rather than
     // cached — it is the one revision in play that moves — and the rule lives
     // with the other snapshot semantics, because the CLI reports the same answer.
-    const commits = await landedCommits(repo.git, snapshots, await repo.git.head());
+    // The tree has usually worked this out already and hands it down; the commit
+    // action calls in without one, and re-reads deliberately.
+    const commits = landedIn ?? (await landedCommits(repo.git, snapshots, await repo.git.head()));
     const landed = new Set(commits.flatMap((commit) => commit.snapshots));
     const shape = await Promise.all(
       changed.map(async (files, i) => {
