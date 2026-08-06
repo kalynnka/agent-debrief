@@ -120,6 +120,17 @@ Snapshotting is idempotent, so a turn where you changed nothing costs nothing. A
 edit made *while* the agent is running still lands in its snapshot — no hook can
 separate that.
 
+**A review opens with the files you have already read left out.** The title says
+how many — `octoview: snapshots 60→66 net · +1200 −300 · 5 read` — and the **eye**
+in the tab's title bar puts them back, or takes them out again. A review where
+everything has been read opens whole, because a tab with nothing in it says less
+than one that is entirely ticked.
+
+Left out rather than folded, and that is a limit rather than a preference: the
+multi-diff editor takes a title and a list of resources and nothing else, and the
+only collapse commands VS Code has are `collapseAll` and `expandAll` — all or
+nothing. There is no way for an extension to fold one row.
+
 A multi-diff row header shows `✓ files.ts` once that file is marked viewed. The
 header is baked in when the tab opens, so the mark you just made appears there
 only on reopen — the status bar says so at the time, and the sidebar and the

@@ -180,10 +180,32 @@
         "title": "Let Go of Abandoned Lanes",
         "category": "Octoview",
         "icon": "$(trash)"
+      },
+      {
+        "command": "octoview.showReadFiles",
+        "title": "Show Files You Have Read",
+        "category": "Octoview",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "octoview.hideReadFiles",
+        "title": "Hide Files You Have Read",
+        "category": "Octoview",
+        "icon": "$(eye-closed)"
       }
     ],
     "menus": {
       "editor/title": [
+        {
+          "command": "octoview.showReadFiles",
+          "when": "octoview.inReview && octoview.reviewHasRead && !octoview.reviewShowingRead",
+          "group": "navigation@0"
+        },
+        {
+          "command": "octoview.hideReadFiles",
+          "when": "octoview.inReview && octoview.reviewHasRead && octoview.reviewShowingRead",
+          "group": "navigation@0"
+        },
         {
           "command": "octoview.markViewedHere",
           "when": "octoview.inDiff && !octoview.diffViewed",
@@ -329,6 +351,14 @@
         {
           "command": "octoview.gc",
           "when": "false"
+        },
+        {
+          "command": "octoview.showReadFiles",
+          "when": "octoview.inReview"
+        },
+        {
+          "command": "octoview.hideReadFiles",
+          "when": "octoview.inReview"
         }
       ],
       "comments/commentThread/context": [

@@ -172,6 +172,9 @@ export async function openStackedDiff(
   repo: Repo,
   snapshots: Snapshot[],
   rows: FileRow[],
+  /** Files left out because they are already read. The title has to say so, or a
+   * review that opens with three of eight rows looks like a review of three. */
+  hidden = 0,
 ): Promise<string | undefined> {
   const base = snapshots[0].parent;
   const last = snapshots[snapshots.length - 1];
@@ -191,7 +194,7 @@ export async function openStackedDiff(
     snapshots.length === 1
       ? `snapshot ${snapshots[0].n}`
       : `snapshots ${snapshots[0].n}→${last.n} net`;
-  const counts = `+${added} −${deleted}`;
+  const counts = `+${added} −${deleted}${hidden > 0 ? ` · ${hidden} read` : ""}`;
   if (rows.length === 1) {
     // A one-row multi-diff leaves the rest of the tab empty; the plain diff
     // editor shows the same change at full height. There is no note row here, so

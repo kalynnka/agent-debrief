@@ -55,6 +55,14 @@ function unmarked(fsPath: string): string {
   return bare === base ? fsPath : path.join(path.dirname(fsPath), bare);
 }
 
+/** One open review tab: the snapshots it covers, and whether the reviewer has
+ * asked for the files they have already read to be shown alongside. */
+interface Review {
+  repo: Repo;
+  snapshots: Snapshot[];
+  showRead: boolean;
+}
+
 /** Every path a set of changes occupies. A rename holds two, and putting it back
  * has to account for both of them. */
 function touched(files: ChangedFile[]): string[] {
@@ -95,8 +103,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * to outlive the sidebar selection that produced it: a reviewer reading snapshots
    * 30→33 in one tab may well select snapshot 12 in the tree while doing it. VS Code
    * appends its own "(N files)" to the label, so the tab is matched by prefix. */
-  const reviewTabs = new Map<string, { repo: Repo; snapshots: Snapshot[] }>();
-  const activeReview = (): { repo: Repo; snapshots: Snapshot[] } | undefined => {
+  const reviewTabs = new Map<string, Review>();
+  const activeReview = (): Review | undefined => {
     const label = vscode.window.tabGroups.activeTabGroup.activeTab?.label;
     if (label === undefined) {
       return undefined;
@@ -110,10 +118,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
 
-  const openReview = async (repo: Repo, scope: Snapshot[]): Promise<void> => {
-    const title = await openStackedDiff(repo, scope, await rowsFor(repo, scope));
+  /** Open a review of some snapshots.
+   *
+   * Files already marked read are left out. The multi-diff editor cannot fold one
+   * row — `vscode.changes` takes a title and a list of resources and nothing else,
+   * and the only collapse commands VS Code has are all-or-nothing — so the way to
+   * keep read files out of the way is to not open them. **Show Read Files** puts
+   * them back, and the title always says how many are missing.
+   *
+   * A review where everything has been read opens whole: hiding every row would
+   * leave a tab with nothing in it, and "you have read all of this" is better said
+   * by a review that is entirely ticked. */
+  const openReview = async (repo: Repo, scope: Snapshot[], showRead = false): Promise<void> => {
+    const all = await rowsFor(repo, scope);
+    const unread = all.filter((row) => !row.reviewed);
+    const showing = showRead || unread.length === 0 ? all : unread;
+    const title = await openStackedDiff(repo, scope, showing, all.length - showing.length);
     if (title !== undefined) {
-      reviewTabs.set(title, { repo, snapshots: scope });
+      reviewTabs.set(title, { repo, snapshots: scope, showRead });
     }
     await trackActiveDiff();
   };
@@ -122,7 +144,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * was opened with, and a multi-diff's resources cannot be rewritten in place —
    * so the only way to move the ticks is to close the tab and open it again on
    * the same snapshots. */
-  const reopenReview = async (review: { repo: Repo; snapshots: Snapshot[] }): Promise<void> => {
+  const reopenReview = async (review: Review): Promise<void> => {
     const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
     for (const [title, scope] of reviewTabs) {
       if (tab !== undefined && scope === review && tab.label.startsWith(title)) {
@@ -131,7 +153,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         break;
       }
     }
-    await openReview(review.repo, review.snapshots);
+    await openReview(review.repo, review.snapshots, review.showRead);
   };
 
   /** Record the reviewer's mark on a set of files, or clear it. `at` is the snapshot
@@ -320,6 +342,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       "setContext",
       "octoview.inReview",
       rows.length > 0 && activeDiff() === undefined,
+    );
+    // Which way the toggle points, and whether there is anything to toggle: a
+    // review with nothing read yet should not offer to hide nothing.
+    await vscode.commands.executeCommand(
+      "setContext",
+      "octoview.reviewShowingRead",
+      review?.showRead ?? false,
+    );
+    await vscode.commands.executeCommand(
+      "setContext",
+      "octoview.reviewHasRead",
+      rows.some((row) => row.reviewed),
     );
     await vscode.commands.executeCommand(
       "setContext",
@@ -550,6 +584,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // view that cannot be taken back, and the modal says exactly which part: octoview
   // deletes no commits, but a snapshot commit sits in no reflog, so once the ref is
   // gone git's collector is the only thing standing between it and nothing.
+  // Put the files you have already read back into the review, or take them out
+  // again. Reopening is the only way: a multi-diff's resource list is fixed when
+  // the tab opens, which is the same reason a tick only moves on reopen.
+  const toggleReadFiles = async (): Promise<void> => {
+    const review = activeReview();
+    if (review === undefined) {
+      return;
+    }
+    review.showRead = !review.showRead;
+    await reopenReview(review);
+  };
+  // One action, two names: a menu entry takes its icon from the command, so an
+  // eye that changes with the state has to be two commands pointing at the same
+  // thing. Their `when` clauses are exclusive, so only ever one is on the bar.
+  register("octoview.showReadFiles", toggleReadFiles);
+  register("octoview.hideReadFiles", toggleReadFiles);
+
   register("octoview.gc", async (node: RepoNode) => {
     const { repo } = node;
     // Re-read rather than trust the row: a branch can be created or deleted in a
