@@ -57,7 +57,12 @@ an npm lockfile or the symlinked layout.
 `contribMultiDiffEditorMenus`, for the tick on a multi-diff row's own toolbar
 (`multiDiffEditor/resource/title`, which hands the command that row's URI). VS
 Code allows this because octoview is run from source in the Extension
-Development Host — it is not installed from the marketplace. The price is that
+Development Host — it is not installed from the marketplace — and
+`.vscode/launch.json` passes `--enable-proposed-api=octoverse.octoview` so it
+does not depend on the dev-mode path. A host that read the manifest before the
+opt-in rejects the menu with a message naming the proposal, so after changing
+either file, restart with F5 rather than only reloading the window. The price is
+that
 **this build cannot be published as-is**, and a VS Code update can change or
 withdraw the proposal, which shows up as the row button silently vanishing.
 Everything else keeps working when it does, and `⌘⌥V` does the same job from the

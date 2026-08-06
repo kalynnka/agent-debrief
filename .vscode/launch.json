@@ -7,6 +7,11 @@
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
+        // The row tick's menu (`multiDiffEditor/resource/title`) is proposed API.
+        // Development mode alone is meant to admit it, but the switch is what
+        // makes it deterministic — and it drops the "EXTENSION WILL BE BROKEN"
+        // line the dev-mode path logs instead.
+        "--enable-proposed-api=octoverse.octoview",
         "${workspaceFolder}/../octoverse.code-workspace"
       ],
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
