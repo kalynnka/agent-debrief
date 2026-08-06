@@ -163,11 +163,11 @@ export class MoreNode {
 
 export type Node = RepoNode | GroupNode | CommitNode | SnapshotNode | FileNode | MoreNode;
 
-/** Commits shown in a repo's Commits area before "show earlier" is pressed, and
- * how many more each press reveals. Five is about what fits without pushing the
- * areas that still want reading off the bottom of the view. */
+/** One page of commit history: what the Commits area shows to begin with, and
+ * what each press of "show earlier" adds. One number, not two — a first page of
+ * five and a second of twenty is not paging, it is showing everything on the
+ * first click of any lane short of twenty-five commits. */
 const COMMIT_PAGE = 5;
-const COMMIT_MORE = 20;
 
 /** Everything a redraw needs about a repo that the working tree cannot change. */
 interface RepoStructure {
@@ -295,7 +295,7 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
   /** Reveal another page of a repo's commit history. */
   showMoreCommits(repo: Repo): void {
     const shown = this.shownCommits.get(repo.root) ?? COMMIT_PAGE;
-    this.shownCommits.set(repo.root, shown + COMMIT_MORE);
+    this.shownCommits.set(repo.root, shown + COMMIT_PAGE);
     this.changed.fire(undefined);
   }
 
@@ -455,7 +455,8 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
         "Show earlier commits",
         vscode.TreeItemCollapsibleState.None,
       );
-      item.description = `${node.hidden} more`;
+      // Say what the press will actually do, not just how much is left behind it.
+      item.description = `${Math.min(COMMIT_PAGE, node.hidden)} of ${node.hidden}`;
       item.iconPath = new vscode.ThemeIcon("ellipsis");
       item.contextValue = "more";
       item.tooltip = `${node.hidden} older commit(s) of this lane, not drawn until asked for.`;
