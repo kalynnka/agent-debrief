@@ -201,14 +201,10 @@ lane outright. Both are read from the branch's own reflog, and both apply only
 while the new branch still stands exactly where it was created — once it has a
 commit of its own it is a line of work of its own, and inherits nothing.
 
-**A lane ends the way its branch ends.** It closes when the branch is deleted, or
-when the branch has been merged — `git merge-base --is-ancestor <branch>
-<default>`, which is git's own answer rather than a status Octoview has to
-maintain. A closed lane is eligible for cleanup (§4.8).
-
-The default branch is the exception: `main` is trivially its own ancestor, so its
-lane never auto-closes and is bounded by age and count alone. Long-lived work on
-`main` is the normal case here, not an edge one.
+**A lane ends the way its branch ends** — when the branch is deleted, and only
+then. A merged branch still exists, and git keeps its objects, so octoview keeps
+the lane; the reviewer deleting the branch is the signal, not a status octoview
+infers. A closed lane is handed back to git (§4.8).
 
 **Concurrent agents** follow from this. Two agents working at once belong in two
 worktrees on two branches, which is two lanes with independent numbering and no
@@ -332,23 +328,36 @@ enough to prove it is missed.
 
 ### 4.8 Retention and cleanup
 
-Snapshot refs and snapshot objects accumulate, so cleanup is a product requirement,
-not an afterthought.
+**Octoview has no retention policy** (owner decision 2026-08-06, docs/GIT.md D2).
+It has exactly one rule, and the rest is git's:
 
-`octoview gc` prunes, and a cheap prune check runs after each snapshot:
-
-| Rule | |
+| | |
 |---|---|
-| Closed lane — branch deleted, or merged into the default branch (§4.2) | Prune the whole lane |
-| Snapshots older than the retention window (default 30 days) | Prune |
-| Beyond the last *K* snapshots per lane (default 50) | Prune |
+| A lane whose branch no longer exists | **Let go of its refs.** Nothing else |
+| A lane whose snapshots git has since collected | Forget it — there is nothing left to review |
 
-**Nothing with open review work is ever pruned** — a lane keeps any snapshot that has
-an unresolved thread or a file still unreviewed, regardless of age or count. A
-review that vanishes because a timer expired is worse than disk usage.
+That is the whole of `octoview gc`. No age window, no per-lane cap, no notion of
+a lane being stale on octoview's own authority.
 
-Pruning deletes the refs; git's own gc reclaims the objects. Octoview never runs
-a destructive git command on the user's behalf beyond deleting refs it created.
+The reason is mechanical rather than tasteful. **A snapshot ref is a GC root**, so
+while octoview holds one, `git gc --prune=now` cannot touch that snapshot — a lane
+left behind by `git branch -d` pins its objects forever, which is the actual leak.
+Letting the ref go is the entire act: from that moment the snapshot is an ordinary
+unreachable object and git's own retention decides when it goes. A real cleanup
+then takes the branch and its snapshots together, which is what a reviewer means
+by cleaning up.
+
+It is not quite the grace a deleted branch gets, and the difference is worth
+knowing. A branch's commits stay named in HEAD's reflog for
+`gc.reflogExpireUnreachable` (90 days by default), while a snapshot commit was
+never on a branch and `core.logAllRefUpdates` does not cover `refs/octoview/` —
+verified, not assumed — so nothing names it once the ref is gone. **`state.json`
+is what stands in for the reflog:** it keeps every snapshot's sha, so while the
+objects last a lane can be restored with `git update-ref`. Widening that window is
+`gc.pruneExpire`, git's own knob rather than one octoview invents.
+
+Octoview never deletes an object and never runs `git gc` for you. Deleting a ref
+it created itself is the only destructive git command it will run.
 
 ### 4.9 Edit provenance inside a snapshot
 

@@ -39,7 +39,7 @@ verified against the working repos rather than read off the PRD.
 | `git switch <branch>`, `git checkout <branch>`, `gh pr checkout` | Works. `GitWatch` reports the branch change, repos re-resolve, the new lane's state loads (or an empty one). | Unchanged. |
 | `git switch -c <new>`, `git checkout -b <new>` | The new lane inherits the one it was cut from — state copied, refs re-pointed at the same commits — while the branch still stands where it was created. | Unchanged. |
 | `git branch -m <old> <new>` | The lane moves with the branch; nothing is left under the old name. | Unchanged. |
-| `git branch -d`, `git branch -D` | **Refs and state leak forever.** inky holds `.git/octoview/luhui19970305/octo-29-…` for a branch that was merged and deleted. | Close the lane (PRD §4.2), then prune it (§4.8) — but see D2 on whether that deletion is automatic. |
+| `git branch -d`, `git branch -D` | `octoview gc` lets go of the lane's refs, so git can collect the snapshots on its own schedule; a lane git has already collected is forgotten. | Unchanged. |
 | `git checkout <sha>`, `git switch --detach`, `git bisect` | A lane of its own, `detached/<sha7>`. | Unchanged. |
 | `git worktree add` | Works. The common dir is shared, so lanes are shared and branch-per-worktree keeps them apart. | Unchanged. |
 | `git worktree remove` | The removed worktree's detached-lane state, if any, leaks. | Falls out of the same prune. |
@@ -78,7 +78,7 @@ verified against the working repos rather than read off the PRD.
 
 | Command | Today | Should |
 |---|---|---|
-| `git gc`, `git prune`, `git reflog expire` | Our refs are roots, so snapshot objects are pinned forever and nothing reclaims them. There is **no `octoview gc`** — PRD §4.8 specifies one and it was never built. | Build the prune. Deleting refs is the only destructive git action octoview may take, and only on refs it created. |
+| `git gc`, `git prune`, `git reflog expire` | Our refs are GC roots, so a live lane's snapshots are pinned — correctly. `octoview gc` lets go of dead lanes, and from there git's own retention applies: `gc.pruneExpire` for the objects, `gc.reflogExpireUnreachable` for what a reflog still names. | Unchanged. Octoview never runs `git gc` for you. |
 | `git push`, `git fetch` | `refs/octoview/**` is outside the default refspecs, so snapshots stay local. Correct and worth keeping. | Unchanged; document that `push --mirror` would send them. |
 | `git clone` | A clone carries no review history. Intended — PRD §4.3. | Unchanged. |
 
@@ -135,14 +135,24 @@ own, and inheriting someone else's snapshots would be a claim about code they
 never saw. `adoptLane` runs from every entry point, extension and CLI alike, so
 whichever one the reviewer or the hook reaches first is the one that heals it.
 
-*Delete, still open — and it needs a decision, not an implementation.* A branch
-deleted by mistake, or deleted and recreated, takes its review history with it
-and there is no second copy. **Recommendation:** prune a closed lane's refs and
-state automatically only when it holds no unreviewed file and no open thread —
-PRD §4.8's own "nothing with open review work is ever pruned" — and otherwise
-surface it in the view as an abandoned lane with an explicit Delete. Silent
-deletion of the one thing that cannot be regenerated is the wrong default even
-when the branch really is gone.
+*Delete, done — and the owner's answer was better than the recommendation that
+stood here.* I had proposed octoview decide, with a "nothing unreviewed, no open
+thread" guard. The right answer is that octoview decides nothing: **follow git.**
+
+A snapshot ref is a GC root, so while octoview holds one, `git gc --prune=now`
+cannot touch that snapshot — verified. That is the actual leak: a lane left by
+`git branch -d` pins its objects forever. So `octoview gc` lets go of the refs and
+stops. From that moment the snapshot is an ordinary unreachable object on git's
+own schedule, and the reviewer's real cleanup takes branch and snapshots together.
+A lane whose objects git has since collected is forgotten, because there is
+nothing left to review — git made that call, octoview only noticed.
+
+The asymmetry to know: a deleted branch's commits stay named in HEAD's reflog for
+`gc.reflogExpireUnreachable`, but a snapshot commit is in **no reflog at all** —
+`core.logAllRefUpdates` does not cover `refs/octoview/`, and it was never on a
+branch. `state.json` stands in, holding every sha, so a lane can be put back with
+`git update-ref` while the objects last. The window is `gc.pruneExpire`: git's
+knob, not one octoview invents.
 
 **D3 — Foreign changes are attributed to the agent.**
 `git pull` between two snapshots puts everyone else's work in the agent's next
@@ -188,15 +198,21 @@ commits on the new branch and asserts a second cut inherits nothing; renames and
 asserts the old directory and refs are gone; and detaches to assert the lane is
 named by the commit.
 
-**Phase 2b — Lanes end with their branches (D2's second half).**
-Closed-lane detection via `merge-base --is-ancestor`, `octoview gc` implementing
-PRD §4.8, and the abandoned-lane surface. Needs a signal `GitWatch` does not have
-— branch deletion raises no event — so either a watch on `<common-dir>/refs/heads`
-or a sweep on refresh. **Blocked on the recommendation above being accepted or
-overruled**, because it decides whether anything is ever deleted without asking.
-*Done when:* inky's one orphaned lane directory and the leftover
-`refs/octoview/turns/1` are gone; nothing with an unreviewed file or an open
-thread is ever pruned.
+**Phase 2b — Lanes end with their branches (D2's second half).** ✅ **Done.**
+`sweepLanes` and `octoview gc [--dry-run]`. No age window, no cap, no staleness
+octoview judges for itself — a lane is closed because its branch is, and forgotten
+because git already collected it.
+*Verified:* 42 checks pass (21 smoke + 21 cli). The new smoke check proves the
+whole chain end to end: a live lane is never swept; after `branch -D`, `gc
+--prune=now` **cannot** collect the snapshot because our ref pins it; a dry run
+reports and changes nothing; applying drops the ref but deletes nothing, leaving
+`state.json` holding the sha; the next `gc --prune=now` collects; and only then is
+the lane forgotten. On inky, `octoview gc --dry-run` finds the one orphaned lane.
+
+*Not done here:* the sweep runs only when asked. Wiring it into the extension —
+either automatically on refresh or as an abandoned-lane row with a button — is
+still open, and so is the leftover `refs/octoview/turns/1` in inky and kraken,
+which belongs to the pre-lane POC scheme nothing reads.
 
 **Phase 3 — Attribute honestly (fixes D3, D5).**
 `head` on the `Snapshot` record (schema 2 → 3), a header line when it moved,

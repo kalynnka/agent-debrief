@@ -18,6 +18,7 @@ const {
   landedSnapshots,
   makeAnchor,
   revertPaths,
+  sweepLanes,
   takeSnapshot,
 } = require("../out/review");
 const { Store } = require("../out/state");
@@ -588,6 +589,74 @@ async function main() {
   );
   fs.rmSync(cutRoot, { recursive: true, force: true });
   console.log("lanes follow branches                 ok");
+
+  // 21. Retention is git's, not ours (docs/GIT.md D2). A snapshot ref is a GC
+  //     root, so a lane left behind by a deleted branch pins its objects against
+  //     even `gc --prune=now`. Letting go of the ref is the whole act; from there
+  //     git decides, and a real cleanup takes branch and snapshots together.
+  const gcRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-gc-"));
+  const gg = (args) => execFileSync("git", args, { cwd: gcRoot, encoding: "utf8" });
+  gg(["init", "-q", "-b", "main", "."]);
+  gg(["config", "user.email", "t@t"]);
+  gg(["config", "user.name", "t"]);
+  fs.writeFileSync(path.join(gcRoot, "f.txt"), "0\n");
+  gg(["add", "."]);
+  gg(["commit", "-qm", "base"]);
+  const ggit = new Git(gcRoot);
+  gg(["switch", "-qc", "doomed"]);
+  const doomed = await resolveLane(gcRoot);
+  fs.writeFileSync(path.join(gcRoot, "f.txt"), "1\n");
+  const dsnap = await takeSnapshot(ggit, new Store(doomed), { label: "work", agent: "manual" });
+  const common = doomed.commonDir;
+
+  assert.deepStrictEqual(
+    await sweepLanes(ggit, common, false),
+    { closed: [], collected: [] },
+    "a lane whose branch is alive is never swept",
+  );
+
+  gg(["switch", "-q", "main"]);
+  gg(["branch", "-qD", "doomed"]);
+  gg(["gc", "--prune=now", "-q"]);
+  assert.strictEqual(
+    await ggit.has(dsnap.snapshot.sha),
+    true,
+    "our ref is a GC root — git cannot collect the snapshot while we hold it",
+  );
+
+  assert.deepStrictEqual(
+    await sweepLanes(ggit, common, false),
+    { closed: ["doomed"], collected: [] },
+    "the dead lane is found",
+  );
+  assert.strictEqual(
+    await ggit.refExists(snapshotRef("doomed", 1)),
+    true,
+    "and a dry run changes nothing",
+  );
+
+  await sweepLanes(ggit, common, true);
+  assert.strictEqual(await ggit.refExists(snapshotRef("doomed", 1)), false, "the ref is let go");
+  assert.strictEqual(
+    await ggit.has(dsnap.snapshot.sha),
+    true,
+    "but nothing is deleted — the snapshot is an ordinary unreachable object now",
+  );
+  assert.ok(
+    fs.existsSync(path.join(doomed.dir, "state.json")),
+    "and the record stays, holding the sha the lane could be put back from",
+  );
+
+  gg(["gc", "--prune=now", "-q"]);
+  assert.strictEqual(await ggit.has(dsnap.snapshot.sha), false, "the real cleanup takes it");
+  assert.deepStrictEqual(
+    await sweepLanes(ggit, common, true),
+    { closed: [], collected: ["doomed"] },
+    "and only then is there nothing left to review",
+  );
+  assert.ok(!fs.existsSync(doomed.dir), "so the record goes with its snapshots");
+  fs.rmSync(gcRoot, { recursive: true, force: true });
+  console.log("retention is git's, not ours          ok");
 
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });

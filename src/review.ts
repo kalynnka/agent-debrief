@@ -138,6 +138,94 @@ export async function adoptLane(git: Git, lane: Lane): Promise<void> {
   }
 }
 
+/** What a sweep found, whether or not it was allowed to act. */
+export interface LaneSweep {
+  /** Lanes whose branch is gone. Dropping their refs is the whole of what
+   * octoview does to them. */
+  closed: string[];
+  /** Lanes git has already collected the snapshots of — nothing left to review,
+   * so the record goes with them. */
+  collected: string[];
+}
+
+/** Every lane the clone holds state for, named by the directory that spells it
+ * out. A lane directory is one holding `state.json`; `batches/` sits inside one
+ * and is never mistaken for another, because the walk stops as soon as it finds
+ * the file. The octoview root itself is skipped — POC-era clones have a
+ * `state.json` sitting there from before lanes existed, and it names no lane. */
+async function laneDirs(commonDir: string): Promise<{ name: string; dir: string }[]> {
+  const found: { name: string; dir: string }[] = [];
+  const walk = async (dir: string, segments: string[]): Promise<void> => {
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+    if (segments.length > 0 && entries.some((e) => e.isFile() && e.name === "state.json")) {
+      found.push({ name: segments.join("/"), dir });
+      return;
+    }
+    for (const entry of entries.filter((e) => e.isDirectory())) {
+      await walk(path.join(dir, entry.name), [...segments, entry.name]);
+    }
+  };
+  await walk(path.join(commonDir, "octoview"), []);
+  return found;
+}
+
+/** Let go of the lanes whose branches are gone, and forget the ones git has
+ * already collected.
+ *
+ * Octoview has no retention policy, deliberately. A snapshot ref is a GC root, so
+ * while octoview holds one, `git gc --prune=now` cannot touch the snapshot — which
+ * is why a lane left behind by `git branch -d` pins its objects forever. Dropping
+ * the ref is the entire act: from that moment the snapshot is an ordinary
+ * unreachable object, and *git* decides when it goes. A real cleanup then takes
+ * the branch and its snapshots together, which is the point.
+ *
+ * It is not quite the grace a deleted branch gets. A branch's commits stay named
+ * in HEAD's reflog for `gc.reflogExpireUnreachable` — 90 days by default — while a
+ * snapshot commit was never on a branch and `core.logAllRefUpdates` does not cover
+ * `refs/octoview/`, so nothing names it once the ref is gone. `state.json` is what
+ * stands in: it keeps every snapshot's sha, so while the objects last a lane can be
+ * put back with `git update-ref`. Widening that window is `gc.pruneExpire`, git's
+ * own knob rather than one octoview invents.
+ *
+ * Nothing here deletes an object, and nothing decides a lane is stale on its own
+ * authority: a lane is closed because its branch is, and forgotten because git
+ * already collected it. */
+export async function sweepLanes(git: Git, commonDir: string, apply: boolean): Promise<LaneSweep> {
+  const sweep: LaneSweep = { closed: [], collected: [] };
+  for (const { name, dir } of await laneDirs(commonDir)) {
+    if (await git.refExists(`refs/heads/${name}`)) {
+      continue;
+    }
+    const store = new Store({ root: git.root, commonDir, name, dir });
+    await store.load();
+    const snapshots = store.data.snapshots;
+    const held = await Promise.all(
+      snapshots.map((snapshot) => git.refExists(snapshotRef(name, snapshot.n))),
+    );
+    if (held.some((yes) => yes)) {
+      sweep.closed.push(name);
+      if (apply) {
+        for (const [i, snapshot] of snapshots.entries()) {
+          if (held[i]) {
+            await git.deleteRef(snapshotRef(name, snapshot.n));
+          }
+        }
+      }
+      continue;
+    }
+    // No refs left and no objects behind them: git has been through. An empty
+    // lane on a dead branch reaches the same place with nothing to check.
+    const alive = await Promise.all(snapshots.map((snapshot) => git.has(snapshot.sha)));
+    if (alive.every((yes) => !yes)) {
+      sweep.collected.push(name);
+      if (apply) {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
+    }
+  }
+  return sweep;
+}
+
 /** How far a commit can reach: the unbroken run of reviewed snapshots from the
  * start of the lane, and the reviewed snapshots beyond it that it cannot take.
  *

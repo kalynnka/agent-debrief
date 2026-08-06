@@ -180,6 +180,32 @@ export class Git {
     await this.run(["update-ref", ref, sha]);
   }
 
+  /** Whether a ref exists — how a lane learns its branch is gone. */
+  async refExists(ref: string): Promise<boolean> {
+    try {
+      await this.run(["show-ref", "--verify", "--quiet", "--", ref]);
+      return true;
+    } catch (error) {
+      // show-ref reports "no such ref" as exit 1, the way its siblings do.
+      if ((error as { code?: number }).code === 1) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /** Whether a commit is still in the object store.
+   *
+   * Once octoview lets go of a snapshot's ref the commit is unreachable, and how
+   * long it survives after that is git's business — a grace period, then the next
+   * `gc`. This is how a lane finds out that decision has been made. */
+  async has(sha: string): Promise<boolean> {
+    return this.run(["cat-file", "-e", `${sha}^{commit}`]).then(
+      () => true,
+      () => false,
+    );
+  }
+
   async deleteRef(ref: string): Promise<void> {
     await this.run(["update-ref", "-d", ref]);
   }

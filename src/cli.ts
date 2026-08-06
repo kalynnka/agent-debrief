@@ -13,7 +13,7 @@ import { parseArgs } from "util";
 
 import { ChangedFile, Git, Snapshot } from "./git";
 import { resolveLane } from "./lanes";
-import { adoptLane, landedSnapshots, takeSnapshot } from "./review";
+import { adoptLane, landedSnapshots, sweepLanes, takeSnapshot } from "./review";
 import { Store } from "./state";
 import { labelOf, summaryFromTranscript } from "./transcript";
 
@@ -33,6 +33,8 @@ const USAGE = `usage: octoview <command> [options]
   show <rev> <path>      file content at a revision (a snapshot number or a sha)
   review submit          write the pending comment threads out as one batch
   review batch           print the latest submitted batch
+  gc                     let go of lanes whose branch is gone, so git can collect
+                         their snapshots on its own schedule  (--dry-run)
 
 options: --repo <path> (default .) · --lane <name> (default: checked-out branch) · --json
 exit codes: 0 success · 2 usage error · 3 resolution failure`;
@@ -77,6 +79,8 @@ async function dispatch(argv: string[]): Promise<number> {
       // the one the Stop hook runs, so it is the command with nothing in it.
       return snapshotCommand(rest);
     }
+    case "gc":
+      return gcCommand(rest);
     case "diff":
       return diffCommand(rest);
     case "show":
@@ -163,6 +167,44 @@ async function statusCommand(args: string[]): Promise<number> {
       `  ${snapshot.n}  ${snapshot.label} — ${snapshot.files.length} file(s), ` +
         `${reviewed} reviewed [${snapshot.agent}]\n`,
     );
+  }
+  return 0;
+}
+
+async function gcCommand(args: string[]): Promise<number> {
+  const { values } = guarded(() =>
+    parseArgs({
+      args,
+      options: {
+        repo: { type: "string" },
+        json: { type: "boolean" },
+        "dry-run": { type: "boolean" },
+      },
+    }),
+  );
+  const lane = await resolveLane(values.repo ?? ".");
+  const git = new Git(lane.root);
+  const dryRun = values["dry-run"] ?? false;
+  const sweep = await sweepLanes(git, lane.commonDir, !dryRun);
+  if (values.json ?? false) {
+    process.stdout.write(
+      JSON.stringify({ schemaVersion: SCHEMA_VERSION, repo: lane.root, dryRun, ...sweep }) + "\n",
+    );
+    return 0;
+  }
+  process.stdout.write(`repo: ${lane.root}${dryRun ? "  (dry run — nothing changed)" : ""}\n`);
+  for (const name of sweep.closed) {
+    process.stdout.write(`  closed     ${name}  — refs dropped, git owns the snapshots now\n`);
+  }
+  for (const name of sweep.collected) {
+    process.stdout.write(`  collected  ${name}  — git already took the snapshots\n`);
+  }
+  if (sweep.closed.length + sweep.collected.length === 0) {
+    process.stdout.write("  every lane still has its branch\n");
+  } else if (sweep.closed.length > 0) {
+    // The refs were the only thing keeping them: say what actually frees the disk,
+    // since octoview deliberately never runs it.
+    process.stdout.write("\nrun `git gc` when you want the objects back.\n");
   }
   return 0;
 }
