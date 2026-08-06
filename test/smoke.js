@@ -468,8 +468,49 @@ async function main() {
   fs.rmSync(twoRoot, { recursive: true, force: true });
   console.log("commits read back as their own groups ok");
 
+  // 19. The reviewer's own workflow: stage what you have read, commit that, keep
+  //     going. Such a commit holds no snapshot's tree, so tree equality saw none
+  //     of them — a lane could be committed to the last file and still read as
+  //     entirely uncommitted (docs/GIT.md D1).
+  const handRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-hand-"));
+  const hg = (args) => execFileSync("git", args, { cwd: handRoot, encoding: "utf8" });
+  hg(["init", "-q", "-b", "main", "."]);
+  hg(["config", "user.email", "t@t"]);
+  hg(["config", "user.name", "t"]);
+  fs.writeFileSync(path.join(handRoot, "base.txt"), "0\n");
+  hg(["add", "."]);
+  hg(["commit", "-qm", "base"]);
+  const hgit = new Git(handRoot);
+  const hstore = new Store(await resolveLane(handRoot));
+  const wrote = (file, text) => fs.writeFileSync(path.join(handRoot, file), text);
+  wrote("a.txt", "a1\n");
+  wrote("b.txt", "b1\n");
+  await takeSnapshot(hgit, hstore, { label: "writes a and b", agent: "manual" });
+  wrote("b.txt", "b2\n");
+  await takeSnapshot(hgit, hstore, { label: "writes b again", agent: "manual" });
+  const handLanded = async () =>
+    [...(await landedSnapshots(hgit, hstore.data.snapshots, await hgit.head()))];
 
+  // Half of snapshot 1 committed. Its own work is not all in, so it has not landed.
+  hg(["add", "a.txt"]);
+  hg(["commit", "-qm", "the half I had read"]);
+  assert.deepStrictEqual(await handLanded(), [], "a half-committed snapshot has not landed");
 
+  // The rest. Snapshot 1's b.txt is committed as snapshot 2 left it, not as
+  // snapshot 1 left it — a change written over by later work still reached the
+  // branch, so both snapshots land, and they land together.
+  hg(["add", "b.txt"]);
+  hg(["commit", "-qm", "the rest"]);
+  assert.deepStrictEqual(await handLanded(), [1, 2], "the rest lands both snapshots");
+  const handGroups = await landedCommits(hgit, hstore.data.snapshots, await hgit.head());
+  assert.strictEqual(handGroups.length, 1, "one commit completed them, so one group");
+  assert.strictEqual(
+    handGroups[0].message.split("\n")[0],
+    "the rest",
+    "credited to the commit that completed them, not the one that started",
+  );
+  fs.rmSync(handRoot, { recursive: true, force: true });
+  console.log("a hand-staged commit lands its work  ok");
 
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });

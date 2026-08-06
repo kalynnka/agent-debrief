@@ -33,10 +33,9 @@ export class SnapshotNode {
     readonly droppable: boolean,
     /** How many of those files are marked reviewed at this snapshot. */
     readonly viewed: number,
-    /** Nothing uncommitted is this snapshot's doing: every file it still owns is
-     * on disk exactly as HEAD holds it. Judged on the files it *owns* rather than
-     * on everything it touched, so a later snapshot editing one of them again
-     * cannot un-land a snapshot whose own work is already in a commit. */
+    /** Every change this snapshot made has reached a commit — as it left it, or
+     * as a later snapshot rewrote it. Judged on every path the snapshot touched,
+     * so a later snapshot editing one of them cannot un-land it. */
     readonly landed: boolean,
     readonly part: Part = "all",
   ) {}
@@ -154,6 +153,29 @@ const AGENT_ICONS: Record<string, string> = {
  * the marks too. */
 function struckThrough(text: string): string {
   return [...text].map((character) => `${character}̶`).join("");
+}
+
+/** `snapshots 5–13`, `snapshots 2, 5–7`, `snapshot 9`. A commit no longer takes
+ * an unbroken run — a reviewer who commits a staged subset lands part of the lane
+ * and leaves the rest — so the numbers have to say where the gaps are. */
+function spanOf(numbers: number[]): string {
+  if (numbers.length === 0) {
+    return "no snapshots";
+  }
+  const runs: string[] = [];
+  let start = numbers[0];
+  let end = start;
+  for (const n of numbers.slice(1)) {
+    if (n === end + 1) {
+      end = n;
+      continue;
+    }
+    runs.push(start === end ? `${start}` : `${start}–${end}`);
+    start = n;
+    end = n;
+  }
+  runs.push(start === end ? `${start}` : `${start}–${end}`);
+  return `${numbers.length === 1 ? "snapshot" : "snapshots"} ${runs.join(", ")}`;
 }
 
 /** What a row covers: the one file of a file row, and of a snapshot row the files
@@ -303,9 +325,7 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
     if (node.kind === "commit") {
       const [subject] = node.message.split("\n");
       const item = new vscode.TreeItem(subject, vscode.TreeItemCollapsibleState.Collapsed);
-      const first = node.snapshots[0]?.snapshot.n;
-      const last = node.snapshots[node.snapshots.length - 1]?.snapshot.n;
-      const span = first === last ? `snapshot ${first}` : `snapshots ${first}–${last}`;
+      const span = spanOf(node.snapshots.map((snapshot) => snapshot.snapshot.n));
       item.description = `${node.sha.slice(0, 7)} · ${span}`;
       item.iconPath = new vscode.ThemeIcon("git-commit");
       item.contextValue = "commit";

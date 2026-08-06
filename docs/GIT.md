@@ -48,8 +48,8 @@ verified against the working repos rather than read off the PRD.
 
 | Command | Today | Should |
 |---|---|---|
-| `git commit` — **whole snapshot** | Recognised. The commit's tree equals the snapshot's tree, which is how `landedCommits` finds it. | Unchanged — keep as the exact-hit fast path. |
-| `git commit` — **partial, from a staged subset** | **Invisible.** The tree matches nothing, so no snapshot lands and the Commits area stays empty. This is the reported bug and the reviewer's actual workflow. | Land on content (D1). |
+| `git commit` — **whole snapshot** | Recognised. | Unchanged. |
+| `git commit` — **partial, from a staged subset** | Recognised since D1 landed — the commit takes every snapshot whose changes it completes. | Unchanged. |
 | `git commit --amend` | Landing is recomputed from HEAD, so the answer just moves — correct by design. A snapshot's recorded `parent` may leave the branch, but the snapshot's own ref keeps it reachable. Verified: inky's snapshot 1 has parent `9966728`, no longer an ancestor of HEAD, still resolving. | Unchanged. |
 | `git rebase`, `rebase -i`, squash, fixup | Same as amend. | Unchanged. |
 | `git reset --soft`, `--mixed` | Index and HEAD move; the worktree does not, so snapshots still describe what is on disk. | Unchanged. |
@@ -91,37 +91,35 @@ verified against the working repos rather than read off the PRD.
 
 Five defects, worst first.
 
-**D1 — Landing is whole-tree, so hand-made commits never land.**
-`landedCommits` ([review.ts:135](../src/review.ts#L135)) recognises a commit only
-when its tree *is* a snapshot's tree — true by construction for commits octoview
-makes and for nothing else. Measured on inky's current lane: two snapshots, HEAD
-`165b9ec`, `landedCommits` returns `[]` and `landedSnapshots` returns `[]`, while
-all three of snapshot 2's files are already byte-identical to HEAD. Every file row
-says `committed` under a snapshot octoview calls uncommitted, and the Commits
-group is hidden because it is empty. octoview's own repo shows three commits
-(snapshots 5–13, 14–47, 48–50) — all made by its own button.
+**D1 — Landing was whole-tree, so hand-made commits never landed.** *(fixed)*
+`landedCommits` recognised a commit only when its tree *was* a snapshot's tree —
+true by construction for commits octoview makes and for nothing else. Measured on
+inky's lane before the fix: two snapshots, HEAD `165b9ec`, `landedCommits` and
+`landedSnapshots` both empty, while all three of snapshot 2's files were already
+byte-identical to HEAD. Every file row said `committed` under a snapshot octoview
+called uncommitted, and the Commits group was hidden because it held nothing.
 
-*Proposed rule.* A snapshot has landed when, for every path it changed, the blob
-at HEAD equals the blob at the newest snapshot that changed that path. In words:
-nothing this snapshot touched is still waiting to be committed.
+*The rule now.* A snapshot has landed at a revision when, for every path it
+changed, that revision holds the blob the snapshot left there — **or** the blob a
+later snapshot left, since a change written over by later work still reached the
+branch through the work that replaced it. Without the "or later", a lane of fifty
+snapshots could only ever land in its final commit.
 
-It survives the case that killed the last per-file attempt ([review.ts:171](../src/review.ts#L171)
-— "marked 28 of 36 snapshots committed in a repo that had never been committed
-to"). That rule quantified over the files a snapshot still *owns*, which is empty
-when a later snapshot rewrote all of them, making the claim vacuously true. This
-one quantifies over every path the snapshot changed, which is never empty — a
-snapshot with no changed files is never created. In a repo with no commits, HEAD
-holds none of those blobs, so nothing lands.
+It survives the case that killed the last per-file attempt (once "marked 28 of 36
+snapshots committed in a repo that had never been committed to"). That rule
+quantified over the files a snapshot still *owns*, which is empty when a later
+snapshot rewrote all of them, making the claim vacuously true. This one quantifies
+over every path the snapshot changed, which is never empty — a snapshot with no
+changed files is never created.
 
-*What it costs.* The prefix model goes. A commit can land snapshot 2 while
-snapshot 1 is still half outstanding, so the Committed area has to stop assuming
-its contents are a run. That is not a loss of rigour — it is what partial commits
-actually do. `committableRun` keeps the prefix rule unchanged, because that
-governs what *we* may commit, which is a different question.
+*What it cost.* The prefix model. A commit can land snapshot 2 while snapshot 1 is
+still half outstanding, so the Committed area no longer assumes a run and a
+commit's row reads `snapshots 2, 5–7` where that is the truth. `committableRun` is
+untouched: it governs what *we* may commit, which is a different question.
 
-*Attribution.* A snapshot is attributed to the earliest commit on HEAD's
-first-parent walk at which the condition first holds. The whole-tree match stays
-as a fast path, so octoview's own repo reads exactly as it does today.
+*Attribution.* The earliest commit at which the condition first holds, walking
+from where the lane started. No fast path was needed — the content rule reproduces
+octoview's own history exactly (5–13, 14–47, 48–50).
 
 **D2 — Lanes do not follow branches.**
 Cutting a branch abandons the review; deleting one leaks it. PRD §4.2 already
@@ -166,13 +164,15 @@ that explains the freeze.
 Four phases, each landable and reviewable on its own, in the order the review
 reads: rule first, then lifecycle, then attribution, then the docs.
 
-**Phase 1 — Land on content (fixes D1).**
-`landedSnapshots` and `landedCommits` in `review.ts`; the Committed group in
-`snapshots.ts` stops assuming a prefix. No schema change — landing stays derived.
-*Done when:* inky's lane shows snapshot 2 under `165b9ec`; octoview's own three
-commits still group as 5–13, 14–47, 48–50 unchanged; no snapshot row says
-uncommitted while all of its file rows say committed; `test/cli.js` covers the
-partial commit, the superseded snapshot and the repo with no commits.
+**Phase 1 — Land on content (fixes D1).** ✅ **Done.**
+`landedCommits` decides by content and `landedSnapshots` is derived from it, so
+the two cannot drift; the commit row renders a range list rather than a span. No
+schema change — landing stays derived.
+*Verified:* inky's lane now shows snapshot 2 under `165b9ec` and snapshot 1, which
+is half committed, correctly does not land. octoview's own history still groups as
+5–13, 14–47, 48–50, plus one group per commit since. 40 checks pass (19 smoke +
+21 cli), including a new one that stages half a snapshot, commits it, and asserts
+nothing lands until the rest goes in.
 
 **Phase 2 — Lanes follow branches (fixes D2, D4).**
 Seed on branch-from-branch, move on rename, `detached/<sha7>`, closed-lane

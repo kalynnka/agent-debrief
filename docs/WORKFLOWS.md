@@ -194,9 +194,10 @@ the files you have read in one and the files you have not in the other, the way
 a half-staged file appears twice in Source Control. Marking the row in
 Unreviewed takes the rest of it across.
 
-Commits are read back out of git rather than recorded: a commit made from snapshot 13
-*is* snapshot 13's tree, so amending or rebasing moves which snapshots it holds. The
-hover carries the whole commit message.
+Commits are read back out of git rather than recorded, so amending or rebasing moves
+which snapshots one holds. A commit takes every snapshot whose changes it completes —
+including one you staged and committed by hand, which is why the area fills up whether
+or not you ever press the commit button. The hover carries the whole commit message.
 
 ### 5.2 Commit the reviewed prefix
 
@@ -246,11 +247,20 @@ carries on.
 What does change: the snapshots the commit covered go dim with a `✓`, and the
 "staged" markers clear.
 
-**Landed is a prefix, derived from git:** the newest snapshot whose tree *is* HEAD's
-tree, and everything before it. A partial commit that matches no snapshot lands
-nothing — honestly, since it completed none of them. Individual files still show
-`committed` when the working tree matches HEAD, which is where partial progress
-shows up.
+**Landed is derived from content, not from a matching tree.** A snapshot has landed
+once every path it changed is in a commit — as that snapshot left it, or as a later
+snapshot rewrote it, since work written over still reached the branch through the
+work that replaced it.
+
+So your own commits count. Stage the three files you have read, commit them, and the
+snapshot they belonged to lands the moment its last file goes in — credited to the
+commit that finished it. Half of one lands nothing, which is the honest answer: it
+still has work outstanding.
+
+Landing is therefore **not** a prefix. Commit snapshot 2's files and leave snapshot 1's
+half done, and 2 lands while 1 waits — a commit's row says `snapshots 2, 5–7` when
+that is what it took. The commit *button* is still a prefix (§5.2); that is a rule
+about what octoview may commit for you, not about what git has already done.
 
 Nothing is recorded, so amend, reset and rebase all just move the answer.
 

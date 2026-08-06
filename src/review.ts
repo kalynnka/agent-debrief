@@ -118,20 +118,76 @@ export function committableRun(snapshots: { n: number; reviewed: boolean }[]): {
 export interface LandedCommit {
   sha: string;
   message: string;
-  /** The snapshot numbers it took, in order. */
+  /** The snapshot numbers it took, ascending. Not necessarily a run: a reviewer
+   * who commits a staged subset lands part of the lane and leaves the rest. */
   snapshots: number[];
+}
+
+/** What each path the lane touched held at each snapshot that changed it —
+ * everything landing is decided from, gathered in one pass.
+ *
+ * A blob of `undefined` is a real answer: the snapshot deleted the path. */
+interface LaneContent {
+  /** Paths each snapshot changed, index-aligned with the snapshots. */
+  paths: string[][];
+  /** path → snapshot index → the blob that snapshot left there. */
+  held: Map<string, Map<number, string | undefined>>;
+}
+
+async function laneContent(git: Git, snapshots: Snapshot[]): Promise<LaneContent> {
+  const changed = await Promise.all(
+    snapshots.map((snapshot) => git.changedFiles(snapshot.parent, snapshot.sha)),
+  );
+  const paths = changed.map((files) => files.map((file) => file.path));
+  const held = new Map<string, Map<number, string | undefined>>();
+  await Promise.all(
+    snapshots.map(async (snapshot, i) => {
+      const blobs = await git.blobsAt(snapshot.sha, paths[i]);
+      for (const file of paths[i]) {
+        const versions = held.get(file) ?? new Map<number, string | undefined>();
+        versions.set(i, blobs.get(file));
+        held.set(file, versions);
+      }
+    }),
+  );
+  return { paths, held };
+}
+
+/** Whether every change a snapshot made is present at a revision.
+ *
+ * A snapshot's change to a path is present when the revision holds the blob that
+ * snapshot left there — or the blob a *later* snapshot left, since a change
+ * written over by later work still reached the branch through it. Without the
+ * "or later" a lane of fifty snapshots could only ever land in its last commit.
+ *
+ * Quantified over every path the snapshot changed, never over the ones it still
+ * owns. A snapshot whose files a later one all rewrote owns nothing, and "every
+ * file it owns matches" is then vacuously true — which once marked 28 of 36
+ * snapshots committed in a repo that had never been committed to. A snapshot with
+ * no changed paths does not exist, so this can never be vacuous. */
+function present(content: LaneContent, index: number, at: Map<string, string>): boolean {
+  return content.paths[index].every((file) => {
+    for (const [i, blob] of content.held.get(file) ?? []) {
+      if (i >= index && blob === at.get(file)) {
+        return true;
+      }
+    }
+    return false;
+  });
 }
 
 /** The commits that have landed snapshots of this lane, oldest first.
  *
- * A commit made from snapshot N has exactly snapshot N's tree, so a commit is
- * recognised by matching its tree against the lane's — no record is kept, and
- * amending or rebasing simply changes the answer. Each commit takes the snapshots
- * between the previous one's end and its own, so committing through 13 and later
- * through 20 reads back as two groups rather than one run of twenty.
+ * Recognised by content, not by tree equality. A commit octoview makes holds a
+ * snapshot's tree exactly, but a reviewer who stages what they have read and
+ * commits that produces a tree matching nothing — and that is the normal way to
+ * work, not the exception. So a commit takes every snapshot whose changes it
+ * completes, and a snapshot is credited to the earliest commit that completed it.
  *
- * The walk is bounded: a lane of N snapshots cannot have been landed by more than
- * N commits, and the slack covers ordinary commits made in between. */
+ * Nothing is recorded: amending, rebasing or resetting simply changes the answer.
+ *
+ * The walk stops where the lane started — snapshot 1's parent — with a numeric
+ * bound as the backstop, since a rebase can leave that parent off the branch. */
 export async function landedCommits(
   git: Git,
   snapshots: Snapshot[],
@@ -140,72 +196,45 @@ export async function landedCommits(
   if (head === undefined || snapshots.length === 0) {
     return [];
   }
-  const endsAt = new Map<string, number>();
-  for (let i = 0; i < snapshots.length; i++) {
-    endsAt.set(await git.treeOf(snapshots[i].sha), i);
-  }
-  const landed: { sha: string; message: string; end: number }[] = [];
-  for (const commit of await git.commitsFrom(head, snapshots.length + 20)) {
-    const end = endsAt.get(await git.treeOf(commit.sha));
-    if (end !== undefined) {
-      landed.push({ ...commit, end });
-    }
-  }
-  landed.reverse();
-  let from = 0;
+  const history = await git.commitsFrom(head, snapshots.length + 20);
+  const base = history.findIndex((commit) => commit.sha === snapshots[0].parent);
+  const walk = (base < 0 ? history : history.slice(0, base)).reverse();
+  const content = await laneContent(git, snapshots);
+  const files = [...new Set(content.paths.flat())];
+  const pending = new Set(snapshots.map((_, i) => i));
   const grouped: LandedCommit[] = [];
-  for (const commit of landed) {
-    if (commit.end < from) {
+  for (const commit of walk) {
+    if (pending.size === 0) {
+      break;
+    }
+    const at = await git.blobsAt(commit.sha, files);
+    // Insertion order is ascending index, so the numbers come out in order.
+    const took = [...pending].filter((i) => present(content, i, at));
+    if (took.length === 0) {
       continue;
     }
+    took.forEach((i) => pending.delete(i));
     grouped.push({
       sha: commit.sha,
       message: commit.message,
-      snapshots: snapshots.slice(from, commit.end + 1).map((snapshot) => snapshot.n),
+      snapshots: took.map((i) => snapshots[i].n),
     });
-    from = commit.end + 1;
   }
   return grouped;
 }
 
-/** Which snapshots a commit has taken: every snapshot up to and including the
- * last one whose tree HEAD holds.
+/** Which snapshots have reached a commit — the same answer as `landedCommits`,
+ * without which commit did it, and the same by construction rather than by two
+ * rules that have to be kept in step.
  *
- * A commit is a prefix of the lane, so landing is a prefix too — find the newest
- * snapshot whose tree is HEAD's tree, and everything before it went into that same
- * commit. This is exactly what `snapshot commit` produces, which is why the two
- * agree by construction.
- *
- * Per-file comparisons cannot answer this. A snapshot whose files a later one all
- * rewrote owns nothing, and "every file it owns matches HEAD" is then vacuously
- * true — which marked 28 of 36 snapshots committed in a repo that had never been
- * committed to. Whether a snapshot's own work reached a commit is a fact about the
- * whole snapshot, not about the files that survive it.
- *
- * Derived, never recorded, so amend, reset and rebase all just move the answer.
- * `head` is undefined on an unborn HEAD, where nothing is committed. A partial
- * commit that matches no snapshot lands no snapshot — honestly, since it completed
- * none of them; the file rows still show which files it took. */
+ * `head` is undefined on an unborn HEAD, where nothing is committed. */
 export async function landedSnapshots(
   git: Git,
   snapshots: Snapshot[],
   head: string | undefined,
 ): Promise<Set<number>> {
-  const landed = new Set<number>();
-  if (head === undefined) {
-    return landed;
-  }
-  const headTree = await git.treeOf(head);
-  let end = -1;
-  for (let i = 0; i < snapshots.length; i++) {
-    if ((await git.treeOf(snapshots[i].sha)) === headTree) {
-      end = i;
-    }
-  }
-  for (const snapshot of snapshots.slice(0, end + 1)) {
-    landed.add(snapshot.n);
-  }
-  return landed;
+  const commits = await landedCommits(git, snapshots, head);
+  return new Set(commits.flatMap((commit) => commit.snapshots));
 }
 
 /** Take paths back out of a snapshot and out of every snapshot after it, so none
