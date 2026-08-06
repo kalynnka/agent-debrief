@@ -69,16 +69,44 @@ export class NoteContentProvider implements vscode.TextDocumentContentProvider {
       throw new Error(`octoview: ${uri.path} is not inside any repository in this workspace`);
     }
     const wanted = new Set(uri.query.split(","));
-    return located.repo.store.data.snapshots
+    const all = located.repo.store.data.snapshots;
+    return all
       .filter((snapshot) => wanted.has(String(snapshot.n)))
       .map(
         (snapshot) =>
           `Snapshot ${snapshot.n} · ${titleCase(snapshot.agent)} · ` +
           `${new Date(snapshot.at).toLocaleString()}\n\n` +
+          headMoved(all, snapshot) +
           `${snapshot.message ?? snapshot.label}\n`,
       )
       .join("\n———\n\n");
   }
+}
+
+/** A warning line when HEAD moved between this snapshot and the one before it,
+ * and nothing at all when it did not.
+ *
+ * A snapshot diffs against the previous snapshot, not against HEAD, so a `git
+ * pull` or `git merge` in between shows up inside the diff as though the agent
+ * had written it. Nothing here can tell which lines were whose — that is the
+ * subtraction still to be built — so it says the one thing it does know, in the
+ * place a reviewer reads before the diff. Snapshots from before HEAD was recorded
+ * say nothing rather than guessing. */
+function headMoved(all: Snapshot[], snapshot: Snapshot): string {
+  const previous = all[all.indexOf(snapshot) - 1];
+  if (
+    previous === undefined ||
+    snapshot.head === undefined ||
+    previous.head === undefined ||
+    snapshot.head === previous.head
+  ) {
+    return "";
+  }
+  return (
+    `HEAD moved under this snapshot: ${previous.head.slice(0, 7)} → ` +
+    `${snapshot.head.slice(0, 7)}. Some of what follows arrived with that move ` +
+    `rather than from the agent.\n\n`
+  );
 }
 
 /** An agent's name as a name: the field is a lowercase id (`claude`, `codex`,

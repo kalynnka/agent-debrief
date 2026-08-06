@@ -37,6 +37,14 @@ export interface Snapshot {
   /** That agent's session id, when the host exposes one — what makes the
    * feedback round-trip's `--resume` possible later. */
   session?: string;
+  /** HEAD when the snapshot was taken.
+   *
+   * A snapshot diffs against the snapshot before it, never against HEAD, so
+   * anything that moved HEAD in between — a commit, a pull, a reset — is invisible
+   * in the diff and shows up only here. When it differs from the previous
+   * snapshot's, some of what this snapshot appears to have done was not the
+   * agent's doing. Absent on snapshots taken before this was recorded. */
+  head?: string;
 }
 
 export interface ChangedFile {
@@ -178,6 +186,38 @@ export class Git {
 
   async updateRef(ref: string, sha: string): Promise<void> {
     await this.run(["update-ref", ref, sha]);
+  }
+
+  /** What the worktree is in the middle of, named for a message, or undefined
+   * when it is in the middle of nothing.
+   *
+   * A snapshot taken now would record conflict markers and half-applied commits
+   * as the agent's own work, and a revert would be fighting the operation for the
+   * same files. These marker files are git's own answer — the same ones its
+   * prompt and `status` read. */
+  async operationInProgress(): Promise<string | undefined> {
+    const dir = path.resolve(this.root, (await this.run(["rev-parse", "--git-dir"])).trim());
+    const markers: [string, string][] = [
+      ["MERGE_HEAD", "a merge"],
+      ["rebase-merge", "a rebase"],
+      ["rebase-apply", "a rebase"],
+      ["CHERRY_PICK_HEAD", "a cherry-pick"],
+      ["REVERT_HEAD", "a revert"],
+      ["BISECT_LOG", "a bisect"],
+    ];
+    for (const [marker, what] of markers) {
+      if (await fs.stat(path.join(dir, marker)).then(() => true, () => false)) {
+        return what;
+      }
+    }
+    return undefined;
+  }
+
+  /** Every branch in the clone, by short name. One process, so a sweep can ask
+   * about every lane at once rather than asking git about each. */
+  async branches(): Promise<Set<string>> {
+    const out = await this.run(["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
+    return new Set(out.split("\n").filter((name) => name !== ""));
   }
 
   /** Whether a ref exists — how a lane learns its branch is gone. */

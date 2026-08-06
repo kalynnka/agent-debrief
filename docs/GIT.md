@@ -53,9 +53,9 @@ verified against the working repos rather than read off the PRD.
 | `git commit --amend` | Landing is recomputed from HEAD, so the answer just moves — correct by design. A snapshot's recorded `parent` may leave the branch, but the snapshot's own ref keeps it reachable. Verified: inky's snapshot 1 has parent `9966728`, no longer an ancestor of HEAD, still resolving. | Unchanged. |
 | `git rebase`, `rebase -i`, squash, fixup | Same as amend. | Unchanged. |
 | `git reset --soft`, `--mixed` | Index and HEAD move; the worktree does not, so snapshots still describe what is on disk. | Unchanged. |
-| `git reset --hard` | The worktree goes back; every snapshot's files stop differing from where they started, so the rows go frozen and struck through. Honest, and the snapshot refs are what makes the work recoverable. | Unchanged, but see D5 — the frozen row offers **Drop**, which throws away the last record of the work at exactly the wrong moment. |
+| `git reset --hard` | The worktree goes back; every snapshot's files stop differing from where they started, so the rows go frozen and struck through. Honest, and the snapshot refs are what makes the work recoverable. | Unchanged. Drop is now refused while git is mid-operation (D5); a plain `reset --hard` is not an operation git considers itself inside, so that case still relies on the frozen row reading as a fact rather than an instruction. |
 | `git revert <commit>` | A new commit; the worktree follows; affected snapshots go frozen. | Unchanged. |
-| `git cherry-pick`, `git merge`, `git pull`, `git pull --rebase` | **Foreign content lands in the next agent snapshot.** A snapshot is `add -A` diffed against the previous snapshot, so anything that arrived in between is recorded as the agent's work. | Record HEAD per snapshot and subtract what the HEAD move brought in (D3). |
+| `git cherry-pick`, `git merge`, `git pull`, `git pull --rebase` | HEAD is on the snapshot record, and the note says so when it moved. The foreign lines are still *in* the diff — the subtraction is D3's open half. | Subtract what the move brought in. |
 | History rewrites — `filter-repo`, `filter-branch` | Snapshot parents dangle; landing answers change. | Out of scope; document it. |
 
 ### C. Commands that move the working tree
@@ -66,7 +66,7 @@ verified against the working repos rather than read off the PRD.
 | `git stash`, `git stash pop`/`apply` | A stash makes every snapshot look reverted — frozen, struck through, droppable — and a pop puts them all back. | Unchanged in what it shows; D5 covers the destructive action offered while it is true. |
 | `git clean -fd` | Deletes untracked files a snapshot created; those snapshots go frozen. | Unchanged. |
 | `git apply`, `git am` | Ordinary worktree writes; captured by the next snapshot as the agent's work. | Same problem as merge/pull (D3), same fix. |
-| Conflict resolution during merge/rebase | Conflict markers on disk are captured verbatim by a snapshot taken mid-conflict. | Skip snapshotting while `MERGE_HEAD`/`REBASE_HEAD` exists. |
+| Conflict resolution during merge/rebase | Refused. `operationInProgress` reads git's own marker files, and a snapshot is not taken while one exists. | Unchanged. |
 
 ### D. Commands that move the index only
 
@@ -154,13 +154,23 @@ branch. `state.json` stands in, holding every sha, so a lane can be put back wit
 `git update-ref` while the objects last. The window is `gc.pruneExpire`: git's
 knob, not one octoview invents.
 
-**D3 — Foreign changes are attributed to the agent.**
+**D3 — Foreign changes are attributed to the agent.** *(half fixed)*
 `git pull` between two snapshots puts everyone else's work in the agent's next
-snapshot, under its name and its message. Fix in two steps: record HEAD on the
-`Snapshot` record, then subtract — when HEAD moved from H0 to H1 under a
-snapshot, the paths in `diff(H0,H1)` that hold H1's content are the checkout's
-doing, not the agent's. Step one alone is worth having: a header line saying HEAD
-moved under this snapshot tells the reviewer what they are looking at.
+snapshot, under its name and its message.
+
+*Done.* `Snapshot.head` records HEAD at capture (schema 3), and `Notes.md` opens
+with a line naming the move — `HEAD moved under this snapshot: a1b2c3d → e4f5g6h`
+— so a reviewer knows before reading the diff that some of it is not the agent's.
+And a worktree part-way through a merge, rebase, cherry-pick, revert or bisect is
+refused rather than captured: conflict markers and half-applied commits are
+nobody's work yet, so `takeSnapshot` returns `mid-operation` instead of recording
+them.
+
+*Open: the subtraction.* When HEAD moved from H0 to H1, the paths in
+`diff(H0,H1)` that hold H1's content are the checkout's doing and should be shown
+apart from the agent's. Deliberately not built here — it changes what a snapshot's
+diff *is*, which every row, count and review tab reads, and that deserves its own
+sitting rather than riding along with a record field.
 
 **D4 — Detached HEAD has no lane of its own.** *(fixed)*
 `resolveLane` fell back to the worktree directory name, so every detached state
@@ -168,11 +178,13 @@ in a clone shared one lane, a bisect run appended to it a snapshot at a time, an
 a clone whose directory happened to share a name with a branch appended to that
 branch's lane. It is `detached/<sha7>` now.
 
-**D5 — Destructive actions stay offered while git is mid-operation.**
-A stash, a hard reset or a revert makes snapshots look frozen, and a frozen
-snapshot's row offers **Drop** — which deletes the ref, and with it the only
-remaining copy of the work. Gate the action on the worktree not being in a state
-that explains the freeze.
+**D5 — Destructive actions stay offered while git is mid-operation.** *(fixed)*
+A merge or rebase in progress makes snapshots look frozen, and a frozen row
+offered **Drop** — which deletes the ref, and with it the only remaining copy of
+work that is perfectly alive. Revert and Drop now refuse while
+`operationInProgress` answers, and say which operation to finish first. A plain
+`git stash` is not something git considers itself inside, so that case is still
+carried by the frozen row reading as a fact rather than an instruction.
 
 ## 4. Plan
 
@@ -209,17 +221,28 @@ reports and changes nothing; applying drops the ref but deletes nothing, leaving
 `state.json` holding the sha; the next `gc --prune=now` collects; and only then is
 the lane forgotten. On inky, `octoview gc --dry-run` finds the one orphaned lane.
 
-*Not done here:* the sweep runs only when asked. Wiring it into the extension —
-either automatically on refresh or as an abandoned-lane row with a button — is
-still open, and so is the leftover `refs/octoview/turns/1` in inky and kraken,
-which belongs to the pre-lane POC scheme nothing reads.
+**Phase 2c — the button.** ✅ **Done.** A repo row with abandoned lanes goes
+warning-coloured with a count badge (`list.warningForeground`, via the decoration
+provider — a `TreeItem` carries no colour of its own) and grows a bin. Pressing it
+opens a modal listing the lanes and saying plainly which part cannot be undone:
+octoview deletes no commits, but a snapshot commit is in no reflog, so once git
+collects them nothing will name them again. The sweep re-runs on press rather than
+trusting the row, since a branch can appear or vanish in a terminal in between.
 
-**Phase 3 — Attribute honestly (fixes D3, D5).**
-`head` on the `Snapshot` record (schema 2 → 3), a header line when it moved,
-subtraction of what the move brought in, and no snapshot while a merge or rebase
-is in progress. Gate Drop on the worktree state.
-*Done when:* a snapshot taken after a `git pull` shows the pulled files as the
-merge's rather than the agent's, and a stash does not offer to drop anything.
+*Still open:* the leftover `refs/octoview/turns/1` in inky and kraken, from the
+pre-lane POC scheme that nothing reads.
+
+**Phase 3a — Attribute honestly (fixes D5, half of D3).** ✅ **Done.**
+`Snapshot.head` (schema 3), the note's HEAD-moved line, `mid-operation` as a named
+refusal rather than a silent no-op, and Revert/Drop gated on it.
+*Verified:* 43 checks pass (22 smoke + 21 cli). The new smoke check records HEAD,
+lands a real merge under a snapshot and asserts the recorded HEAD moved, then
+drives an actually-conflicting merge and asserts the snapshot is refused with
+`mid-operation` — not with `unchanged`, which would have hidden it.
+
+**Phase 3b — The subtraction (D3's other half).**
+Show the paths a HEAD move brought in apart from the agent's own work. Touches
+what a snapshot's diff means, so it wants its own sitting.
 
 **Phase 4 — Write it down.**
 PRD §4.2 and §4.8 reconciled with what was built, this catalogue kept as the

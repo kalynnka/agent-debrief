@@ -16,10 +16,14 @@ export interface SnapshotOptions {
   session?: string;
 }
 
-/** `created: false` when the tree is identical to the previous snapshot's —
- * snapshotting is idempotent: no snapshot, no ref, exit clean (PRD §5.2). */
+/** Not every call takes a snapshot, and the two reasons are different facts.
+ * `unchanged` is idempotence working — the tree is identical to the previous
+ * snapshot's, so no snapshot, no ref, exit clean (PRD §5.2). `mid-operation` is a
+ * refusal: git is part-way through something and the worktree is nobody's work
+ * yet. */
 export type SnapshotResult =
-  | { created: false }
+  | { created: false; reason: "unchanged" }
+  | { created: false; reason: "mid-operation"; operation: string }
   | { created: true; snapshot: Snapshot; files: ChangedFile[] };
 
 export function hashLines(lines: string[]): string {
@@ -57,15 +61,23 @@ export async function takeSnapshot(
   store: Store,
   opts: SnapshotOptions,
 ): Promise<SnapshotResult> {
+  // Conflict markers and half-applied commits belong to the operation, not to the
+  // agent, and a snapshot cannot say which is which. Refused rather than captured:
+  // a snapshot nobody can attribute is worse than no snapshot.
+  const operation = await git.operationInProgress();
+  if (operation !== undefined) {
+    return { created: false, reason: "mid-operation", operation };
+  }
   return store.withLock(async (state) => {
     const previous = state.snapshots[state.snapshots.length - 1];
     const empty = await git.emptyTree();
-    const parent = previous?.sha ?? (await git.head()) ?? empty;
+    const head = await git.head();
+    const parent = previous?.sha ?? head ?? empty;
     const seeded = parent === empty ? undefined : parent;
     const tree = await git.writeSnapshotTree(store.indexFile, seeded);
     const parentTree = seeded === undefined ? empty : await git.treeOf(seeded);
     if (tree === parentTree) {
-      return { created: false };
+      return { created: false, reason: "unchanged" };
     }
     const n = (previous?.n ?? 0) + 1;
     const label = opts.label !== undefined && opts.label !== "" ? opts.label : `snapshot ${n}`;
@@ -82,6 +94,7 @@ export async function takeSnapshot(
       at: new Date().toISOString(),
       agent: opts.agent,
       session: opts.session,
+      head,
     };
     state.snapshots.push(snapshot);
     await carryForward(git, state, sha, files);
@@ -192,8 +205,12 @@ async function laneDirs(commonDir: string): Promise<{ name: string; dir: string 
  * already collected it. */
 export async function sweepLanes(git: Git, commonDir: string, apply: boolean): Promise<LaneSweep> {
   const sweep: LaneSweep = { closed: [], collected: [] };
+  // One listing rather than a `show-ref` per lane: the tree runs this on every
+  // refresh to decide whether to offer the button, and the answer is almost always
+  // "nothing", which should cost one git process rather than one per lane.
+  const branches = await git.branches();
   for (const { name, dir } of await laneDirs(commonDir)) {
-    if (await git.refExists(`refs/heads/${name}`)) {
+    if (branches.has(name)) {
       continue;
     }
     const store = new Store({ root: git.root, commonDir, name, dir });

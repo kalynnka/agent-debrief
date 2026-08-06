@@ -2,7 +2,7 @@
 // lane resolution, git snapshot plumbing and the per-lane store. Run with
 // `node test/smoke.js`.
 const assert = require("assert");
-const { execFileSync } = require("child_process");
+const { execFileSync, spawnSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -657,6 +657,59 @@ async function main() {
   assert.ok(!fs.existsSync(doomed.dir), "so the record goes with its snapshots");
   fs.rmSync(gcRoot, { recursive: true, force: true });
   console.log("retention is git's, not ours          ok");
+
+  // 22. Attribution (docs/GIT.md D3). A snapshot diffs against the snapshot before
+  //     it, never against HEAD, so anything that moves HEAD in between is invisible
+  //     in the diff — which is how a `git pull` ends up recorded as the agent's
+  //     work. HEAD is on the record now, and a worktree part-way through a merge
+  //     is not anybody's work yet, so it is refused rather than captured.
+  const midRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-mid-"));
+  const mg = (args) => execFileSync("git", args, { cwd: midRoot, encoding: "utf8" });
+  mg(["init", "-q", "-b", "main", "."]);
+  mg(["config", "user.email", "t@t"]);
+  mg(["config", "user.name", "t"]);
+  fs.writeFileSync(path.join(midRoot, "shared.txt"), "base\n");
+  mg(["add", "."]);
+  mg(["commit", "-qm", "base"]);
+  const mgit = new Git(midRoot);
+  const mstore2 = new Store(await resolveLane(midRoot));
+  fs.writeFileSync(path.join(midRoot, "agent.txt"), "agent work\n");
+  const before = await takeSnapshot(mgit, mstore2, { label: "agent work", agent: "manual" });
+  assert.strictEqual(before.created, true);
+  assert.strictEqual(before.snapshot.head, mg(["rev-parse", "HEAD"]).trim(), "HEAD is recorded");
+
+  // Someone else's commit arrives while the agent is working.
+  mg(["switch", "-qc", "theirs", "HEAD"]);
+  fs.writeFileSync(path.join(midRoot, "shared.txt"), "theirs\n");
+  mg(["commit", "-qam", "their change"]);
+  mg(["switch", "-q", "main"]);
+  mg(["merge", "-q", "--no-edit", "theirs"]);
+  fs.writeFileSync(path.join(midRoot, "agent.txt"), "more agent work\n");
+  const merged = await takeSnapshot(mgit, mstore2, { label: "more", agent: "manual" });
+  assert.strictEqual(merged.created, true);
+  assert.notStrictEqual(
+    merged.snapshot.head,
+    before.snapshot.head,
+    "the merge moved HEAD under snapshot 2, and the record says so",
+  );
+
+  // A conflicted merge: the worktree is git's, not the agent's.
+  mg(["switch", "-qc", "conflict", "HEAD~1"]);
+  fs.writeFileSync(path.join(midRoot, "shared.txt"), "conflicting\n");
+  mg(["commit", "-qam", "conflicting change"]);
+  const merge = spawnSync("git", ["merge", "--no-edit", "main"], { cwd: midRoot, encoding: "utf8" });
+  assert.notStrictEqual(merge.status, 0, "the merge must actually conflict for this to test anything");
+  assert.strictEqual(await mgit.operationInProgress(), "a merge");
+  const refused = await takeSnapshot(mgit, new Store(await resolveLane(midRoot)), {
+    label: "should not happen",
+    agent: "manual",
+  });
+  assert.strictEqual(refused.created, false, "no snapshot is taken mid-merge");
+  assert.strictEqual(refused.reason, "mid-operation", "and the reason is not 'unchanged'");
+  mg(["merge", "--abort"]);
+  assert.strictEqual(await mgit.operationInProgress(), undefined, "and it clears when git is done");
+  fs.rmSync(midRoot, { recursive: true, force: true });
+  console.log("mid-merge is nobody's work            ok");
 
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });

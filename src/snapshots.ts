@@ -1,15 +1,24 @@
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { frozenSnapshotUri, snapshotFileUri } from "./decorations";
+import { abandonedRepoUri, frozenSnapshotUri, snapshotFileUri } from "./decorations";
 import { ChangedFile, Snapshot } from "./git";
 import { GitWatch } from "./gitwatch";
 import { Repo, Repos } from "./repos";
-import { committableRun, landedCommits } from "./review";
+import { committableRun, landedCommits, LaneSweep, sweepLanes } from "./review";
 
 export class RepoNode {
   readonly kind = "repo";
-  constructor(readonly repo: Repo) {}
+  constructor(
+    readonly repo: Repo,
+    /** Lanes of this clone whose branch is gone, found on the last refresh. The
+     * row offers to let go of them only when there are some. */
+    readonly abandoned: LaneSweep,
+  ) {}
+
+  get abandonedCount(): number {
+    return this.abandoned.closed.length + this.abandoned.collected.length;
+  }
 }
 
 /** Which of a snapshot's files a row stands for. A snapshot read only in part
@@ -263,8 +272,18 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       const item = new vscode.TreeItem(node.repo.name, vscode.TreeItemCollapsibleState.Expanded);
       item.description = `${node.repo.lane.name} · ${count} snapshot${count === 1 ? "" : "s"}`;
       item.iconPath = new vscode.ThemeIcon("repo");
-      item.contextValue = "repo";
+      item.contextValue = node.abandonedCount > 0 ? "repo-abandoned" : "repo";
       item.tooltip = node.repo.root;
+      if (node.abandonedCount > 0) {
+        // The count and the warning colour come from the decoration provider; a
+        // TreeItem carries neither on its own.
+        item.resourceUri = abandonedRepoUri(node.repo.root, node.abandonedCount);
+        item.tooltip = new vscode.MarkdownString(
+          `${node.repo.root}\n\n**${node.abandonedCount} lane(s) whose branch is gone.** ` +
+            `Their snapshot refs are what keep those commits alive — until octoview lets ` +
+            `go, \`git gc\` cannot collect them.`,
+        );
+      }
       // The whole lane at once: every snapshot's net change, the same diff the
       // header button gives for a selection.
       item.command = {
@@ -501,9 +520,17 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
 
   async getChildren(node?: Node): Promise<Node[]> {
     if (node === undefined) {
-      return this.repos.all
-        .filter((repo) => repo.store.data.snapshots.length > 0)
-        .map((repo) => new RepoNode(repo));
+      // The sweep is one `for-each-ref` plus a directory walk when nothing is
+      // abandoned, which is the usual answer — cheap enough to ask every refresh
+      // so the row can offer the cleanup exactly when there is one to offer.
+      return Promise.all(
+        this.repos.all
+          .filter((repo) => repo.store.data.snapshots.length > 0)
+          .map(
+            async (repo) =>
+              new RepoNode(repo, await sweepLanes(repo.git, repo.lane.commonDir, false)),
+          ),
+      );
     }
     if (node.kind === "repo") {
       // Three areas, and empty ones are hidden the way Source Control hides them.

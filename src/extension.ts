@@ -18,7 +18,14 @@ import { FileRow, rowsFor } from "./files";
 import { ChangedFile, Snapshot } from "./git";
 import { GitWatch, gitApi } from "./gitwatch";
 import { Repo, Repos } from "./repos";
-import { committableRun, dropSnapshot, landedCommits, revertPaths, takeSnapshot } from "./review";
+import {
+  committableRun,
+  dropSnapshot,
+  landedCommits,
+  revertPaths,
+  sweepLanes,
+  takeSnapshot,
+} from "./review";
 import {
   CommitNode,
   FileNode,
@@ -345,9 +352,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     for (const repo of repos.all) {
       const result = await takeSnapshot(repo.git, repo.store, { label, agent: "manual" });
       if (!result.created) {
-        // A repo the work never touched gets no snapshot. Recording an empty one
-        // would put its numbering out of step with the work it describes.
-        unchanged.push(repo.name);
+        // A repo the work never touched gets no snapshot — recording an empty one
+        // would put its numbering out of step with the work it describes — and one
+        // part-way through a merge gets none either, for a louder reason.
+        unchanged.push(
+          result.reason === "unchanged" ? repo.name : `${repo.name} (${result.operation})`,
+        );
         continue;
       }
       taken.push(`${repo.name} (${result.files.length})`);
@@ -392,6 +402,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // work; this runs the same check again because a tree that has not refreshed
   // since a terminal `git restore` would otherwise put back more than its snapshot.
   const revert = async (node: FileNode | SnapshotNode): Promise<void> => {
+    // Mid-operation, the worktree belongs to git, and the rows describing it are
+    // reading a merge's half-finished state as though the agent had left it there.
+    // Putting files back now would be fighting git for the same paths — and on a
+    // snapshot the merge has made look frozen, dropping it would throw away the
+    // last record of work that is still perfectly alive.
+    const operation = await node.repo.git.operationInProgress();
+    if (operation !== undefined) {
+      vscode.window.showWarningMessage(
+        `Octoview: ${operation} is in progress in ${node.repo.name}. Finish or abort it ` +
+          `first — until then these rows describe git's work, not the agent's.`,
+      );
+      return;
+    }
     const changed = await filesOf(node);
     const paths = changed.map((file) => file.path);
     const intact = await node.repo.git.unchangedSince(node.snapshot.sha, paths);
@@ -487,6 +510,57 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       throw new Error(`octoview: no snapshot ${n} in ${root}`);
     }
     await openNote(repo, [snapshot]);
+  });
+
+  // Let go of the lanes whose branches are gone. This is the one action in the
+  // view that cannot be taken back, and the modal says exactly which part: octoview
+  // deletes no commits, but a snapshot commit sits in no reflog, so once the ref is
+  // gone git's collector is the only thing standing between it and nothing.
+  register("octoview.gc", async (node: RepoNode) => {
+    const { repo } = node;
+    // Re-read rather than trust the row: a branch can be created or deleted in a
+    // terminal between the tree being drawn and the button being pressed.
+    const found = await sweepLanes(repo.git, repo.lane.commonDir, false);
+    const lanes = [...found.closed, ...found.collected];
+    if (lanes.length === 0) {
+      vscode.window.showInformationMessage(
+        `Octoview: every lane in ${repo.name} still has its branch.`,
+      );
+      snapshots.refresh();
+      return;
+    }
+    const answer = await vscode.window.showWarningMessage(
+      `Let go of ${lanes.length} abandoned lane${lanes.length === 1 ? "" : "s"} in ${repo.name}?`,
+      {
+        modal: true,
+        detail: [
+          ...found.closed.map((name) => `${name} — its snapshots are handed to git`),
+          ...found.collected.map(
+            (name) => `${name} — git already took its snapshots; only the record is left`,
+          ),
+          "",
+          "Octoview deletes no commits. It stops holding the refs that keep them " +
+            "alive, and git decides from there: a grace period, then the next `git gc`.",
+          "",
+          "This cannot be undone once git collects them. A snapshot commit is in no " +
+            "reflog, so nothing will name it afterwards. Until then the recorded " +
+            "shas are still on disk and a lane can be put back with `git update-ref`.",
+        ].join("\n"),
+      },
+      "Let Go",
+    );
+    if (answer !== "Let Go") {
+      return;
+    }
+    const done = await sweepLanes(repo.git, repo.lane.commonDir, true);
+    // A forgotten lane's state directory is gone, and its watcher with it.
+    await repos.discover(workspaceFolders());
+    rewatch();
+    snapshots.refresh();
+    vscode.window.showInformationMessage(
+      `Octoview: let go of ${done.closed.length} lane(s), forgot ${done.collected.length}. ` +
+        `Run \`git gc\` when you want the space back.`,
+    );
   });
 
   // Commit the reviewed snapshots of one repository. A commit is a prefix of the

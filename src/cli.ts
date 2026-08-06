@@ -18,8 +18,9 @@ import { Store } from "./state";
 import { labelOf, summaryFromTranscript } from "./transcript";
 
 /** Bumped when a payload's shape changes; clients refuse a version they do not
- * know. 2 renamed every `turn` field and `turns` array to `snapshot`. */
-const SCHEMA_VERSION = 2;
+ * know. 2 renamed every `turn` field and `turns` array to `snapshot`; 3 records
+ * the HEAD a snapshot was taken at. */
+const SCHEMA_VERSION = 3;
 
 const USAGE = `usage: octoview <command> [options]
 
@@ -269,7 +270,14 @@ async function snapshotCommand(args: string[]): Promise<number> {
     return 0;
   }
   if (!result.created) {
-    process.stdout.write(`nothing changed in ${lane.name} — no snapshot taken\n`);
+    // Not an error either way: nothing to record, or nothing yet worth
+    // attributing. The hook runs this on every turn and must not fail a turn.
+    process.stdout.write(
+      result.reason === "unchanged"
+        ? `nothing changed in ${lane.name} — no snapshot taken\n`
+        : `${result.operation} is in progress — no snapshot taken, since the ` +
+            `worktree is not the agent's work yet\n`,
+    );
     return 0;
   }
   process.stdout.write(

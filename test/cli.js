@@ -89,7 +89,7 @@ async function main() {
   assert.strictEqual(json.status, 0);
   assert.strictEqual(json.stderr, "");
   assert.deepStrictEqual(JSON.parse(json.stdout), {
-    schemaVersion: 2,
+    schemaVersion: 3,
     repo: root,
     lane: "main",
     snapshots: [],

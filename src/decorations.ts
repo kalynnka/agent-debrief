@@ -14,6 +14,19 @@ export function snapshotFileUri(absPath: string, status: string): vscode.Uri {
 /** The queries that mark a snapshot row rather than a file row. A status letter is
  * never one of these words, so the two cannot collide. */
 const FROZEN = "frozen";
+const ABANDONED = "abandoned";
+
+/** A repo row holding lanes whose branches are gone. Warning-coloured and badged
+ * with the count, because letting go of them is the one action in this view that
+ * hands work to git's collector — and unlike everything else here, what git then
+ * takes does not come back. */
+export function abandonedRepoUri(repoRoot: string, count: number): vscode.Uri {
+  return vscode.Uri.from({
+    scheme: SNAPSHOT_SCHEME,
+    path: `${repoRoot}/abandoned/${count}`,
+    query: ABANDONED,
+  });
+}
 
 /** A reverted-away snapshot's row. Its path names no file — it only has to be unique
  * per snapshot, so the decoration is cached per row. This is what greys the label:
@@ -89,6 +102,14 @@ export class SnapshotDecorations implements vscode.FileDecorationProvider, vscod
         undefined,
         "Reverted — nothing of this snapshot is left",
         new vscode.ThemeColor("disabledForeground"),
+      );
+    }
+    if (uri.query === ABANDONED) {
+      const count = uri.path.split("/").pop() ?? "";
+      return new vscode.FileDecoration(
+        count.length > 2 ? "9+" : count,
+        `${count} lane(s) whose branch no longer exists`,
+        new vscode.ThemeColor("list.warningForeground"),
       );
     }
     const file = vscode.Uri.file(uri.path);
