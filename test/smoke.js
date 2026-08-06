@@ -11,6 +11,7 @@ const { Git, snapshotRef } = require("../out/git");
 const { resolveLane } = require("../out/lanes");
 const { Repos } = require("../out/repos");
 const {
+  adoptLane,
   committableRun,
   dropSnapshot,
   landedCommits,
@@ -511,6 +512,82 @@ async function main() {
   );
   fs.rmSync(handRoot, { recursive: true, force: true });
   console.log("a hand-staged commit lands its work  ok");
+
+  // 20. Lanes follow branches (docs/GIT.md D2, D4). A branch cut mid-review is the
+  //     same work under a new name, so the review comes with it; a branch that has
+  //     moved since it was created is its own line of work and must inherit
+  //     nothing; a rename moves the lane rather than abandoning it; and a detached
+  //     HEAD gets a lane of its own instead of borrowing the directory's name.
+  const cutRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-cut-"));
+  const cg = (args) => execFileSync("git", args, { cwd: cutRoot, encoding: "utf8" });
+  cg(["init", "-q", "-b", "main", "."]);
+  cg(["config", "user.email", "t@t"]);
+  cg(["config", "user.name", "t"]);
+  fs.writeFileSync(path.join(cutRoot, "x.txt"), "0\n");
+  cg(["add", "."]);
+  cg(["commit", "-qm", "base"]);
+  const cgit = new Git(cutRoot);
+  const cmain = new Store(await resolveLane(cutRoot));
+  for (const text of ["1\n", "2\n"]) {
+    fs.writeFileSync(path.join(cutRoot, "x.txt"), text);
+    await takeSnapshot(cgit, cmain, { label: `sets x to ${text.trim()}`, agent: "manual" });
+  }
+  await cmain.withLock((state) => {
+    state.reviewed["x.txt"] = 1;
+  });
+
+  cg(["switch", "-qc", "feat/carry"]);
+  const carried = await resolveLane(cutRoot);
+  assert.strictEqual(carried.name, "feat/carry", "the lane is the new branch");
+  await adoptLane(cgit, carried);
+  const cstore = new Store(carried);
+  await cstore.load();
+  assert.strictEqual(cstore.data.snapshots.length, 2, "a cut branch inherits the lane");
+  assert.strictEqual(cstore.data.reviewed["x.txt"], 1, "and what had already been read");
+  assert.strictEqual(
+    cg(["rev-parse", snapshotRef("feat/carry", 2)]).trim(),
+    cstore.data.snapshots[1].sha,
+    "with refs pointing at the same commits, not rebuilt ones",
+  );
+
+  // A branch with a commit of its own is no longer where it was cut.
+  cg(["switch", "-qc", "feat/moved"]);
+  fs.writeFileSync(path.join(cutRoot, "y.txt"), "y\n");
+  cg(["add", "."]);
+  cg(["commit", "-qm", "its own work"]);
+  const movedLane = await resolveLane(cutRoot);
+  await adoptLane(cgit, movedLane);
+  const mstore = new Store(movedLane);
+  await mstore.load();
+  assert.strictEqual(mstore.data.snapshots.length, 0, "a branch that moved on inherits nothing");
+
+  // A rename takes the lane with it and leaves nothing under the old name.
+  cg(["switch", "-q", "feat/carry"]);
+  cg(["branch", "-m", "feat/carry", "feat/renamed"]);
+  const renamedLane = await resolveLane(cutRoot);
+  assert.strictEqual(renamedLane.name, "feat/renamed");
+  await adoptLane(cgit, renamedLane);
+  const rstore = new Store(renamedLane);
+  await rstore.load();
+  assert.strictEqual(rstore.data.snapshots.length, 2, "a rename moves the lane");
+  assert.ok(
+    !fs.existsSync(path.join(cutRoot, ".git", "octoview", "feat", "carry")),
+    "and leaves no state behind under the old name",
+  );
+  assert.strictEqual(
+    cg(["for-each-ref", "--format=%(refname)", "refs/octoview/snapshots/feat/carry"]).trim(),
+    "",
+    "nor any refs",
+  );
+
+  cg(["switch", "-q", "--detach", "HEAD"]);
+  assert.strictEqual(
+    (await resolveLane(cutRoot)).name,
+    `detached/${cg(["rev-parse", "--short", "HEAD"]).trim()}`,
+    "a detached HEAD is its own lane, named by the commit it sits on",
+  );
+  fs.rmSync(cutRoot, { recursive: true, force: true });
+  console.log("lanes follow branches                 ok");
 
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });

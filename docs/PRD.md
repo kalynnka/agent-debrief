@@ -184,14 +184,22 @@ Resolution:
 
 | Concern | Rule |
 |---|---|
-| Lane id | Current branch. Detached HEAD falls back to the worktree name; a pulled PR is `pr/<number>` |
+| Lane id | Current branch. A detached HEAD is `detached/<sha>` — its own lane, since the worktree's name is shared by every detached checkout in the clone; a pulled PR is `pr/<number>` |
 | Snapshot refs | `refs/octoview/snapshots/<lane>/<n>` |
 | State | `<git-common-dir>/octoview/<lane>/state.json`, resolved via `git rev-parse --git-common-dir` so every worktree agrees |
 
 Branch is the lane key rather than worktree path because git already forbids the
 same branch in two worktrees, so branch → at most one worktree, and a branch
-survives a worktree being thrown away. Switching branches mid-session starts a
-new lane at snapshot 1, which is correct: the work changed.
+survives a worktree being thrown away. Switching to a different branch mid-session
+puts you in that branch's lane, which is correct: the work changed.
+
+**A lane follows its branch** (owner decision 2026-08-06, docs/GIT.md D2).
+Cutting a branch mid-review is the same work under a new name, so `git switch -c`
+carries the review onto it: snapshots, what has been read, and the open threads,
+with the snapshot refs re-pointed at the same commits. `git branch -m` moves the
+lane outright. Both are read from the branch's own reflog, and both apply only
+while the new branch still stands exactly where it was created — once it has a
+commit of its own it is a line of work of its own, and inherits nothing.
 
 **A lane ends the way its branch ends.** It closes when the branch is deleted, or
 when the branch has been merged — `git merge-base --is-ancestor <branch>
@@ -629,7 +637,7 @@ because notes anchor to commits and never touch the index, but it only works for
 | | Scope | Exit criteria |
 |---|---|---|
 | **M0** ✅ | POC extension: snapshot, snapshot tree, snapshot-over-snapshot diff, comments, batch submit, multi-repo | Done. 30 assertions across 9 headless check groups passing |
-| **M1** ◐ | TypeScript core + CLI; lanes (§4.2), which also fixes worktrees; extension becomes a core client; Claude `Stop` hook auto-snapshot; `prepare-change-review` skill | Landed at `e80fae7` (2026-08-04), 109 assertions across 26 headless groups. Verified: UI modules hold zero git logic; two worktrees of one clone review independently. Still to demonstrate by hand: a full snapshot reviewed end to end in the editor, and a hook-driven snapshot appearing unprompted |
+| **M1** ◐ | TypeScript core + CLI; lanes (§4.2), which also fixes worktrees; extension becomes a core client; Claude `Stop` hook auto-snapshot; `prepare-change-review` skill | Landed at `733bc0b` (2026-08-04), 109 assertions across 26 headless groups. Verified: UI modules hold zero git logic; two worktrees of one clone review independently. Still to demonstrate by hand: a full snapshot reviewed end to end in the editor, and a hook-driven snapshot appearing unprompted |
 | **M2** | **Claude end to end**: feedback round-trip via `--resume`, inline consult, plan artifacts (§4.7) and plan-revision citation, edit provenance (§4.9) | UC-1 and UC-4 complete on Claude alone. A plan reviewed, revised, and implemented through the same batch. A hunk traceable to the tool call that wrote it |
 | **M3** | Widen to Codex — stop hook, session resume — against the loop M2 proved | UC-1 and UC-4 on Codex with no core changes. Adding a host is configuration, not architecture |
 | **M4** | PR import, GitHub submit; Copilot hook support verified | UC-5 end to end |

@@ -183,7 +183,7 @@ third area for the work that has left the review entirely:
 ```
 octoview                     main · 34 snapshots
   › Commits      2 commits
-      › 787ff1f  feat(review): net and step diffs…   snapshots 5–13
+      › c6dfa54  feat(review): net and step diffs…   snapshots 5–13
   ⌄ Reviewed     3 snapshots · through 12 · 1 blocked   [commit]
   ⌄ Unreviewed   2 snapshots
 ```

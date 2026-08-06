@@ -86,6 +86,15 @@ export class Store {
     return this.state;
   }
 
+  /** Whether this lane has ever been written to — distinct from holding no
+   * snapshots, which is also what `load` reports for a lane that does not exist. */
+  async exists(): Promise<boolean> {
+    return fs.stat(this.file).then(
+      () => true,
+      () => false,
+    );
+  }
+
   async load(): Promise<void> {
     try {
       this.state = JSON.parse(await fs.readFile(this.file, "utf8")) as State;

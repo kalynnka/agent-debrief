@@ -1,6 +1,9 @@
 import * as crypto from "crypto";
+import * as fs from "fs/promises";
+import * as path from "path";
 
 import { ChangedFile, Git, Hunk, Snapshot, snapshotRef } from "./git";
+import { Lane, laneOrigin, resolveLane } from "./lanes";
 import { Anchor, State, Store } from "./state";
 
 export interface SnapshotOptions {
@@ -84,6 +87,55 @@ export async function takeSnapshot(
     await carryForward(git, state, sha, files);
     return { created: true, snapshot, files };
   });
+}
+
+/** Carry a lane's review onto a branch that was just cut from another, or
+ * renamed.
+ *
+ * A branch cut mid-review is the same work under a new name: the snapshots, what
+ * has been read and the open threads all still describe the code in front of you,
+ * and leaving them on the branch you came from abandons the review at the moment
+ * it is being organised. A rename leaves nothing behind at all, so that one moves
+ * the lane — old refs and directory included — rather than copying it.
+ *
+ * Only ever runs into a lane that has never been written, so it cannot overwrite
+ * a review; `laneOrigin` decides whether there is anything to carry, and answers
+ * only while the new branch still stands exactly where it was created.
+ *
+ * The refs are re-pointed at the same commits rather than rebuilt: a ref is a
+ * pointer, so a lane of fifty snapshots costs fifty `update-ref` calls and not one
+ * new object. */
+export async function adoptLane(git: Git, lane: Lane): Promise<void> {
+  const store = new Store(lane);
+  if (await store.exists()) {
+    return;
+  }
+  const origin = await laneOrigin(git, lane.name);
+  if (origin === undefined) {
+    return;
+  }
+  const source = new Store(await resolveLane(lane.root, origin.from));
+  if (!(await source.exists())) {
+    return;
+  }
+  await source.load();
+  if (origin.kind === "renamed") {
+    await fs.mkdir(path.dirname(lane.dir), { recursive: true });
+    await fs.rename(source.dir, lane.dir);
+  } else {
+    await store.withLock((state) => {
+      state.schemaVersion = source.data.schemaVersion;
+      state.snapshots = source.data.snapshots;
+      state.reviewed = source.data.reviewed;
+      state.threads = source.data.threads;
+    });
+  }
+  for (const snapshot of source.data.snapshots) {
+    await git.updateRef(snapshotRef(lane.name, snapshot.n), snapshot.sha);
+    if (origin.kind === "renamed") {
+      await git.deleteRef(snapshotRef(origin.from, snapshot.n));
+    }
+  }
 }
 
 /** How far a commit can reach: the unbroken run of reviewed snapshots from the

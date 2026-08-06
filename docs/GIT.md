@@ -37,10 +37,10 @@ verified against the working repos rather than read off the PRD.
 | Command | Today | Should |
 |---|---|---|
 | `git switch <branch>`, `git checkout <branch>`, `gh pr checkout` | Works. `GitWatch` reports the branch change, repos re-resolve, the new lane's state loads (or an empty one). | Unchanged. |
-| `git switch -c <new>`, `git checkout -b <new>` | **New lane starts empty at snapshot 1.** The snapshots taken before the branch was cut stay behind on the old lane, where the reviewer is no longer looking. | Seed the new lane from the one it was cut from: copy `state.json` and point `refs/octoview/snapshots/<new>/<n>` at the same commits. Refs are pointers; this costs nothing. |
-| `git branch -m <old> <new>` | Lane dir and refs keep the old name; the renamed branch resolves to an empty lane. | Move the lane with the branch. |
+| `git switch -c <new>`, `git checkout -b <new>` | The new lane inherits the one it was cut from — state copied, refs re-pointed at the same commits — while the branch still stands where it was created. | Unchanged. |
+| `git branch -m <old> <new>` | The lane moves with the branch; nothing is left under the old name. | Unchanged. |
 | `git branch -d`, `git branch -D` | **Refs and state leak forever.** inky holds `.git/octoview/luhui19970305/octo-29-…` for a branch that was merged and deleted. | Close the lane (PRD §4.2), then prune it (§4.8) — but see D2 on whether that deletion is automatic. |
-| `git checkout <sha>`, `git switch --detach`, `git bisect` | Lane name falls back to the **worktree directory name** — `inky`. Every detached state in a clone shares one lane, and it collides with a branch that happens to be named after the directory. | Name it `detached/<sha7>`, or refuse to snapshot while detached. Bisect must not append to a real lane. |
+| `git checkout <sha>`, `git switch --detach`, `git bisect` | A lane of its own, `detached/<sha7>`. | Unchanged. |
 | `git worktree add` | Works. The common dir is shared, so lanes are shared and branch-per-worktree keeps them apart. | Unchanged. |
 | `git worktree remove` | The removed worktree's detached-lane state, if any, leaks. | Falls out of the same prune. |
 
@@ -121,24 +121,28 @@ untouched: it governs what *we* may commit, which is a different question.
 from where the lane started. No fast path was needed — the content rule reproduces
 octoview's own history exactly (5–13, 14–47, 48–50).
 
-**D2 — Lanes do not follow branches.**
-Cutting a branch abandons the review; deleting one leaks it. PRD §4.2 already
-specifies that a lane closes when its branch is deleted or merged, and §4.8
-specifies the prune — neither exists in the code.
+**D2 — Lanes do not follow branches.** *(half fixed)*
+Cutting a branch abandoned the review; deleting one still leaks it. PRD §4.2
+already specified that a lane closes when its branch is deleted or merged, and
+§4.8 specified the prune — neither existed in the code.
 
-Seeding a new branch from its parent lane needs to know which branch it was cut
-from. `git reflog HEAD -1` says so exactly (`checkout: moving from A to B`), and
-the guard is that HEAD did not move: seed only when the new branch's tip is the
-commit the old lane's snapshots were taken over.
+*Cut and rename, done.* A branch's own reflog says where its name came from:
+`branch: Created from HEAD` as its only entry means it has not moved since it was
+cut, and `Branch: renamed refs/heads/<old> to …` means it was renamed. The first
+copies the source lane (`@{-1}` names it), the second moves it. Both refuse once
+the branch has a commit of its own — from then on it is a line of work of its
+own, and inheriting someone else's snapshots would be a claim about code they
+never saw. `adoptLane` runs from every entry point, extension and CLI alike, so
+whichever one the reviewer or the hook reaches first is the one that heals it.
 
-Deleting is the part that needs a decision rather than an implementation. A
-branch deleted by mistake, or deleted and recreated, takes its review history
-with it and there is no second copy. **Recommendation:** prune a closed lane's
-refs and state automatically only when it holds no unreviewed file and no open
-thread — which is PRD §4.8's own "nothing with open review work is ever pruned" —
-and otherwise surface it in the view as an abandoned lane with an explicit
-Delete. Silent deletion of the one thing that cannot be regenerated is the wrong
-default even when the branch really is gone.
+*Delete, still open — and it needs a decision, not an implementation.* A branch
+deleted by mistake, or deleted and recreated, takes its review history with it
+and there is no second copy. **Recommendation:** prune a closed lane's refs and
+state automatically only when it holds no unreviewed file and no open thread —
+PRD §4.8's own "nothing with open review work is ever pruned" — and otherwise
+surface it in the view as an abandoned lane with an explicit Delete. Silent
+deletion of the one thing that cannot be regenerated is the wrong default even
+when the branch really is gone.
 
 **D3 — Foreign changes are attributed to the agent.**
 `git pull` between two snapshots puts everyone else's work in the agent's next
@@ -148,10 +152,11 @@ snapshot, the paths in `diff(H0,H1)` that hold H1's content are the checkout's
 doing, not the agent's. Step one alone is worth having: a header line saying HEAD
 moved under this snapshot tells the reviewer what they are looking at.
 
-**D4 — Detached HEAD has no lane of its own.**
-`resolveLane` ([lanes.ts:30](../src/lanes.ts#L30)) falls back to the worktree
-directory name, so every detached state in a clone shares one lane and a bisect
-run appends to it a snapshot at a time.
+**D4 — Detached HEAD has no lane of its own.** *(fixed)*
+`resolveLane` fell back to the worktree directory name, so every detached state
+in a clone shared one lane, a bisect run appended to it a snapshot at a time, and
+a clone whose directory happened to share a name with a branch appended to that
+branch's lane. It is `detached/<sha7>` now.
 
 **D5 — Destructive actions stay offered while git is mid-operation.**
 A stash, a hard reset or a revert makes snapshots look frozen, and a frozen
@@ -174,14 +179,24 @@ is half committed, correctly does not land. octoview's own history still groups 
 21 cli), including a new one that stages half a snapshot, commits it, and asserts
 nothing lands until the rest goes in.
 
-**Phase 2 — Lanes follow branches (fixes D2, D4).**
-Seed on branch-from-branch, move on rename, `detached/<sha7>`, closed-lane
-detection via `merge-base --is-ancestor`, and `octoview gc` implementing PRD §4.8.
-Needs a signal `GitWatch` does not have — branch deletion raises no event — so
-either a watch on `<common-dir>/refs/heads` or a sweep on refresh.
-*Done when:* `checkout -b` carries the snapshots across; inky's one orphaned lane
-directory and the leftover `refs/octoview/turns/1` are gone; nothing with an
-unreviewed file or an open thread is ever pruned.
+**Phase 2a — Lanes follow branches (fixes D2's first half, and D4).** ✅ **Done.**
+`laneOrigin` reads the branch's reflog, `adoptLane` copies on a cut and moves on a
+rename, and a detached HEAD is `detached/<sha7>`. Both entry points call it.
+*Verified:* 41 checks pass (20 smoke + 21 cli). The new smoke check cuts a branch
+mid-review and asserts the snapshots, the reviewed marks and the refs all arrive;
+commits on the new branch and asserts a second cut inherits nothing; renames and
+asserts the old directory and refs are gone; and detaches to assert the lane is
+named by the commit.
+
+**Phase 2b — Lanes end with their branches (D2's second half).**
+Closed-lane detection via `merge-base --is-ancestor`, `octoview gc` implementing
+PRD §4.8, and the abandoned-lane surface. Needs a signal `GitWatch` does not have
+— branch deletion raises no event — so either a watch on `<common-dir>/refs/heads`
+or a sweep on refresh. **Blocked on the recommendation above being accepted or
+overruled**, because it decides whether anything is ever deleted without asking.
+*Done when:* inky's one orphaned lane directory and the leftover
+`refs/octoview/turns/1` are gone; nothing with an unreviewed file or an open
+thread is ever pruned.
 
 **Phase 3 — Attribute honestly (fixes D3, D5).**
 `head` on the `Snapshot` record (schema 2 → 3), a header line when it moved,

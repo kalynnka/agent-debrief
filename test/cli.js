@@ -56,11 +56,18 @@ async function main() {
   assert.strictEqual(worktreeLane.commonDir, path.join(root, ".git"));
   console.log("linked worktree: own lane, shared .git ok");
 
-  // 3. Detached HEAD falls back to the worktree's directory name.
+  // 3. Detached HEAD is a lane of its own, named by the commit. The directory
+  //    name — what this used to fall back to — is the same for every detached
+  //    checkout in a clone, so a `git bisect` run piled its steps into one lane,
+  //    and a clone whose directory shares a name with a branch piled them into
+  //    that branch's.
   git(["checkout", "-q", "--detach"]);
-  assert.strictEqual((await resolveLane(root)).name, "repo");
+  assert.strictEqual(
+    (await resolveLane(root)).name,
+    `detached/${git(["rev-parse", "--short", "HEAD"]).trim()}`,
+  );
   git(["checkout", "-q", "main"]);
-  console.log("detached HEAD -> worktree name        ok");
+  console.log("detached HEAD -> its own lane         ok");
 
   // 4. An unborn HEAD (fresh `git init`, no commits) still resolves its init
   //    branch — octoview's own repo is in exactly this state.

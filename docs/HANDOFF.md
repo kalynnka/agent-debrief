@@ -1,6 +1,6 @@
 # Octoview — Executor Handoff
 
-**Status:** M1 landed at `e80fae7` (2026-08-04, TypeScript end to end) · next:
+**Status:** M1 landed at `733bc0b` (2026-08-04, TypeScript end to end) · next:
 hands-on verification, the §1 gate answer, then M2 planning
 
 You are picking up after M1. [PRD.md](PRD.md) is what and why, [PLAN.md](PLAN.md)
@@ -95,7 +95,7 @@ fixed, so only one such window at a time.
 
 | Path | What it is |
 |---|---|
-| `~/Projects/octoverse/octoview` | This repo: core + CLI + extension (TypeScript) + these docs. History starts at `e80fae7` |
+| `~/Projects/octoverse/octoview` | This repo: core + CLI + extension (TypeScript) + these docs. History starts at `733bc0b` |
 | `~/Projects/octoverse/kraken` | Clone of octomate at `3707d51`, venv synced. **The test subject.** Stop hook installed via `.claude/settings.local.json`, kept out of `git status` by `.git/info/exclude` |
 | `~/Projects/octoverse/inky` | The octomate working repo. Do not experiment here — but it is hooked the same way, so real work there snapshots itself |
 | `~/Projects/octoverse/nautilus` | An older octomate clone, unrelated |

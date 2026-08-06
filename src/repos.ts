@@ -2,6 +2,7 @@ import * as path from "path";
 
 import { Git } from "./git";
 import { Lane, resolveLane } from "./lanes";
+import { adoptLane } from "./review";
 import { Store } from "./state";
 
 /** One repository under review — more precisely, one *lane* of one repository:
@@ -53,10 +54,15 @@ export class Repos {
     for (const root of roots) {
       const lane = await resolveLane(root);
       const existing = this.byRoot.get(root);
-      next.set(
-        root,
-        existing !== undefined && existing.lane.name === lane.name ? existing : new Repo(lane),
-      );
+      if (existing !== undefined && existing.lane.name === lane.name) {
+        next.set(root, existing);
+        continue;
+      }
+      const repo = new Repo(lane);
+      // A lane appearing for the first time may be a branch just cut from the one
+      // being reviewed, in which case the review comes with it.
+      await adoptLane(repo.git, repo.lane);
+      next.set(root, repo);
     }
     this.byRoot = next;
     await Promise.all(this.all.map((repo) => repo.store.load()));

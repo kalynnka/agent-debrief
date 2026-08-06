@@ -13,7 +13,7 @@ import { parseArgs } from "util";
 
 import { ChangedFile, Git, Snapshot } from "./git";
 import { resolveLane } from "./lanes";
-import { landedSnapshots, takeSnapshot } from "./review";
+import { adoptLane, landedSnapshots, takeSnapshot } from "./review";
 import { Store } from "./state";
 import { labelOf, summaryFromTranscript } from "./transcript";
 
@@ -108,6 +108,13 @@ function guarded<T>(fn: () => T): T {
 async function open(repo: string | undefined, laneName: string | undefined) {
   const lane = await resolveLane(repo ?? ".", laneName);
   const git = new Git(lane.root);
+  // A lane named with --lane is the caller's choice and stands as given. A
+  // resolved one may be a branch just cut from another, whose review comes with
+  // it — every entry point heals the lane, so it does not matter which one the
+  // reviewer or the hook happens to reach first.
+  if (laneName === undefined) {
+    await adoptLane(git, lane);
+  }
   const store = new Store(lane);
   await store.load();
   return { lane, git, store };

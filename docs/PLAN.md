@@ -1,6 +1,6 @@
 # Octoview — Landing Plan
 
-**Status:** M1 landed at `e80fae7` · **Covers:** M0 → M1 · **Last updated:** 2026-08-04
+**Status:** M1 landed at `733bc0b` · **Covers:** M0 → M1 · **Last updated:** 2026-08-04
 
 Companion to [PRD.md](PRD.md). The PRD says what to build and why; this says in
 what order it lands, and how each landing is verified.
@@ -268,7 +268,7 @@ actually runs the workflow.
 
 - **~~Step 5 is the irreversible one~~** — dissolved by the single-language
   decision: nothing was removed, the POC was reworked in place, and the whole of
-  M1 landed as one reviewable tree at `e80fae7`.
+  M1 landed as one reviewable tree at `733bc0b`.
 - **Editor-host testing stays manual.** Nothing in this plan fixes that. It is
   survivable at this size and would be the first thing to reconsider if the
   extension grows.
