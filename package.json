@@ -192,6 +192,12 @@
         "title": "Hide Files You Have Read",
         "category": "Octoview",
         "icon": "$(eye-closed)"
+      },
+      {
+        "command": "octoview.showMore",
+        "title": "Show Earlier Commits",
+        "category": "Octoview",
+        "icon": "$(ellipsis)"
       }
     ],
     "menus": {
@@ -359,6 +365,10 @@
         {
           "command": "octoview.hideReadFiles",
           "when": "octoview.inReview"
+        },
+        {
+          "command": "octoview.showMore",
+          "when": "false"
         }
       ],
       "comments/commentThread/context": [

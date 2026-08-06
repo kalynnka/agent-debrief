@@ -31,6 +31,7 @@ import {
   CommitNode,
   FileNode,
   GroupNode,
+  MoreNode,
   RepoNode,
   SnapshotNode,
   SnapshotsProvider,
@@ -633,6 +634,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // thing. Their `when` clauses are exclusive, so only ever one is on the bar.
   register("octoview.showReadFiles", toggleReadFiles);
   register("octoview.hideReadFiles", toggleReadFiles);
+
+  register("octoview.showMore", (node: MoreNode) => snapshots.showMoreCommits(node.repo));
 
   register("octoview.gc", async (node: RepoNode) => {
     const { repo } = node;

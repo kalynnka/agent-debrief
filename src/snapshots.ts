@@ -147,7 +147,27 @@ export class CommitNode {
   ) {}
 }
 
-export type Node = RepoNode | GroupNode | CommitNode | SnapshotNode | FileNode;
+/** The row that reveals older commits.
+ *
+ * A lane on a long-lived branch keeps every commit it ever landed, and the ones
+ * worth looking at are the recent ones. The rest sit behind this until asked for,
+ * and it sits above them because the list runs oldest to newest — "earlier" is
+ * upwards everywhere else in this view. */
+export class MoreNode {
+  readonly kind = "more";
+  constructor(
+    readonly repo: Repo,
+    readonly hidden: number,
+  ) {}
+}
+
+export type Node = RepoNode | GroupNode | CommitNode | SnapshotNode | FileNode | MoreNode;
+
+/** Commits shown in a repo's Commits area before "show earlier" is pressed, and
+ * how many more each press reveals. Five is about what fits without pushing the
+ * areas that still want reading off the bottom of the view. */
+const COMMIT_PAGE = 5;
+const COMMIT_MORE = 20;
 
 /** Everything a redraw needs about a repo that the working tree cannot change. */
 interface RepoStructure {
@@ -253,6 +273,11 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
    * tree, which is the thing that actually changed. */
   private structure = new Map<string, RepoStructure>();
 
+  /** How many commits each repo's Commits area is showing. Kept across refreshes
+   * — a reviewer who asked for more history should not have to ask again every
+   * time an agent writes a file. */
+  private shownCommits = new Map<string, number>();
+
   constructor(
     private readonly repos: Repos,
     private readonly gitWatch: GitWatch,
@@ -267,6 +292,13 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
    * caller that has to remember to ask for correctness would eventually forget.
    * Only the working-tree watcher passes false, and only when git itself says
    * HEAD and the refs stood still. */
+  /** Reveal another page of a repo's commit history. */
+  showMoreCommits(repo: Repo): void {
+    const shown = this.shownCommits.get(repo.root) ?? COMMIT_PAGE;
+    this.shownCommits.set(repo.root, shown + COMMIT_MORE);
+    this.changed.fire(undefined);
+  }
+
   refresh(structural = true): void {
     if (structural) {
       this.structure.clear();
@@ -315,6 +347,8 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
         );
       } else if (node.kind === "commit") {
         node.snapshots.forEach((snapshot) => add(node.repo, snapshot.snapshot.n));
+      } else if (node.kind === "more") {
+        // Selecting the row that reveals history scopes nothing.
       } else {
         add(node.repo, node.snapshot.n);
       }
@@ -375,8 +409,15 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       );
       const stranded = node.blocked.size;
       const unit = committed ? "commit" : "snapshot";
+      // The committed area also says how many snapshots those commits took: it is
+      // the number that grows without bound on a long-lived branch, and the reason
+      // the area is paged rather than drawn whole.
+      const took = committed
+        ? node.commits.reduce((n, commit) => n + commit.snapshots.length, 0)
+        : 0;
       item.description =
         `${count} ${unit}${count === 1 ? "" : "s"}` +
+        (committed && took > 0 ? ` · ${took} snapshot${took === 1 ? "" : "s"}` : "") +
         (node.through !== undefined ? ` · through ${node.through}` : "") +
         (stranded > 0 ? ` · ${stranded} blocked` : "");
       item.iconPath = new vscode.ThemeIcon(
@@ -406,6 +447,19 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
           arguments: [node],
         };
       }
+      return item;
+    }
+
+    if (node.kind === "more") {
+      const item = new vscode.TreeItem(
+        "Show earlier commits",
+        vscode.TreeItemCollapsibleState.None,
+      );
+      item.description = `${node.hidden} more`;
+      item.iconPath = new vscode.ThemeIcon("ellipsis");
+      item.contextValue = "more";
+      item.tooltip = `${node.hidden} older commit(s) of this lane, not drawn until asked for.`;
+      item.command = { command: "octoview.showMore", title: "Show Earlier Commits", arguments: [node] };
       return item;
     }
 
@@ -676,12 +730,18 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       return areas.filter((area) => area.snapshots.length + area.commits.length > 0);
     }
     if (node.kind === "group") {
-      return node.area === "committed" ? node.commits : node.snapshots;
+      if (node.area !== "committed") {
+        return node.snapshots;
+      }
+      const shown = this.shownCommits.get(node.repo.root) ?? COMMIT_PAGE;
+      const visible = node.commits.slice(Math.max(0, node.commits.length - shown));
+      const hidden = node.commits.length - visible.length;
+      return hidden > 0 ? [new MoreNode(node.repo, hidden), ...visible] : visible;
     }
     if (node.kind === "commit") {
       return node.snapshots;
     }
-    if (node.kind === "file") {
+    if (node.kind === "file" || node.kind === "more") {
       return [];
     }
     return this.filesOfSnapshot(node);
@@ -698,16 +758,6 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
    * being drawn and the button being pressed. */
   async shapeOf(repo: Repo, landedIn?: LandedCommit[]): Promise<SnapshotNode[]> {
     const snapshots = repo.store.data.snapshots;
-    // Whether a snapshot still has anything to show has to be known before it is
-    // expanded, so every snapshot is measured here. The two commits either side of
-    // a snapshot never move, so all of this is cached after the first pass and the
-    // lane costs one `hash-object` per refresh.
-    const changed = await Promise.all(
-      snapshots.map((snapshot) => repo.git.changedFiles(snapshot.parent, snapshot.sha)),
-    );
-    const disk = await repo.git.blobsOnDisk([
-      ...new Set(changed.flat().map((file) => file.path)),
-    ]);
     // Which snapshots a commit has taken. HEAD is resolved per refresh rather than
     // cached — it is the one revision in play that moves — and the rule lives
     // with the other snapshot semantics, because the CLI reports the same answer.
@@ -715,12 +765,28 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
     // action calls in without one, and re-reads deliberately.
     const commits = landedIn ?? (await landedCommits(repo.git, snapshots, await repo.git.head()));
     const landed = new Set(commits.flatMap((commit) => commit.snapshots));
+    // Only the snapshots still on the worklist are measured.
+    //
+    // What the measurement answers — is this still the snapshot's doing on disk,
+    // can I put it back, how much of it have I read — are questions about work in
+    // front of you. A landed snapshot is a receipt: it cannot be reverted to any
+    // useful end, it is not on the worklist, and nothing about it will change
+    // again. Measuring it cost two `ls-tree` calls each, which on this repo's own
+    // main was 61 of 65 snapshots — the cost scaling with how long the branch had
+    // lived rather than with how much work was waiting to be read.
+    const open = snapshots.filter((snapshot) => !landed.has(snapshot.n));
+    const changed = await Promise.all(
+      open.map((snapshot) => repo.git.changedFiles(snapshot.parent, snapshot.sha)),
+    );
+    const disk = await repo.git.blobsOnDisk([
+      ...new Set(changed.flat().map((file) => file.path)),
+    ]);
     const shape = await Promise.all(
       changed.map(async (files, i) => {
         const paths = files.map((file) => file.path);
         const [before, after] = await Promise.all([
-          repo.git.blobsAt(snapshots[i].parent, paths),
-          repo.git.blobsAt(snapshots[i].sha, paths),
+          repo.git.blobsAt(open[i].parent, paths),
+          repo.git.blobsAt(open[i].sha, paths),
         ]);
         // A file is the snapshot's doing while disk differs from where it started,
         // and is still the snapshot's to give back while disk matches where it
@@ -733,22 +799,20 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
           droppable: owned.length === live.length,
           // Only the files the snapshot still owns: one it no longer changes is not
           // on the worklist, so it cannot be what leaves the snapshot unreviewed.
-          viewed: live.filter((file) => repo.store.isReviewed(file, snapshots[i].n)).length,
-          landed: landed.has(snapshots[i].n),
+          viewed: live.filter((file) => repo.store.isReviewed(file, open[i].n)).length,
         };
       }),
     );
-    return snapshots.map(
-      (t, i) =>
-        new SnapshotNode(
-          repo,
-          t,
-          shape[i].live,
-          shape[i].droppable,
-          shape[i].viewed,
-          shape[i].landed,
-        ),
-    );
+    const measured = new Map(open.map((snapshot, i) => [snapshot.n, shape[i]]));
+    return snapshots.map((snapshot) => {
+      const own = measured.get(snapshot.n);
+      // A landed snapshot's row stands for something finished: read, not frozen,
+      // and not offering to be given back. Those are the honest answers, and none
+      // of them needed asking git.
+      return own === undefined
+        ? new SnapshotNode(repo, snapshot, 1, false, 1, true)
+        : new SnapshotNode(repo, snapshot, own.live, own.droppable, own.viewed, false);
+    });
   }
 
   private async filesOfSnapshot(node: SnapshotNode): Promise<FileNode[]> {
