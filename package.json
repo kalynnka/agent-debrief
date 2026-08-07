@@ -1,6 +1,6 @@
 {
-  "name": "debrief",
-  "displayName": "Debrief",
+  "name": "agent-debrief",
+  "displayName": "Agent Debrief",
   "description": "Snapshot-by-snapshot review of agent changes: snapshot each turn, diff snapshot-over-snapshot, batch line comments.",
   "version": "0.0.1",
   "publisher": "octoverse",

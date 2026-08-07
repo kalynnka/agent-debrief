@@ -53,6 +53,16 @@ real reuse. Prefer fail-fast errors over fallback control flow. Package manager
 is pnpm with `nodeLinker: hoisted` (`pnpm-workspace.yaml`) — do not reintroduce
 an npm lockfile or the symlinked layout.
 
+**Three names, on purpose** (owner decision 2026-08-07). The package and the
+repository are `agent-debrief`, because plain `debrief` is taken on npm (by nvie,
+since 2017) and the VS Code marketplace already lists an extension displaying as
+"Debrief". The marketplace display name is **Agent Debrief**, so a search for
+"agent debrief" finds this and nothing else. Everything typed is `debrief`: the
+binary, every command id, the settings section, the URI schemes, `refs/debrief/`
+and `.git/debrief/`. Do not "fix" the difference — a long name for registries and
+a short one for daily use is the point, and renaming the refs would orphan every
+snapshot on disk.
+
 **No proposed API is opted into** (owner decision 2026-08-07). There was one —
 `contribMultiDiffEditorMenus`, for the tick on a multi-diff row's own toolbar —
 and it went with the marking feature that was its only user (see PRD §4.4 and

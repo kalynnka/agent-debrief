@@ -1,7 +1,11 @@
-# Debrief
+# Agent Debrief
 
 Snapshot-by-snapshot review of agent changes, in the editor where the language server
 already runs.
+
+The package is `agent-debrief`; everything you type is `debrief` — the command line,
+the editor commands and the settings. Both names are deliberate: the long one is
+unambiguous in a registry, and the short one is what you live with.
 
 A snapshot is the unit of review — one per agent turn. Each captures the working tree
 as a real git commit; the diff you read is **snapshot N-1 → snapshot N**, not
