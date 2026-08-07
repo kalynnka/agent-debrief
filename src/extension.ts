@@ -23,7 +23,9 @@ import {
   committableRun,
   dropSnapshot,
   landedCommits,
+  openThreads,
   revertPaths,
+  reviewText,
   stashedSince,
   sweepLanes,
   takeSnapshot,
@@ -977,6 +979,81 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     comments.refresh();
     snapshots.refresh();
     vscode.window.showInformationMessage(`Octoview: submitted · ${written.join(" · ")}`);
+  });
+
+  /** Submit whatever is still draft, then render everything the agent has not
+   * answered. Both hand-over buttons mean "send my review", so leaving a draft
+   * behind would make the one comment the reviewer just wrote the one the agent
+   * never sees. */
+  const reviewForAgent = async (): Promise<string | undefined> => {
+    for (const repo of repos.all) {
+      await repo.store.submit();
+    }
+    const review = repos.all
+      .map((repo) => ({ repo: repo.name, threads: openThreads(repo.store) }))
+      .filter((one) => one.threads.length > 0);
+    comments.refresh();
+    snapshots.refresh();
+    if (review.length === 0) {
+      vscode.window.showInformationMessage("Octoview: no review comments waiting on the agent.");
+      return undefined;
+    }
+    return reviewText(review);
+  };
+
+  register("octoview.copyReview", async () => {
+    const text = await reviewForAgent();
+    if (text === undefined) {
+      return;
+    }
+    await vscode.env.clipboard.writeText(text);
+    // And put the cursor where it has to go. Focusing the input is the whole of
+    // what the Claude Code extension exposes — no extension can paste into
+    // another's webview — so the keystroke stays the reviewer's. It also
+    // @-mentions the file you are looking at on the way in, which is its
+    // behaviour and not ours.
+    const available = await vscode.commands.getCommands(true);
+    const focus = available.includes("claude-vscode.focus");
+    if (focus) {
+      await vscode.commands.executeCommand("claude-vscode.focus");
+    }
+    vscode.window.showInformationMessage(
+      focus
+        ? "Octoview: review copied — paste it into the agent's input."
+        : "Octoview: review copied to the clipboard.",
+    );
+  });
+
+  register("octoview.sendReviewToTerminal", async () => {
+    const terminals = vscode.window.terminals;
+    if (terminals.length === 0) {
+      vscode.window.showInformationMessage(
+        "Octoview: no terminal open. Start the agent in one, or use Copy Review for the Agent.",
+      );
+      return;
+    }
+    const text = await reviewForAgent();
+    if (text === undefined) {
+      return;
+    }
+    let terminal = vscode.window.activeTerminal ?? terminals[0];
+    if (terminals.length > 1) {
+      const picked = await vscode.window.showQuickPick(
+        terminals.map((one) => ({ label: one.name, terminal: one })),
+        { title: "Which terminal is the agent in?" },
+      );
+      if (picked === undefined) {
+        return;
+      }
+      terminal = picked.terminal;
+    }
+    terminal.show();
+    // Bracketed paste, not plain text. A bare newline in an agent's input is
+    // Enter, so a review typed line by line would send its first line as the
+    // whole prompt and drop the rest into whatever came back. The wrapper is what
+    // a real paste sends, and a terminal UI reads it as one insertion — left
+    // unsent, so the reviewer presses Enter.
+    terminal.sendText(`\u001b[200~${text}\u001b[201~`, false);
   });
 }
 

@@ -207,6 +207,8 @@ async function main() {
       comments: [{ body: "why rename?", author: "me", at: new Date().toISOString() }],
     });
   });
+  const draftOpen = JSON.parse(octoview(["review", "open", "--repo", root, "--json"], parent).stdout);
+  assert.deepStrictEqual(draftOpen.threads, [], "a draft is the reviewer's own until they submit");
   const sub = JSON.parse(octoview(["review", "submit", "--repo", root, "--json"], parent).stdout);
   assert.strictEqual(sub.submitted, 1);
   const batch = JSON.parse(octoview(["review", "batch", "--repo", root, "--json"], parent).stdout);
@@ -216,6 +218,35 @@ async function main() {
   const subAgain = JSON.parse(octoview(["review", "submit", "--repo", root, "--json"], parent).stdout);
   assert.strictEqual(subAgain.submitted, 0);
   console.log("review submit -> batch round-trip     ok");
+
+  // 14b. `review open` answers what one batch cannot: everything still waiting on
+  //      the agent, however many submits it arrived over. `review resolve` is what
+  //      makes that set shrink — without it the same comments print forever.
+  const waiting = JSON.parse(octoview(["review", "open", "--repo", root, "--json"], parent).stdout);
+  assert.deepStrictEqual(waiting.threads.map((t) => t.id), ["cli-t1"], "a submitted thread is open");
+  const rendered = octoview(["review", "open", "--repo", root], parent).stdout;
+  assert.ok(rendered.includes("renamed.txt:1  ["), "the reference is path:line, and 1-based");
+  assert.ok(rendered.includes("  me: why rename?"), "with the comment under it");
+  assert.ok(!rendered.includes("@renamed.txt"), "never the @-mention form — it types badly");
+
+  const closed = JSON.parse(
+    octoview(["review", "resolve", "cli-t1", "--repo", root, "--json"], parent).stdout,
+  );
+  assert.deepStrictEqual(closed.resolved, ["cli-t1"]);
+  assert.deepStrictEqual(closed.unknown, []);
+  const settled = JSON.parse(octoview(["review", "open", "--repo", root, "--json"], parent).stdout);
+  assert.deepStrictEqual(settled.threads, [], "a resolved thread stops waiting");
+  const reclosed = JSON.parse(
+    octoview(["review", "resolve", "cli-t1", "nope", "--repo", root, "--json"], parent).stdout,
+  );
+  assert.deepStrictEqual(reclosed.resolved, [], "closing what is closed changes nothing");
+  assert.deepStrictEqual(reclosed.unknown, ["cli-t1", "nope"], "a stale id is reported, not fatal");
+  assert.strictEqual(
+    octoview(["review", "resolve", "--repo", root], parent).status,
+    2,
+    "resolve with no id is a usage error",
+  );
+  console.log("review open -> resolve                ok");
 
   // 15. Carry-forward: a thread follows its lines when they move, and goes
   //     outdated when the lines themselves change.

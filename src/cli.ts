@@ -9,11 +9,20 @@
 //   0  success
 //   2  usage error
 //   3  the repository, lane, snapshot or revision could not be resolved
+import * as path from "path";
 import { parseArgs } from "util";
 
 import { ChangedFile, Git, Snapshot } from "./git";
 import { resolveLane } from "./lanes";
-import { adoptLane, landedSnapshots, sweepLanes, takeSnapshot } from "./review";
+import {
+  adoptLane,
+  landedSnapshots,
+  openThreads,
+  resolveThreads,
+  reviewText,
+  sweepLanes,
+  takeSnapshot,
+} from "./review";
 import { Store } from "./state";
 import { labelOf, summaryFromTranscript } from "./transcript";
 
@@ -33,6 +42,8 @@ const USAGE = `usage: octoview <command> [options]
   diff <n>               changed files for snapshot n
   show <rev> <path>      file content at a revision (a snapshot number or a sha)
   review submit          write the pending comment threads out as one batch
+  review open            print every comment still waiting on you, across batches
+  review resolve <id>…   close the comments you have dealt with
   review batch           print the latest submitted batch
   gc                     let go of lanes whose branch is gone, so git can collect
                          their snapshots on its own schedule  (--dry-run)
@@ -90,6 +101,12 @@ async function dispatch(argv: string[]): Promise<number> {
       const [sub, ...args] = rest;
       if (sub === "submit") {
         return submitCommand(args);
+      }
+      if (sub === "open") {
+        return openReviewCommand(args);
+      }
+      if (sub === "resolve") {
+        return resolveCommand(args);
       }
       if (sub === "batch") {
         return batchCommand(args);
@@ -531,6 +548,80 @@ async function submitCommand(args: string[]): Promise<number> {
       ? "no draft comments to submit\n"
       : `submitted ${result.count} thread(s) -> ${result.path}\n`,
   );
+  return 0;
+}
+
+/** Every comment still waiting on the agent — the command it runs to pick a
+ * review up. `review batch` prints one file, which is the record of a single
+ * submit; this is the question "what is still open", which no single batch can
+ * answer once there have been two. */
+async function openReviewCommand(args: string[]): Promise<number> {
+  const { values } = guarded(() =>
+    parseArgs({
+      args,
+      options: {
+        repo: { type: "string" },
+        lane: { type: "string" },
+        json: { type: "boolean" },
+      },
+    }),
+  );
+  const { lane, store } = await open(values.repo, values.lane);
+  const threads = openThreads(store);
+  if (values.json ?? false) {
+    process.stdout.write(
+      JSON.stringify({ schemaVersion: SCHEMA_VERSION, repo: lane.root, lane: lane.name, threads }) +
+        "\n",
+    );
+    return 0;
+  }
+  process.stdout.write(
+    threads.length === 0
+      ? "no open review comments\n"
+      : reviewText([{ repo: path.basename(lane.root), threads }]),
+  );
+  return 0;
+}
+
+/** Close what has been dealt with. Without this `review open` would print the
+ * same comments for the life of the branch, and an agent cannot tell a comment
+ * it has answered from one it has not. */
+async function resolveCommand(args: string[]): Promise<number> {
+  const { values, positionals } = guarded(() =>
+    parseArgs({
+      args,
+      options: {
+        repo: { type: "string" },
+        lane: { type: "string" },
+        json: { type: "boolean" },
+      },
+      allowPositionals: true,
+    }),
+  );
+  if (positionals.length === 0) {
+    throw new UsageError("review resolve needs at least one thread id");
+  }
+  const { lane, store } = await open(values.repo, values.lane);
+  const resolved = await resolveThreads(store, positionals);
+  const unknown = positionals.filter((id) => !resolved.includes(id));
+  if (values.json ?? false) {
+    process.stdout.write(
+      JSON.stringify({
+        schemaVersion: SCHEMA_VERSION,
+        repo: lane.root,
+        lane: lane.name,
+        resolved,
+        unknown,
+      }) + "\n",
+    );
+    return 0;
+  }
+  process.stdout.write(`resolved ${resolved.length} thread(s)\n`);
+  if (unknown.length > 0) {
+    // Not an error: an id can be stale because the reviewer deleted the thread,
+    // or because it was already closed. Say which, and carry on.
+    process.stdout.write(`no open thread for: ${unknown.join(", ")}\n`);
+  }
   return 0;
 }
 

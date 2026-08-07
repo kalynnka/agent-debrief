@@ -84,6 +84,18 @@
         "icon": "$(check-all)"
       },
       {
+        "command": "octoview.copyReview",
+        "title": "Copy Review for the Agent",
+        "category": "Octoview",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "octoview.sendReviewToTerminal",
+        "title": "Send Review to the Agent's Terminal",
+        "category": "Octoview",
+        "icon": "$(terminal)"
+      },
+      {
         "command": "octoview.markReviewed",
         "title": "Mark Reviewed",
         "category": "Octoview",
@@ -261,9 +273,19 @@
           "group": "navigation@4"
         },
         {
-          "command": "octoview.refresh",
+          "command": "octoview.copyReview",
           "when": "view == octoview.snapshots",
           "group": "navigation@5"
+        },
+        {
+          "command": "octoview.refresh",
+          "when": "view == octoview.snapshots",
+          "group": "navigation@6"
+        },
+        {
+          "command": "octoview.sendReviewToTerminal",
+          "when": "view == octoview.snapshots",
+          "group": "octoview@1"
         }
       ],
       "view/item/context": [

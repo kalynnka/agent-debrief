@@ -166,10 +166,42 @@ agent gets the shape of your review in one reply, not five interruptions.
 The agent reads it back with:
 
 ```bash
-octoview review batch --json
+octoview review open           # every comment still waiting on it, across submits
+octoview review resolve <id>…  # what it has dealt with
 ```
 
-### 3.2 Comments follow the code
+`review open` is the one to work from — `review batch` is still there and answers
+a different question, the contents of one submit as a record. Resolving is what
+makes the open set shrink; the `prepare-change-review` skill tells agents to
+close only what they have actually answered, and to leave a comment they disagree
+with open for you.
+
+### 3.2 Handing the review over
+
+Submitting writes the file. Getting it in front of an agent is a separate step,
+and there are three ways because no two people run their agent the same way.
+
+**The agent asks.** Nothing to press: it runs `octoview review open` at the start
+of a turn. This is the one that costs you nothing and the one to prefer.
+
+**Copy Review for the Agent** (the clipboard in the view's title bar) submits any
+drafts, renders everything open as plain text, puts it on the clipboard, and
+focuses the agent's input if the Claude Code extension is installed. You press
+⌘V. That last step stays yours: an extension cannot paste into another
+extension's webview, and focusing the input is the whole of what Claude Code
+exposes. It also @-mentions the file you were looking at on the way in, which is
+its behaviour and not ours.
+
+**Send Review to the Agent's Terminal** (in the view's `⋯` menu) does the same
+and types it into a terminal instead — the active one, or one you pick. It
+arrives as a *paste* rather than as typing, so a review of six comments does not
+send its first line as the whole prompt. It stops short of Enter, so you read it
+before it goes.
+
+Both act on what is **open**, not on what you just wrote, so pressing either one
+twice sends the same comments again until the agent resolves them.
+
+### 3.3 Comments follow the code
 
 When the next snapshot lands, an open thread is re-anchored to wherever its exact
 lines moved to, following renames. If those lines no longer exist, the thread is
@@ -178,7 +210,7 @@ marked **outdated** — GitHub's semantics: still visible, still open, flagged.
 A thread stays stamped with the snapshot it was opened against, which is what lets
 a dropped snapshot take its comments with it.
 
-### 3.3 Ask the agent about its own change
+### 3.4 Ask the agent about its own change
 
 **Not built yet.** PRD UC-4. Today, quote the hunk into your reply.
 

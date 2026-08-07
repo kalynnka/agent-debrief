@@ -71,7 +71,7 @@ skill `recover-change-context` is the one you want.
    per-file detail follows it — see the next section.
 
 5. **Stop.** The human reviews in their editor. Their comments come back to you
-   as one batch: `octoview review batch --json`.
+   as one batch — see *Picking the review up* below.
 
 ## A turn is not one snapshot
 
@@ -190,6 +190,41 @@ still right there underneath them.
   exactly like that, brackets and all, by the one reader it was written for. The
   reply you type in chat is rendered; this is not. Keep them in different
   registers.
+
+## Picking the review up
+
+The human's comments never interrupt you. They pile up as drafts while they read
+and arrive all at once when they press Submit — so the first thing to do when
+they mention a review, or when a message arrives with comments pasted into it, is
+to ask what is actually waiting:
+
+    octoview review open           # every comment still waiting on you
+    octoview review open --json    # the same, with anchors, ids and state
+
+Each one carries `path:line`, the snapshot it was written against, and an id.
+`outdated` on a comment means the lines it was written against have changed since
+— it still stands, but find what it is about rather than trusting the line
+number.
+
+Work through them, then close what you have dealt with:
+
+    octoview review resolve <id> <id> …
+
+**Closing is not bookkeeping, it is the state.** `review open` is the only thing
+that says what is left, so a comment you answered but did not resolve comes back
+on every read, and one you resolved without answering is gone with nobody
+noticing. Resolve exactly what you have done, and say in your reply what you did
+for each id.
+
+Leave a comment open when you are disagreeing with it. Say why, do not resolve
+it, and let the human close the argument — resolving your way out of a
+disagreement is the one use of this command that is a lie.
+
+Then snapshot the work the review produced, exactly as any other turn: it is its
+own unit of work and the human will read it as one.
+
+`octoview review batch --json` still exists and answers a different question —
+the contents of one submit, as a record. `review open` is the one to work from.
 
 ## Landing a reviewed prefix
 

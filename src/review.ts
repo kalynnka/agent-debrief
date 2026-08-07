@@ -4,7 +4,7 @@ import * as path from "path";
 
 import { ChangedFile, Git, Hunk, Snapshot, snapshotRef } from "./git";
 import { Lane, laneOrigin, resolveLane } from "./lanes";
-import { Anchor, State, Store } from "./state";
+import { Anchor, State, Store, Thread } from "./state";
 
 export interface SnapshotOptions {
   label?: string;
@@ -316,6 +316,84 @@ export async function sweepLanes(git: Git, commonDir: string, apply: boolean): P
     }
   }
   return sweep;
+}
+
+/** The threads waiting on the agent: submitted, and not yet answered.
+ *
+ * Drafts are deliberately absent. A comment is the reviewer's own until they
+ * press Submit, and that is the whole point of batching — the agent gets the
+ * shape of a review in one reply rather than five interruptions. */
+export function openThreads(store: Store): Thread[] {
+  return store.data.threads.filter((thread) => thread.state === "submitted");
+}
+
+/** One repository's share of an open review. */
+export interface OpenReview {
+  /** How the repository is named to a reader — its directory, not its root. */
+  repo: string;
+  threads: Thread[];
+}
+
+/** The open review as text an agent can act on.
+ *
+ * One rendering serves all three ways it travels — printed by the CLI, put on
+ * the clipboard, typed into a terminal — because those differ only in how the
+ * text gets there, not in what it should say.
+ *
+ * References are `path:line`, never `@path#Lline`. The `@` form is Claude Code's
+ * own and reads well in its input box, but it opens a file picker part-way
+ * through the one route that types character by character, and a reference every
+ * agent already understands is worth more than one host's autocomplete. */
+export function reviewText(review: OpenReview[]): string {
+  const total = review.reduce((count, one) => count + one.threads.length, 0);
+  const out = [
+    `Octoview review — ${total} comment${total === 1 ? "" : "s"} still open.`,
+    "Address each one, then close it with `octoview review resolve <id>`.",
+    "",
+  ];
+  for (const { repo, threads } of review) {
+    // Named only when there is something to tell it apart from: one repository is
+    // the ordinary case, and a heading over the whole review says nothing.
+    if (review.length > 1) {
+      out.push(`--- ${repo} ---`, "");
+    }
+    const ordered = [...threads].sort(
+      (a, b) =>
+        a.anchor.file.localeCompare(b.anchor.file) || a.anchor.startLine - b.anchor.startLine,
+    );
+    for (const thread of ordered) {
+      const { file, startLine, endLine } = thread.anchor;
+      const where =
+        startLine === endLine ? `${file}:${startLine + 1}` : `${file}:${startLine + 1}-${endLine + 1}`;
+      const about = [thread.id, `snapshot ${thread.snapshot}`];
+      if (thread.outdated) {
+        about.push("outdated — the lines it was written against have since changed");
+      }
+      out.push(`${where}  [${about.join(" · ")}]`);
+      for (const comment of thread.comments) {
+        const [first, ...rest] = comment.body.split("\n");
+        out.push(`  ${comment.author}: ${first}`);
+        out.push(...rest.map((line) => `    ${line}`));
+      }
+      out.push("");
+    }
+  }
+  return out.join("\n");
+}
+
+/** Close the threads an agent says it has dealt with. Returns the ids it
+ * recognised, so a caller can report the ones it did not. */
+export async function resolveThreads(store: Store, ids: string[]): Promise<string[]> {
+  return store.withLock((state) => {
+    const closed: string[] = [];
+    for (const thread of state.threads) {
+      if (ids.includes(thread.id) && thread.state !== "resolved") {
+        thread.state = "resolved";
+        closed.push(thread.id);
+      }
+    }
+    return closed;
+  });
 }
 
 /** Let go of every snapshot on the lane you are standing on.
