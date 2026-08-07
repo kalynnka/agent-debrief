@@ -284,11 +284,38 @@ modal counts what is already in a commit (safe in git whatever happens) against
 what is not (this lane is the only place it exists), names any unsubmitted draft
 comments, and says that numbering restarts at 1. What it still does not do is
 delete an object.
-*Verified:* 46 checks pass (25 smoke + 21 cli). The new smoke check clears a
+
+**One thing is kept, and the first build of this got it wrong.** An empty lane
+falls back to HEAD, so on a tree with uncommitted work in it the next snapshot
+opens by claiming all of it. Observed rather than theorised: inky's lane was
+cleared mid-branch, the Stop hook fired at the end of a turn spent entirely in
+another repo, and snapshot 1 arrived holding twelve of the reviewer's own
+in-progress files with `parent == HEAD` and a message about octoview. Before the
+clear those files sat inside a snapshot, so every hook run found the tree
+unchanged and took nothing — which is why the hole had never shown.
+
+So clearing writes the working tree as a commit, keeps it at
+`refs/octoview/base/<lane>`, and records its sha as the lane's `base` (schema 5);
+`takeSnapshot` reads `previous?.sha ?? state.base ?? head`. Clearing is the one
+moment octoview can be sure the tree is not the agent's, because a human is
+standing there pressing the button, and this is that knowledge kept. A clean tree
+records nothing — HEAD already says where the lane starts. The sweep claims the
+base ref like any other, and lets go of it with the rest when the branch dies.
+
+It does not fix the wider case: a lane that has never been written falls back to
+HEAD too, so a repo first seen with work already in it has the same shape. The
+`UserPromptSubmit` hook is the answer there — the reviewer's own edits land in a
+`manual` snapshot before the agent's turn starts — and there is no button press
+to hang a baseline on.
+*Verified:* 49 checks pass (27 smoke + 22 cli). The smoke check clears a
 two-snapshot lane and asserts the refs, the record, the reviewed marks and the
 threads all go; that the commits are still on disk immediately afterwards —
-unreachable, not gone — and that `gc --prune=now` is what takes them; and that the
-next snapshot is number 1 again, diffing against HEAD like any first snapshot.
+unreachable, not gone — and that `gc --prune=now` is what takes them. Then the
+baseline: the base ref survives that same `gc`, the next snapshot is number 1
+again but starts from the clearing rather than from HEAD, and it holds only the
+file touched since — not the one that was already dirty when the button was
+pressed, which is the bug itself. A second clear on a clean tree records no
+baseline and drops the ref the first one left.
 
 This reverses HANDOFF §4's "leave the specimens be": those refs were kept as a
 before-and-after specimen of the virgin-index bug, which is now pinned by a

@@ -46,9 +46,18 @@ export interface State {
    * no bookkeeping: `reviewed[file] >= snapshot` is the whole rule. */
   reviewed: Record<string, number>;
   threads: Thread[];
+  /** Where the lane starts when it holds no snapshots: a commit of the working
+   * tree as it stood the moment the reviewer cleared the lane.
+   *
+   * Without it the first snapshot after a clear diffs against HEAD, so every
+   * uncommitted change already sitting in the tree — the reviewer's own work,
+   * usually — is recorded as the next agent turn's. Clearing is exactly the
+   * moment octoview knows the tree is not the agent's, because a human pressed
+   * the button; this is that knowledge, kept. */
+  base?: string;
 }
 
-const emptyState = (): State => ({ schemaVersion: 4, snapshots: [], reviewed: {}, threads: [] });
+const emptyState = (): State => ({ schemaVersion: 5, snapshots: [], reviewed: {}, threads: [] });
 
 /** Per-lane persistence under the clone's common dir, so every worktree of a
  * clone agrees on where state lives and nothing ever appears in `git status`.

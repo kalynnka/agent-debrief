@@ -7,7 +7,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { Git, snapshotRef } = require("../out/git");
+const { Git, baseRef, snapshotRef } = require("../out/git");
 const { resolveLane } = require("../out/lanes");
 const { Repos } = require("../out/repos");
 const {
@@ -805,6 +805,9 @@ async function main() {
   const clgit = new Git(clearRoot);
   const clane = await resolveLane(clearRoot);
   const clstore = new Store(clane);
+  // Work already in the tree and nothing to do with any agent — the shape that
+  // made this a bug: it must not turn up in the next snapshot after a clear.
+  fs.writeFileSync(path.join(clearRoot, "d.txt"), "mine, from before\n");
   fs.writeFileSync(path.join(clearRoot, "c.txt"), "one\n");
   const c1 = await takeSnapshot(clgit, clstore, { label: "one", agent: "manual" });
   fs.writeFileSync(path.join(clearRoot, "c.txt"), "two\n");
@@ -821,7 +824,11 @@ async function main() {
     });
   });
 
-  assert.strictEqual(await clearLane(clgit, clstore), 2, "both snapshots are let go");
+  assert.deepStrictEqual(
+    await clearLane(clgit, clstore),
+    { dropped: 2, based: true },
+    "both snapshots are let go, and the dirty tree leaves a starting point behind",
+  );
   assert.strictEqual(await clgit.refExists(snapshotRef(clane.name, 1)), false, "ref 1 is gone");
   assert.strictEqual(await clgit.refExists(snapshotRef(clane.name, 2)), false, "ref 2 is gone");
   assert.deepStrictEqual(clstore.data.snapshots, [], "and the record with them");
@@ -835,13 +842,45 @@ async function main() {
   clg(["gc", "--prune=now", "-q"]);
   assert.strictEqual(await clgit.has(c1.snapshot.sha), false, "git is what collects them");
 
+  // The clearing left one thing: where the lane now starts. Without it the next
+  // snapshot falls back to HEAD and opens by claiming every uncommitted change
+  // already in the tree — which is what a Stop hook did to a cleared lane holding
+  // a branch's worth of work in progress.
+  assert.strictEqual(
+    await clgit.refExists(baseRef(clane.name)),
+    true,
+    "the base ref survives a gc, exactly as a snapshot ref does",
+  );
+  assert.strictEqual(await clgit.has(clstore.data.base), true, "and so does what it points at");
+
   fs.writeFileSync(path.join(clearRoot, "c.txt"), "three\n");
   const c3 = await takeSnapshot(clgit, clstore, { label: "three", agent: "manual" });
   assert.strictEqual(c3.snapshot.n, 1, "an empty lane numbers from 1 again");
-  assert.strictEqual(
+  assert.strictEqual(c3.snapshot.parent, clstore.data.base, "but it starts from the clearing");
+  assert.notStrictEqual(
     c3.snapshot.parent,
     clg(["rev-parse", "HEAD"]).trim(),
-    "and diffs against HEAD, like any first snapshot",
+    "and not from HEAD, which is the whole point",
+  );
+  assert.deepStrictEqual(
+    c3.files.map((f) => f.path),
+    ["c.txt"],
+    "so it holds what changed since the clearing, and not d.txt, which was already there",
+  );
+
+  // A clean tree has nothing to record: HEAD already says where the lane starts.
+  clg(["add", "."]);
+  clg(["commit", "-qm", "land it"]);
+  assert.deepStrictEqual(
+    await clearLane(clgit, clstore),
+    { dropped: 1, based: false },
+    "a clean tree needs no baseline",
+  );
+  assert.strictEqual(clstore.data.base, undefined, "and does not keep one");
+  assert.strictEqual(
+    await clgit.refExists(baseRef(clane.name)),
+    false,
+    "the previous lane's baseline goes with the clearing that replaces it",
   );
   fs.rmSync(clearRoot, { recursive: true, force: true });
   console.log("a lane can be let go on purpose       ok");

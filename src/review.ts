@@ -2,7 +2,7 @@ import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as path from "path";
 
-import { ChangedFile, Git, Hunk, Snapshot, snapshotRef } from "./git";
+import { ChangedFile, Git, Hunk, Snapshot, baseRef, snapshotRef } from "./git";
 import { Lane, laneOrigin, resolveLane } from "./lanes";
 import { Anchor, State, Store, Thread } from "./state";
 
@@ -72,7 +72,10 @@ export async function takeSnapshot(
     const previous = state.snapshots[state.snapshots.length - 1];
     const empty = await git.emptyTree();
     const head = await git.head();
-    const parent = previous?.sha ?? head ?? empty;
+    // A cleared lane starts from the tree the reviewer cleared at, not from HEAD:
+    // otherwise the first snapshot afterwards claims every uncommitted change
+    // that was already sitting there.
+    const parent = previous?.sha ?? state.base ?? head ?? empty;
     const seeded = parent === empty ? undefined : parent;
     const tree = await git.writeSnapshotTree(store.indexFile, seeded);
     const parentTree = seeded === undefined ? empty : await git.treeOf(seeded);
@@ -142,12 +145,22 @@ export async function adoptLane(git: Git, lane: Lane): Promise<void> {
       state.snapshots = source.data.snapshots;
       state.reviewed = source.data.reviewed;
       state.threads = source.data.threads;
+      state.base = source.data.base;
     });
   }
   for (const snapshot of source.data.snapshots) {
     await git.updateRef(snapshotRef(lane.name, snapshot.n), snapshot.sha);
     if (origin.kind === "renamed") {
       await git.deleteRef(snapshotRef(origin.from, snapshot.n));
+    }
+  }
+  // A lane cleared and then branched from starts where it was cleared, on the new
+  // branch as much as on the old: without the ref the commit is unreachable, and
+  // without carrying it the new lane falls back to HEAD and claims the tree.
+  if (source.data.base !== undefined) {
+    await git.updateRef(baseRef(lane.name), source.data.base);
+    if (origin.kind === "renamed") {
+      await git.deleteRef(baseRef(origin.from));
     }
   }
 }
@@ -279,21 +292,28 @@ export async function sweepLanes(git: Git, commonDir: string, apply: boolean): P
     const store = new Store({ root: git.root, commonDir, name, dir });
     await store.load();
     const snapshots = store.data.snapshots;
-    for (const snapshot of snapshots) {
-      claimed.add(snapshotRef(name, snapshot.n));
+    // A cleared lane holds no snapshots and still holds a ref: the commit its
+    // next snapshot will diff against. It is one of the lane's refs in every way
+    // that matters here — claimed while the branch lives, let go with the rest.
+    const refs = snapshots.map((snapshot) => snapshotRef(name, snapshot.n));
+    const shas = snapshots.map((snapshot) => snapshot.sha);
+    if (store.data.base !== undefined) {
+      refs.push(baseRef(name));
+      shas.push(store.data.base);
+    }
+    for (const ref of refs) {
+      claimed.add(ref);
     }
     if (branches.has(name)) {
       continue;
     }
-    const held = await Promise.all(
-      snapshots.map((snapshot) => git.refExists(snapshotRef(name, snapshot.n))),
-    );
+    const held = await Promise.all(refs.map((ref) => git.refExists(ref)));
     if (held.some((yes) => yes)) {
       sweep.closed.push(name);
       if (apply) {
-        for (const [i, snapshot] of snapshots.entries()) {
+        for (const [i, ref] of refs.entries()) {
           if (held[i]) {
-            await git.deleteRef(snapshotRef(name, snapshot.n));
+            await git.deleteRef(ref);
           }
         }
       }
@@ -301,7 +321,7 @@ export async function sweepLanes(git: Git, commonDir: string, apply: boolean): P
     }
     // No refs left and no objects behind them: git has been through. An empty
     // lane on a dead branch reaches the same place with nothing to check.
-    const alive = await Promise.all(snapshots.map((snapshot) => git.has(snapshot.sha)));
+    const alive = await Promise.all(shas.map((sha) => git.has(sha)));
     if (alive.every((yes) => !yes)) {
       sweep.collected.push(name);
       if (apply) {
@@ -412,17 +432,41 @@ export async function resolveThreads(store: Store, ids: string[]): Promise<strin
  * and why the only caller asks first.
  *
  * The threads go too. A thread is anchored to a snapshot, so a thread whose
- * snapshot is gone is the state `dropSnapshot` already refuses to leave behind. */
-export async function clearLane(git: Git, store: Store): Promise<number> {
+ * snapshot is gone is the state `dropSnapshot` already refuses to leave behind.
+ *
+ * One thing is kept, and it is not a snapshot: **where the lane now starts.** An
+ * empty lane falls back to HEAD, so on a tree with uncommitted work in it the
+ * next agent turn would open by claiming all of it. Clearing is the one moment
+ * octoview can be sure that work is not the agent's — a human is standing there
+ * pressing the button — so the tree is written as a commit and the lane is
+ * pointed at it. Nothing to read and nothing to review: one ref, so the next
+ * snapshot's diff is the agent's own doing and nothing else. */
+export async function clearLane(
+  git: Git,
+  store: Store,
+): Promise<{ dropped: number; based: boolean }> {
   return store.withLock(async (state) => {
     for (const snapshot of state.snapshots) {
       await git.deleteRef(snapshotRef(store.lane.name, snapshot.n));
     }
-    const count = state.snapshots.length;
+    const dropped = state.snapshots.length;
     state.snapshots = [];
     state.reviewed = {};
     state.threads = [];
-    return count;
+    const head = await git.head();
+    const tree = await git.writeSnapshotTree(store.indexFile, head);
+    // A clean tree needs no baseline: HEAD already is one, and a commit that
+    // says the same thing would be a ref kept for nothing.
+    const based = head !== undefined && tree !== (await git.treeOf(head));
+    state.base = based
+      ? await git.commitTree(tree, `octoview base: ${store.lane.name} cleared here`, head)
+      : undefined;
+    if (state.base === undefined) {
+      await git.deleteRef(baseRef(store.lane.name));
+    } else {
+      await git.updateRef(baseRef(store.lane.name), state.base);
+    }
+    return { dropped, based };
   });
 }
 

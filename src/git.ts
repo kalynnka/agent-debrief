@@ -44,6 +44,12 @@ export function snapshotRef(lane: string, n: number): string {
   return `refs/octoview/snapshots/${lane}/${n}`;
 }
 
+/** What keeps a cleared lane's starting point alive. One per lane, replaced on
+ * each clear, and a GC root exactly as a snapshot ref is. */
+export function baseRef(lane: string): string {
+  return `refs/octoview/base/${lane}`;
+}
+
 export interface Snapshot {
   n: number;
   sha: string;

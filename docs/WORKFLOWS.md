@@ -400,6 +400,14 @@ remembers the shas. The modal counts what is already in a commit against what is
 not, says how many draft comments go with them, and tells you the next snapshot
 here will be number 1 again.
 
+One thing is kept and it is not a snapshot: **where the lane now starts.** An
+empty lane would fall back to HEAD, so the next agent turn would open by claiming
+every uncommitted change already sitting in your tree. Clearing writes that tree
+as a commit and points the lane at it, so the next snapshot shows what the agent
+did and nothing else. Nothing to read, nothing to review — one ref, which the
+sweep lets go of with the rest when the branch dies. A clean tree records
+nothing, because HEAD already says the same thing.
+
 ### 5.8 Reverting after a commit
 
 Revert does not know the work is committed. It will put files back, creating an

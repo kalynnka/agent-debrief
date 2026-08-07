@@ -738,6 +738,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             "lane does: the recorded shas are dropped with the refs, so there is no " +
             "`git update-ref` back. What you have marked read and every comment thread " +
             "on this lane go too. The next snapshot here starts again at 1.",
+          "",
+          "One thing is kept and it is not a snapshot: the tree as it stands right " +
+            "now, so the next agent turn shows what the agent did rather than " +
+            "everything already uncommitted here.",
         ].join("\n"),
       },
       "Delete Snapshots",
@@ -745,11 +749,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (answer !== "Delete Snapshots") {
       return;
     }
-    const gone = await clearLane(repo.git, repo.store);
+    const { dropped, based } = await clearLane(repo.git, repo.store);
     comments.refresh();
     snapshots.refresh();
     vscode.window.showInformationMessage(
-      `Octoview: deleted ${gone} snapshot${gone === 1 ? "" : "s"} on ${repo.lane.name}. ` +
+      `Octoview: deleted ${dropped} snapshot${dropped === 1 ? "" : "s"} on ${repo.lane.name}. ` +
+        (based
+          ? `The next one starts from the tree as it is now, not from HEAD. `
+          : `The tree is clean, so the next one starts from HEAD. `) +
         `Run \`git gc\` when you want the space back.`,
     );
   });
