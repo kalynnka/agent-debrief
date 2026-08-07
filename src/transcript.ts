@@ -42,6 +42,45 @@ export function noteBody(label: string, message: string | undefined): string {
     .trim();
 }
 
+/** One `src/git.ts:43` or `src/review.ts:270-275` found in a note. */
+export interface CodeReference {
+  /** Repo-relative, as written. */
+  file: string;
+  /** 1-based, as a reader counts. */
+  line: number;
+  start: number;
+  end: number;
+}
+
+/** A path with an extension, a colon, a line, and optionally a second line.
+ *
+ * Deliberately narrow. The note is prose, and prose is full of colons followed by
+ * digits — `Verification: 48 checks` must not become a link to a file called
+ * "Verification". Requiring a dot-extension and a non-word character in front is
+ * what keeps it to things that are actually paths. */
+const REFERENCE = /(^|[\s([])((?:[\w.-]+\/)*[\w.-]+\.\w+):(\d+)(?:-\d+)?/g;
+
+/** Every code reference in a note, in the order they appear.
+ *
+ * The skill tells agents to write `src/cli.ts:220` rather than a markdown link,
+ * because the review shows the note in a diff row and a diff row renders no
+ * markdown at all. Finding them afterwards is what lets that plain text be
+ * clickable anyway: the note stays readable as text, and the editor underlines
+ * the references in place. */
+export function codeReferences(text: string): CodeReference[] {
+  const found: CodeReference[] = [];
+  for (const match of text.matchAll(REFERENCE)) {
+    const start = (match.index ?? 0) + match[1].length;
+    found.push({
+      file: match[2],
+      line: Number(match[3]),
+      start,
+      end: start + match[0].length - match[1].length,
+    });
+  }
+  return found;
+}
+
 /** Read a snapshot's summary out of a Claude Code transcript: the session's last
  * assistant text, which is the agent's own account of what it just did. Returns
  * undefined when the transcript is unreadable or holds no assistant text; the

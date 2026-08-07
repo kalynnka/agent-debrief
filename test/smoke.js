@@ -25,7 +25,7 @@ const {
   takeSnapshot,
 } = require("../out/review");
 const { Store } = require("../out/state");
-const { labelOf, noteBody } = require("../out/transcript");
+const { codeReferences, labelOf, noteBody } = require("../out/transcript");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-"));
 const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
@@ -868,6 +868,34 @@ async function main() {
   );
   assert.strictEqual(noteBody("anything", undefined), "", "no message, no body");
   console.log("a label is not the message's first line ok");
+
+  // 27. The note is plain text because a diff row renders no markdown, so a
+  //     reference is written `src/cli.ts:220` and found afterwards rather than
+  //     written as a link. Prose is full of colons followed by digits, and none
+  //     of them are files.
+  const prose =
+    "Purpose: the row said nothing.\n\n" +
+    "Verification: 48 checks pass (26 smoke + 22 cli) at 11:53, ratio 3:14.\n\n" +
+    "Risks: src/cli.ts:220, and src/review.ts:270-275 (see package.json:3).\n" +
+    "Not https://example.com:8080.";
+  assert.deepStrictEqual(
+    codeReferences(prose).map((r) => `${r.file}:${r.line}`),
+    ["src/cli.ts:220", "src/review.ts:270", "package.json:3"],
+    "a reference needs a path with an extension, and a host with a port is not one",
+  );
+  const span = codeReferences(prose)[0];
+  assert.strictEqual(
+    prose.slice(span.start, span.end),
+    "src/cli.ts:220",
+    "the span covers the reference and nothing around it",
+  );
+  const range = codeReferences("see src/review.ts:270-275 there")[0];
+  assert.strictEqual(
+    "see src/review.ts:270-275 there".slice(range.start, range.end),
+    "src/review.ts:270-275",
+    "a line range underlines whole and opens at its first line",
+  );
+  console.log("a plain reference is still a link      ok");
 
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });

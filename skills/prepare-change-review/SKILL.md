@@ -133,17 +133,33 @@ sentence, and the whole thing inside 72 characters:
 
     feat: a review opens without the files you have already read
 
-**`-m` is at most three short lines**, shown above the diff when the review
+**`-m` is at most three short sections**, shown above the diff when the review
 opens. The label already said what changed and the diff is about to show how, so
-these are only the things neither of them can say:
+these are only the things neither of them can say. Each gets its own line, with a
+**blank line between them** — the note is read in one glance, and three lines
+stacked without air is one paragraph wearing three labels:
 
-    Why: a re-read review reopened every file, and the cleared ones were noise.
-    Tests: 47 checks pass (25 smoke + 22 cli); the two buttons are unclicked.
-    Look at: src/extension.ts openReview — the title count is the only sign.
+    Purpose: a re-read review reopened every file, and the cleared ones were noise.
 
-Drop any line you have nothing real to put in. Two is common, one is fine, and
+    Verification: 47 checks pass (25 smoke + 22 cli); the two buttons are unclicked.
+
+    Risks: the tick is a proposed API and goes with any VS Code update — src/extension.ts:52
+    is where it is worked around. Nothing else here is load-bearing.
+
+**Risks is about the whole snapshot, not one file.** What could be wrong, what
+you did not verify, what assumption the reviewer may want to reject — naming a
+file is how you point at it, not what the section is for.
+
+Drop any section you have nothing real to put in. Two is common, one is fine, and
 **under 300 characters all told** is the target — a note the reader has to scroll
 is one they skip, and then the line that mattered went unread with it.
+
+**A `path:line` reference becomes a clickable link.** Write it plainly —
+`src/extension.ts:52`, or `src/review.ts:270-275` for a span — and octoview
+underlines it in the note and in the sidebar hover, jumping to the file on disk.
+This is the reason to write plain text rather than markdown: a markdown link
+arrives with its brackets showing, and a plain reference reads correctly
+everywhere *and* clicks.
 
 Both are required together: `octoview snapshot -m …` without `--label` is a usage
 error, because a label taken off the front of a message is how rows end up
@@ -152,18 +168,19 @@ reading like the middle of a turn.
     octoview snapshot --agent <host> --json \
       --label "<kind>: <one sentence>" \
       -m "$(cat <<'EOF'
-      Why: …
-      Tests: …
-      Look at: …
+      Purpose: …
+
+      Verification: …
+
+      Risks: …
       EOF
       )"
 
 **Nothing renders it.** The review shows the message in a diff row, which draws
 no markdown at all — every `**`, every `[label](path)`, every `##` arrives as
-literal characters in the reader's face. Write plain text: name a file as
-`src/cli.ts:220`, not as a link. The sidebar hover does render markdown, so
-anything that reads well both ways is fine; anything that only works rendered is
-not.
+literal characters in the reader's face. Write plain text. The sidebar hover does
+render markdown, so anything that reads well both ways is fine; anything that
+only works rendered is not.
 
 **Everything else goes in your reply.** The approach, the alternatives you
 rejected, the per-file account in the human's reading order, what you did not
@@ -189,7 +206,8 @@ is right there underneath it.
 - **Length.** Paragraphs where a line would do. If a line has run to three
   sentences it is a paragraph wearing a label, and it belongs in your reply.
 - **Markup nobody renders.** `Read [cli.ts:220](src/cli.ts#L220) first` is read
-  exactly like that, brackets and all, by the one reader it was written for.
+  exactly like that, brackets and all, by the one reader it was written for —
+  and it costs the link the plain reference would have got for free.
 
 ## Picking the review up
 

@@ -73,15 +73,22 @@ label, and the few lines the agent left under it. The tree row has room for the
 label alone; this is the rest, and it is meant to be read before the diff. It is
 a diff row like any other, so it shows the text as text. The
 `prepare-change-review` skill is what keeps it worth reading: one sentence as the
-label, then at most three lines — why, test numbers, what to look at — in plain
+label, then at most three sections — Purpose, Verification, Risks — in plain
 text, because nothing renders that row. Everything longer belongs in the agent's
 reply, where you can see it beside the rest of the conversation.
 
 Hovering a snapshot's row in the sidebar shows its state and the message's
-opening paragraph, rendered. A hover clips rather than scrolls, so the rest is a
+opening section, rendered. A hover clips rather than scrolls, so the rest is a
 click away: **Read the whole note** opens the message as its own document, which
 scrolls and copies like any other. (VS Code's own `⌘K ⌘I` focuses a hover and
 makes it scrollable, if you would rather stay there.)
+
+A `src/review.ts:270` in a note is a **link** — in the note and in the hover both.
+Click it and the file opens at that line. Nothing renders that row, so agents are
+told to write references plainly rather than as markdown; octoview finds them
+afterwards and underlines them where they stand. They point at the file on disk,
+which is the copy with a language server attached, so a reference to a file since
+deleted is left as plain text rather than given a link that goes nowhere.
 
 For the **newest** snapshot the right-hand side of a diff is the real file on disk,
 so the language server attaches — hover, types and go-to-definition all work while
@@ -469,8 +476,8 @@ not checked.
 
 The snapshot's own record is the summary of that report, not the report, and it
 is two separate fields. The **label** is one sentence and becomes the sidebar
-row; the **message** is at most three short lines — why, test numbers, where to
-look — and opens the review above the diff. Neither is the other cut in half, and
+row; the **message** is at most three short sections — Purpose, Verification,
+Risks — and opens the review above the diff. Neither is the other cut in half, and
 the CLI refuses a message with no label, because a label sliced off the front of
 something else is how a row ends up reading like the middle of a turn. Everything
 that does not fit stays in the reply, where you can see it beside the rest of the

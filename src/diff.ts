@@ -1,3 +1,4 @@
+import * as fs from "fs/promises";
 import * as path from "path";
 import * as vscode from "vscode";
 
@@ -6,7 +7,7 @@ import { FileRow } from "./files";
 import { ChangedFile, Snapshot } from "./git";
 import { Repo, Repos } from "./repos";
 import { FileNode } from "./snapshots";
-import { noteBody } from "./transcript";
+import { codeReferences, noteBody } from "./transcript";
 
 /** Serves file content at a snapshot revision, so a diff can show a side that
  * no longer exists on disk. The revision URI names an absolute path, so which
@@ -89,6 +90,50 @@ export class NoteContentProvider implements vscode.TextDocumentContentProvider {
       })
       .join("\n———\n\n");
   }
+}
+
+/** Make the note's `path:line` references clickable.
+ *
+ * The note is written as plain text on purpose — a diff row renders no markdown,
+ * so a link written as one arrives with its brackets showing. VS Code will
+ * underline a reference in place instead, which is the same text a terminal, a
+ * grep and the next agent can all read, and a jump for the reviewer.
+ *
+ * The target is the file on disk rather than the snapshot's revision: the note is
+ * pointing at code to go and look at, and the working tree is the copy with a
+ * language server attached. A reference to a file that is no longer there gets no
+ * link rather than a broken one. */
+export class NoteLinkProvider implements vscode.DocumentLinkProvider {
+  constructor(private readonly repos: Repos) {}
+
+  async provideDocumentLinks(document: vscode.TextDocument): Promise<vscode.DocumentLink[]> {
+    const located = this.repos.locate(document.uri.path);
+    if (located === undefined) {
+      return [];
+    }
+    const text = document.getText();
+    const links: vscode.DocumentLink[] = [];
+    for (const reference of codeReferences(text)) {
+      const abs = path.join(located.repo.root, reference.file);
+      if (!(await exists(abs))) {
+        continue;
+      }
+      const link = new vscode.DocumentLink(
+        new vscode.Range(document.positionAt(reference.start), document.positionAt(reference.end)),
+        vscode.Uri.file(abs).with({ fragment: `L${reference.line}` }),
+      );
+      link.tooltip = `Open ${reference.file} at line ${reference.line}`;
+      links.push(link);
+    }
+    return links;
+  }
+}
+
+async function exists(file: string): Promise<boolean> {
+  return fs.stat(file).then(
+    () => true,
+    () => false,
+  );
 }
 
 /** A warning line when HEAD moved between this snapshot and the one before it,

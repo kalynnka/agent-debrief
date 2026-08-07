@@ -14,7 +14,7 @@ import {
   stashedSince,
   sweepLanes,
 } from "./review";
-import { noteBody } from "./transcript";
+import { codeReferences, noteBody } from "./transcript";
 
 export class RepoNode {
   readonly kind = "repo";
@@ -193,6 +193,22 @@ const AGENT_ICONS: Record<string, string> = {
   copilot: "copilot",
   manual: "edit",
 };
+
+/** The same `path:line` references the note makes clickable, as markdown links —
+ * the hover is the one surface that does render markdown, so here they have to be
+ * written as links rather than found in place. Built back to front so the
+ * offsets of the references still to come stay valid. */
+function linked(root: string, text: string): string {
+  let out = text;
+  for (const reference of codeReferences(text).reverse()) {
+    const target = vscode.Uri.file(path.join(root, reference.file)).with({
+      fragment: `L${reference.line}`,
+    });
+    const shown = text.slice(reference.start, reference.end);
+    out = `${out.slice(0, reference.start)}[${shown}](${target})${out.slice(reference.end)}`;
+  }
+  return out;
+}
 
 /** Strike a label through, character by character.
  *
@@ -603,7 +619,7 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
           .split(/\n{2,}/)
           .find((paragraph) => paragraph.trim() !== "");
         if (opening !== undefined) {
-          hover.appendMarkdown(`\n\n---\n\n${opening}`);
+          hover.appendMarkdown(`\n\n---\n\n${linked(node.repo.root, opening)}`);
         }
         // A command link needs the string trusted; the command it names is ours
         // and takes no input from the message.

@@ -7,6 +7,7 @@ import { SnapshotDecorations } from "./decorations";
 import {
   NOTE_SCHEME,
   NoteContentProvider,
+  NoteLinkProvider,
   RevisionContentProvider,
   openDiff,
   openNote,
@@ -210,6 +211,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.registerTextDocumentContentProvider(
       NOTE_SCHEME,
       new NoteContentProvider(repos),
+    ),
+    vscode.languages.registerDocumentLinkProvider(
+      { scheme: NOTE_SCHEME },
+      new NoteLinkProvider(repos),
     ),
   );
   // Tabs are restored before we activate, so any diff left open at shutdown came
