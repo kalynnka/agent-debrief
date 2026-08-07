@@ -278,7 +278,7 @@
     }
   },
   "scripts": {
-    "dev": "code -n --extensionDevelopmentPath=\"$PWD\" --enable-proposed-api=octoverse.debrief --inspect-extensions=9229 ../octoverse.code-workspace",
+    "dev": "code -n --extensionDevelopmentPath=\"$PWD\" --inspect-extensions=9229 \"$PWD\"",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "node test/smoke.js && node test/cli.js"

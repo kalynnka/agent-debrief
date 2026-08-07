@@ -1,0 +1,7 @@
+{
+  // What "Run Debrief" hands the Extension Development Host. It wraps this repo
+  // rather than naming it directly because VSCode gives a folder one window and
+  // the folder itself is already open in the window you launch from — a
+  // workspace file is its own window identity, so it opens alongside.
+  "folders": [{ "path": ".." }]
+}

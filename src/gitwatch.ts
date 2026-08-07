@@ -28,18 +28,30 @@ interface GitRepositoryState {
   /** Undefined on a detached HEAD — which is precisely when a lane falls back to
    * the worktree's directory name, so the branch name is the whole lane key. */
   readonly HEAD?: Branch;
-  /** Every branch, tag and remote ref the extension knows. Optional because this
-   * is a hand-written slice of someone else's API, and an absent field must read
-   * as "cannot tell" rather than as "none". */
-  readonly refs?: readonly Ref[];
   readonly indexChanges: readonly Change[];
   readonly workingTreeChanges: readonly Change[];
   readonly untrackedChanges: readonly Change[];
   readonly onDidChange: vscode.Event<void>;
 }
 
+/** What `getRefs` filters by. Debrief passes it empty, which means every ref —
+ * a fingerprint of "did anything structural move" wants all of them, including
+ * `refs/stash` and debrief's own `refs/debrief/*`. */
+interface RefQuery {
+  readonly pattern?: string | string[];
+}
+
 interface GitRepository {
   readonly state: GitRepositoryState;
+  /** Every branch, tag and remote ref, straight off `for-each-ref` and already
+   * in refname order, so joining the names gives a stable fingerprint.
+   *
+   * This is where `state.refs` went. That getter still exists, but the extension
+   * now answers it with an empty array and a deprecation warning — so a shape
+   * built on it reported "no refs" forever and the refs half of the comparison
+   * had gone quietly blind. Reading it costs a subprocess, which is why it is
+   * only ever compared and never interpreted. */
+  getRefs(query: RefQuery): Promise<readonly Ref[]>;
 }
 
 interface GitAPI {
@@ -75,18 +87,18 @@ interface Shape {
   changes: string;
 }
 
-function shapeOf(repository: GitRepository): Shape {
+async function shapeOf(repository: GitRepository): Promise<Shape> {
+  // Read the state the event just reported before going to git, so the cheap half
+  // of the shape describes the moment that woke us rather than whenever the refs
+  // came back.
   const state = repository.state;
-  return {
-    branch: state.HEAD?.name ?? "",
-    head: state.HEAD?.commit ?? "",
-    // Undefined means the API did not give us refs, which has to read as "unknown"
-    // — a constant would claim they never change and quietly stop invalidating.
-    refs: state.refs === undefined ? "?" : state.refs.map((ref) => ref.name ?? "").join(","),
-    changes: [...state.indexChanges, ...state.workingTreeChanges, ...state.untrackedChanges]
-      .map((change) => `${change.status} ${change.uri.fsPath}`)
-      .join("\n"),
-  };
+  const branch = state.HEAD?.name ?? "";
+  const head = state.HEAD?.commit ?? "";
+  const changes = [...state.indexChanges, ...state.workingTreeChanges, ...state.untrackedChanges]
+    .map((change) => `${change.status} ${change.uri.fsPath}`)
+    .join("\n");
+  const refs = await repository.getRefs({});
+  return { branch, head, refs: refs.map((ref) => ref.name ?? "").join(","), changes };
 }
 
 /** How much moved, so a listener can redraw only what the move can have changed.
@@ -114,8 +126,13 @@ export class GitWatch implements vscode.Disposable {
 
   private readonly listeners: vscode.Disposable[] = [];
   private readonly seen = new Map<GitRepository, Shape>();
+  /** Which read of a repository is the newest one issued. Reading a shape now
+   * waits on git, so two of them can be in flight at once and they can come back
+   * in either order — see `resample`. */
+  private readonly latest = new Map<GitRepository, number>();
   private timer: NodeJS.Timeout | undefined;
   private pending: GitMoved = { checkout: false, structure: false };
+  private disposed = false;
 
   constructor(private readonly api: GitAPI) {
     this.api.repositories.forEach((repository) => this.watch(repository));
@@ -126,12 +143,16 @@ export class GitWatch implements vscode.Disposable {
       }),
       this.api.onDidCloseRepository((repository) => {
         this.seen.delete(repository);
+        // Dropping the ticket also settles any read still out on this repository:
+        // it will find no ticket of its own and put nothing back.
+        this.latest.delete(repository);
         this.schedule({ checkout: true, structure: true });
       }),
     );
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.timer !== undefined) {
       clearTimeout(this.timer);
     }
@@ -152,34 +173,66 @@ export class GitWatch implements vscode.Disposable {
     );
   }
 
+  /** Re-read a repository's shape and hand back the one it replaced.
+   *
+   * Reading waits on git, so a burst can put several reads in flight and they can
+   * return out of order. Each takes a ticket first and drops its answer if a later
+   * read has been issued since: writing an older shape over a newer one would
+   * leave `seen` describing a past, and the next event would compare against it
+   * and report moves that already happened.
+   *
+   * Undefined means exactly that — this read was overtaken and has nothing to say,
+   * because the read that overtook it will speak for both. */
+  private async resample(
+    repository: GitRepository,
+  ): Promise<{ before: Shape | undefined; now: Shape } | undefined> {
+    const ticket = (this.latest.get(repository) ?? 0) + 1;
+    this.latest.set(repository, ticket);
+    const now = await shapeOf(repository);
+    if (this.latest.get(repository) !== ticket) {
+      return undefined;
+    }
+    const before = this.seen.get(repository);
+    this.seen.set(repository, now);
+    return { before, now };
+  }
+
   private watch(repository: GitRepository): void {
-    this.seen.set(repository, shapeOf(repository));
+    // The first read takes a ticket like any other: an event can land while it is
+    // still out, and the answer it seeds must not land on top of a fresher one.
+    // Until one of them returns the repository is simply unseen, which already
+    // reads as "everything moved".
+    void this.resample(repository);
     this.listeners.push(
       repository.state.onDidChange(() => {
-        const before = this.seen.get(repository);
-        const now = shapeOf(repository);
-        this.seen.set(repository, now);
-        // git re-runs status on any file event under the repo — a build writing
-        // to an ignored directory, a save, an editor opening — and reports the
-        // result whether or not it differs. Rebuilding the tree for an answer
-        // that did not change is exactly what makes the rows flicker.
-        const same =
-          before !== undefined &&
-          before.branch === now.branch &&
-          before.head === now.head &&
-          before.refs === now.refs &&
-          before.changes === now.changes;
-        if (same) {
-          return;
-        }
-        this.schedule({
-          checkout: before === undefined || before.branch !== now.branch,
-          structure:
-            before === undefined ||
-            before.branch !== now.branch ||
-            before.head !== now.head ||
-            before.refs !== now.refs,
-        });
+        void (async () => {
+          const sampled = await this.resample(repository);
+          if (sampled === undefined || this.disposed) {
+            return;
+          }
+          const { before, now } = sampled;
+          // git re-runs status on any file event under the repo — a build writing
+          // to an ignored directory, a save, an editor opening — and reports the
+          // result whether or not it differs. Rebuilding the tree for an answer
+          // that did not change is exactly what makes the rows flicker.
+          const same =
+            before !== undefined &&
+            before.branch === now.branch &&
+            before.head === now.head &&
+            before.refs === now.refs &&
+            before.changes === now.changes;
+          if (same) {
+            return;
+          }
+          this.schedule({
+            checkout: before === undefined || before.branch !== now.branch,
+            structure:
+              before === undefined ||
+              before.branch !== now.branch ||
+              before.head !== now.head ||
+              before.refs !== now.refs,
+          });
+        })();
       }),
     );
   }
