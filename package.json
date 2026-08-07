@@ -402,7 +402,7 @@
         {
           "command": "octoview.deleteThread",
           "group": "navigation",
-          "when": "commentController == octoview"
+          "when": "commentController == octoview && commentThreadIsEmpty == false"
         }
       ]
     },
