@@ -43,8 +43,10 @@ agent made it. On a lane with a history this is usually enough to see the shape
 of the work and which snapshots matter to you.
 
 **1. Read the messages of the snapshots that matter — not all of them.** The
-label is only the first line; the full message is the report that agent wrote
-when it finished: the goal, the approach, the test numbers, what to look at.
+label is one sentence; the message under it is the two or three lines that
+sentence could not hold — why, the test numbers, where the risk was. Neither is
+the whole account: that was in a reply nobody kept, and the diff is what is left
+of it.
 
 A snapshot is a unit of work, not a session — one turn often left several, each
 describing its own part. Read a run of them as one narrative rather than

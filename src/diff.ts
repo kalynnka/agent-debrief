@@ -6,6 +6,7 @@ import { FileRow } from "./files";
 import { ChangedFile, Snapshot } from "./git";
 import { Repo, Repos } from "./repos";
 import { FileNode } from "./snapshots";
+import { noteBody } from "./transcript";
 
 /** Serves file content at a snapshot revision, so a diff can show a side that
  * no longer exists on disk. The revision URI names an absolute path, so which
@@ -72,13 +73,20 @@ export class NoteContentProvider implements vscode.TextDocumentContentProvider {
     const all = located.repo.store.data.snapshots;
     return all
       .filter((snapshot) => wanted.has(String(snapshot.n)))
-      .map(
-        (snapshot) =>
+      .map((snapshot) => {
+        // The label leads, because it is the one sentence the snapshot is about;
+        // the message is what it could not hold. They are separate fields now, so
+        // a message that still opens with its own label has that line taken off
+        // rather than printed under itself.
+        const body = noteBody(snapshot.label, snapshot.message);
+        return (
           `Snapshot ${snapshot.n} · ${titleCase(snapshot.agent)} · ` +
           `${new Date(snapshot.at).toLocaleString()}\n\n` +
           headMoved(all, snapshot) +
-          `${snapshot.message ?? snapshot.label}\n`,
-      )
+          `${snapshot.label}\n` +
+          (body === "" ? "" : `\n${body}\n`)
+        );
+      })
       .join("\n———\n\n");
   }
 }

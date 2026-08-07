@@ -25,6 +25,7 @@ const {
   takeSnapshot,
 } = require("../out/review");
 const { Store } = require("../out/state");
+const { labelOf, noteBody } = require("../out/transcript");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-"));
 const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
@@ -844,6 +845,29 @@ async function main() {
   );
   fs.rmSync(clearRoot, { recursive: true, force: true });
   console.log("a lane can be let go on purpose       ok");
+
+  // 26. The label is its own sentence, so a note shows it above the message. Every
+  //     snapshot recorded before that — and every one the hook still scrapes, since
+  //     a transcript offers nothing else — has the label as its own first line, and
+  //     would say it twice the moment the two are shown together.
+  assert.strictEqual(
+    noteBody("feat: the row says what it did", "feat: the row says what it did\n\nWhy: it did not.\n"),
+    "Why: it did not.",
+    "a message that opens with its own label loses that line",
+  );
+  assert.strictEqual(
+    noteBody("feat: written separately", "Why: the row said nothing.\nTests: 47 pass."),
+    "Why: the row said nothing.\nTests: 47 pass.",
+    "a label the message does not open with leaves it whole",
+  );
+  const wordy = "x".repeat(100);
+  assert.strictEqual(
+    noteBody(labelOf(`${wordy}\n\nbody`), `${wordy}\n\nbody`),
+    "body",
+    "and a label cut at 72 characters is still recognised as its own first line",
+  );
+  assert.strictEqual(noteBody("anything", undefined), "", "no message, no body");
+  console.log("a label is not the message's first line ok");
 
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });

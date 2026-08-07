@@ -34,8 +34,10 @@ const SCHEMA_VERSION = 4;
 const USAGE = `usage: octoview <command> [options]
 
   status                 capture nothing; report repo, lane, snapshots and review state
-  snapshot               capture a snapshot  (-m, --label, --agent, --session, --from-stop-hook)
-  snapshot describe <n>  give snapshot n the message it should have had  (-m required)
+  snapshot               capture a snapshot  (--label, -m, --agent, --session, --from-stop-hook)
+                         --label is one sentence and names the snapshot; -m is the
+                         few lines under it, and needs a --label to go with it
+  snapshot describe <n>  say what snapshot n did  (--label and -m both required)
   snapshot commit <n>    commit snapshots 1..n as one commit  (-m required, --force)
                          --force overrides both refusals: a staged index, and a
                          snapshot the agent never described
@@ -267,8 +269,16 @@ async function snapshotCommand(args: string[]): Promise<number> {
       }
     }
   }
-  // A message is enough on its own: the label is its first line, by the rule
-  // the transcript is read with.
+  // A label is a sentence somebody wrote, not the first line of something else.
+  // Slicing one out of the message is what the hook does because a transcript
+  // gives it nothing better — and the row it produces reads like the middle of a
+  // turn, because that is what it is. An agent that has a message has an opinion
+  // about what it did, so it is asked for it.
+  if (label === undefined && message !== undefined) {
+    throw new UsageError(
+      'a message needs a label to go with it: --label "<one sentence saying what this snapshot did>"',
+    );
+  }
   label ??= labelOf(message);
   const { lane, git, store } = await open(repo, values.lane);
   const result = await takeSnapshot(git, store, {
@@ -336,9 +346,11 @@ async function describeCommand(args: string[]): Promise<number> {
   if (message === undefined || message === "") {
     throw new UsageError('snapshot describe needs a message: -m "<what the snapshot did>"');
   }
-  const label = values.label ?? labelOf(message);
-  if (label === undefined) {
-    throw new UsageError("the message has no line to take a label from");
+  const label = values.label;
+  if (label === undefined || label === "") {
+    throw new UsageError(
+      'snapshot describe needs a label: --label "<one sentence saying what this snapshot did>"',
+    );
   }
   const n = Number(positionals[0]);
   const { lane, store } = await open(values.repo, values.lane);

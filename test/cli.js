@@ -444,13 +444,19 @@ async function main() {
   git(["config", "user.email", "t@t"], told);
   git(["config", "user.name", "t"], told);
   fs.writeFileSync(path.join(told, "f.txt"), "one\n");
-  const spoken = "feat: the snapshot says what it did\n\nAnd then the paragraph, in full.";
+  const spokenLabel = "feat: the snapshot says what it did";
+  const spoken = "Why: the row said nothing.\nTests: 47 checks pass.";
+  assert.strictEqual(
+    octoview(["snapshot", "-m", spoken], told).status,
+    2,
+    "a message with no label is a usage error — a label is written, not sliced",
+  );
   const own = JSON.parse(
-    octoview(["snapshot", "-m", spoken, "--json"], told).stdout,
+    octoview(["snapshot", "--label", spokenLabel, "-m", spoken, "--json"], told).stdout,
   );
   assert.strictEqual(own.created, true);
-  assert.strictEqual(own.snapshot.label, "feat: the snapshot says what it did", "label is the first line");
-  assert.strictEqual(own.snapshot.message, spoken, "the message is kept whole");
+  assert.strictEqual(own.snapshot.label, spokenLabel, "the label is the sentence that was given");
+  assert.strictEqual(own.snapshot.message, spoken, "the message is kept whole, and holds no label");
 
   // The hook fires next, on a tree the agent already snapshotted: no second
   // snapshot, and nothing of what the agent said is overwritten.
@@ -486,15 +492,24 @@ async function main() {
     ).stdout,
   );
   assert.strictEqual(cut.snapshot.label, "Now the manifest —");
-  const said = "fix: put the manifest clauses back\n\nWhat it was really about.";
-  const fixed = JSON.parse(
-    octoview(["snapshot", "describe", String(cut.snapshot.n), "-m", said, "--json"], told).stdout,
+  const saidLabel = "fix: put the manifest clauses back";
+  const said = "Why: the hook caught a sentence from the middle of the work.";
+  assert.strictEqual(
+    octoview(["snapshot", "describe", String(cut.snapshot.n), "-m", said], told).status,
+    2,
+    "describe needs a label too — it is the way back from a scraped one",
   );
-  assert.strictEqual(fixed.snapshot.label, "fix: put the manifest clauses back");
+  const fixed = JSON.parse(
+    octoview(
+      ["snapshot", "describe", String(cut.snapshot.n), "--label", saidLabel, "-m", said, "--json"],
+      told,
+    ).stdout,
+  );
+  assert.strictEqual(fixed.snapshot.label, saidLabel);
   assert.strictEqual(fixed.snapshot.message, said);
   assert.strictEqual(fixed.snapshot.sha, cut.snapshot.sha, "describing a snapshot must not move its snapshot");
   assert.strictEqual(fixed.snapshot.parent, cut.snapshot.parent);
-  const absent = octoview(["snapshot", "describe", "999", "-m", "x"], told);
+  const absent = octoview(["snapshot", "describe", "999", "--label", "x", "-m", "x"], told);
   assert.strictEqual(absent.status, 3, "describing a snapshot that does not exist is a resolution error");
   const noMessage = octoview(["snapshot", "describe", "1"], told);
   assert.strictEqual(noMessage.status, 2, "describe without a message is a usage error");
@@ -530,7 +545,18 @@ async function main() {
       JSON.stringify({ session_id: "s", transcript_path: transcript2, cwd: told }),
     ).stdout,
   );
-  octoview(["snapshot", "describe", String(nextCut.snapshot.n), "-m", "chore: said properly"], told);
+  octoview(
+    [
+      "snapshot",
+      "describe",
+      String(nextCut.snapshot.n),
+      "--label",
+      "chore: said properly",
+      "-m",
+      "Why: the hook had nothing better to go on.",
+    ],
+    told,
+  );
   const allowed = octoview(["snapshot", "commit", String(nextCut.snapshot.n), "-m", "y", "--json"], told);
   assert.strictEqual(allowed.status, 0, allowed.stderr);
   console.log("a cut-off snapshot cannot land unseen ok");

@@ -20,6 +20,28 @@ export function labelOf(message: string | undefined): string | undefined {
   return first.length > 72 ? `${first.slice(0, 71)}…` : first;
 }
 
+/** A snapshot's message with its label taken off the front.
+ *
+ * The label used to *be* the message's first line, so anything recorded before it
+ * became a sentence of its own says the same thing twice the moment the two are
+ * shown together — and the hook's scrape still works that way, because a
+ * transcript offers nothing else. `labelOf` is what decides whether that is the
+ * case here, so a label truncated at 72 characters is recognised as its own
+ * first line rather than left in place. */
+export function noteBody(label: string, message: string | undefined): string {
+  if (message === undefined) {
+    return "";
+  }
+  if (labelOf(message) !== label) {
+    return message.trim();
+  }
+  const lines = message.split("\n");
+  return lines
+    .slice(lines.findIndex((line) => line.trim() !== "") + 1)
+    .join("\n")
+    .trim();
+}
+
 /** Read a snapshot's summary out of a Claude Code transcript: the session's last
  * assistant text, which is the agent's own account of what it just did. Returns
  * undefined when the transcript is unreadable or holds no assistant text; the

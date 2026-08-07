@@ -32,7 +32,9 @@ skill `recover-change-context` is the one you want.
    were interrupted in was snapshotted by the hook with whatever you had last
    said — often a sentence from the middle of the work. Say it properly:
 
-       octoview snapshot describe <n> -m "<kind>: <what that snapshot did>"
+       octoview snapshot describe <n> \
+         --label "<kind>: <one sentence saying what that snapshot did>" \
+         -m "<the two or three lines under it>"
 
    Only the description moves. The snapshot, its ref and its place in the order
    are untouched, so anything already reviewed or committed against it is
@@ -44,20 +46,19 @@ skill `recover-change-context` is the one you want.
        octoview diff <n> --json      # exactly this snapshot's changed files
        octoview show <rev> <path>    # file content at a snapshot, for before/after
 
-3. **Take the snapshot with its message**, as the last thing you do before
-   writing your reply — you cannot run a command after it:
+3. **Take the snapshot with its label and message**, as the last thing you do
+   before writing your reply — you cannot run a command after it:
 
-       octoview snapshot --agent <host> --json -m "$(cat <<'EOF'
-       <kind>: <what the turn did>
-
-       <the few lines under it>
+       octoview snapshot --agent <host> --json \
+         --label "<kind>: <one sentence saying what this snapshot did>" \
+         -m "$(cat <<'EOF'
+       <two or three short lines>
        EOF
        )"
 
-   Pass a summary, not the report: a subject line and at most four short lines
-   under it. The reasoning and the per-file detail belong in your reply, not in
-   the note a review opens with. `--label` is unnecessary: the first line is the
-   label.
+   Both are needed, and neither is the other cut in half — the next section is
+   what each one is for. The reasoning and the per-file detail belong in your
+   reply, never in the note a review opens with.
 
    `"created": false` means the tree holds no new work — say so and stop. A
    snapshot that changed nothing is never recorded, by you or by the hook.
@@ -67,8 +68,8 @@ skill `recover-change-context` is the one you want.
    for a message because it has nothing better. On a tree you have already
    snapshotted it takes nothing at all, and your message stands.
 
-4. **Write the reply.** It opens with the same summary you just recorded, and the
-   per-file detail follows it — see the next section.
+4. **Write the reply.** It opens with the same sentence you used as the label,
+   and everything you left out of the note goes here — see the next section.
 
 5. **Stop.** The human reviews in their editor. Their comments come back to you
    as one batch — see *Picking the review up* below.
@@ -81,9 +82,9 @@ of work**, not one session of it. Whenever a piece of the work is finished and
 would stand on its own in a review, snapshot it and say what it did, then start
 the next piece.
 
-    …schema and migration done…      octoview snapshot -m "feat(schema): …"
-    …managers updated…               octoview snapshot -m "feat(managers): …"
-    …call sites and tests…           octoview snapshot -m "test: …"   ← closes the turn
+    …schema and migration done…      octoview snapshot --label "feat(schema): …" -m …
+    …managers updated…               octoview snapshot --label "feat(managers): …" -m …
+    …call sites and tests…           octoview snapshot --label "test: …" -m …  ← closes the turn
 
 The human gets what they would otherwise have to ask for: a change landed in the
 order they read it, each part revertable on its own, and a commit prefix that can
@@ -119,77 +120,76 @@ those files `⇣ not the agent's`. Do not claim them. Octoview works that out fr
 the recorded HEAD, but a sentence naming what arrived saves the reviewer the
 guess.
 
-## The closing message is the review's front page
+## A label, and three lines under it
 
-Octoview keeps the message a snapshot was recorded with — the one you pass to
-`-m`, or, when the hook had to step in, the last thing you said. Its **first line
-becomes that snapshot's row in the sidebar**, cut at 72 characters, and the
-**whole message opens the review** as the first row of the multi-diff, above the
-files. It is the only thing the human reads before the diff, so write it for that
-job.
+A snapshot carries two things a human reads, and they are **separate fields**,
+not one text cut in half.
 
-**It is a summary, and short is the whole of the job.** It is read in the two
-seconds between opening a review and reading the diff, so anything the reader has
-to wade through has already failed — and the diff below it is where the detail
-actually lives. A subject line and at most four short lines under it:
+**`--label` is one sentence saying what this snapshot did.** It is the row in the
+sidebar, and often the only thing anybody reads. Write it; do not let it be
+sliced off something else. `<kind>: ` in front, from the set the commit subjects
+use — `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf` — then the
+sentence, and the whole thing inside 72 characters:
 
-    <kind>: <what this snapshot did>    ← one line, ≤72 characters
+    feat: a review opens without the files you have already read
 
-    Why: the condition that wanted fixing, in a sentence.
-    How: the approach, and any decision the diff will not show on its own.
-    Tests: real numbers — 45 checks pass (24 smoke + 21 cli) — then what you
-      did not run.
-    Look at: the file to read first, and the assumption they may reject.
+**`-m` is at most three short lines**, shown above the diff when the review
+opens. The label already said what changed and the diff is about to show how, so
+these are only the things neither of them can say:
 
-`kind` is the set the commit subjects use — `feat`, `fix`, `docs`, `chore`,
-`refactor`, `test`, `perf` — so the row says what sort of change it is before it
-says anything else.
+    Why: a re-read review reopened every file, and the cleared ones were noise.
+    Tests: 47 checks pass (25 smoke + 22 cli); the two buttons are unclicked.
+    Look at: src/extension.ts openReview — the title count is the only sign.
 
-Every line but the first is optional, and a line with nothing to say is left out
-rather than filled in. Two that carry something beat four that pad. A line that
-has run to three sentences is a paragraph wearing a label, and belongs in your
-reply instead.
+Drop any line you have nothing real to put in. Two is common, one is fine, and
+**under 300 characters all told** is the target — a note the reader has to scroll
+is one they skip, and then the line that mattered went unread with it.
+
+Both are required together: `octoview snapshot -m …` without `--label` is a usage
+error, because a label taken off the front of a message is how rows end up
+reading like the middle of a turn.
+
+    octoview snapshot --agent <host> --json \
+      --label "<kind>: <one sentence>" \
+      -m "$(cat <<'EOF'
+      Why: …
+      Tests: …
+      Look at: …
+      EOF
+      )"
 
 **Nothing renders it.** The review shows the message in a diff row, which draws
 no markdown at all — every `**`, every `[label](path)`, every `##` arrives as
 literal characters in the reader's face. Write plain text: name a file as
-`src/cli.ts:220`, not as a link, and let a blank line do the work bold would
-have done. The sidebar hover does render markdown, so anything that reads well
-both ways — a `-` list, a backticked identifier — is fine; anything that only
-works rendered is not.
+`src/cli.ts:220`, not as a link. The sidebar hover does render markdown, so
+anything that reads well both ways is fine; anything that only works rendered is
+not.
 
-**The per-file detail goes in your reply, never here.** There it sits beside the
-rest of your answer and can be as long as the change deserves, in the human's
-reading order: schema and data model first, then managers and logic, then call
-sites and tests. For each file: what changed, why, and anything you did not
-verify. Distinguish claims (yours) from evidence (command output).
+**Everything else goes in your reply.** The approach, the alternatives you
+rejected, the per-file account in the human's reading order, what you did not
+verify and why — all of it is worth saying, and none of it belongs in the three
+lines above a diff. Your reply is rendered, sits beside the rest of the
+conversation, and can be as long as the change deserves. The note cannot.
 
-The note is also what the *next* agent on this branch will read to work out what
-happened here, long after this session is gone — see `recover-change-context`.
-That is an argument for writing it for a reader with none of your context, not
-for writing more: what that reader needs is the same five lines, and the diff is
-still right there underneath them.
+The note is also what the *next* agent on this branch will read, long after this
+session is gone — see `recover-change-context`. That is a reason to write the
+label for someone with none of your context, not a reason to write more: the diff
+is right there underneath it.
 
 ### What ruins it
 
-- **A first line that reports the build instead of the change.** "Done. `tsc`
-  clean, 36 checks pass" is a true sentence and a useless label — twenty rows of
-  it in the sidebar say nothing about any of them. Name the change.
-- **A first line that narrates.** "Now the manifest —" is a preamble to a tool
-  call, and it is exactly what gets captured when it is the last thing you said.
+- **A label that reports the build instead of the change.** "Done. `tsc` clean,
+  36 checks pass" is a true sentence and a useless row — twenty of them say
+  nothing about any of them. Name the change.
+- **A label that narrates.** "Now the manifest —" is a preamble to a tool call,
+  and it is exactly what the hook captures when it is the last thing you said.
   Close the turn with the report, not with a step of it.
-- **Detail with no statement in front of it.** A wall of per-file notes leaves
-  the reviewer to derive the goal from the diff, which is the work the message
-  exists to save.
-- **Length.** Paragraphs where a line would do, the reasoning behind the
-  approach, the alternatives you rejected, a file-by-file account — all of it is
-  worth saying and none of it belongs in the row above the diff. A note the
-  reader has to scroll is one they skip, and then the four lines that mattered
-  went unread too.
+- **A message that repeats the label.** They are shown together. Saying it twice
+  costs the reader the one line that was going to tell them something new.
+- **Length.** Paragraphs where a line would do. If a line has run to three
+  sentences it is a paragraph wearing a label, and it belongs in your reply.
 - **Markup nobody renders.** `Read [cli.ts:220](src/cli.ts#L220) first` is read
-  exactly like that, brackets and all, by the one reader it was written for. The
-  reply you type in chat is rendered; this is not. Keep them in different
-  registers.
+  exactly like that, brackets and all, by the one reader it was written for.
 
 ## Picking the review up
 

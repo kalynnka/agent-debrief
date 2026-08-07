@@ -14,6 +14,7 @@ import {
   stashedSince,
   sweepLanes,
 } from "./review";
+import { noteBody } from "./transcript";
 
 export class RepoNode {
   readonly kind = "repo";
@@ -595,9 +596,11 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       // hover and makes it scrollable. It works here, and it is not something to
       // make a reviewer know.)
       if (node.snapshot.message !== undefined) {
-        const opening = node.snapshot.message
+        // The row above is already the label, so the note starts where the label
+        // stops — which for anything recorded before the two were separate fields
+        // means dropping the line they shared.
+        const opening = noteBody(node.snapshot.label, node.snapshot.message)
           .split(/\n{2,}/)
-          .slice(1)
           .find((paragraph) => paragraph.trim() !== "");
         if (opening !== undefined) {
           hover.appendMarkdown(`\n\n---\n\n${opening}`);

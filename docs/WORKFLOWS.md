@@ -68,14 +68,14 @@ Drop refuse for the same reason — mid-merge, the rows describe git's work.
 | one file's evolution across snapshots | **Open Step History** on the file row |
 | the whole lane | click the repo row |
 
-The first row of a multi-file review is `Notes.md`: what the agent said when it
-finished each of the snapshots you selected, in full. The tab title says only
-which snapshots and how big, and the tree row has room for the first line — this
-is the whole of it, and it is meant to be read before the diff. It is a diff row
-like any other, so it shows the message as text. The `prepare-change-review`
-skill is what tells an agent to close a turn with a message worth putting there:
-a subject line and four short ones — why, how, test numbers, what to look at — in
-plain text, because nothing renders that row.
+The first row of a multi-file review is `Notes.md`: each selected snapshot's
+label, and the few lines the agent left under it. The tree row has room for the
+label alone; this is the rest, and it is meant to be read before the diff. It is
+a diff row like any other, so it shows the text as text. The
+`prepare-change-review` skill is what keeps it worth reading: one sentence as the
+label, then at most three lines — why, test numbers, what to look at — in plain
+text, because nothing renders that row. Everything longer belongs in the agent's
+reply, where you can see it beside the rest of the conversation.
 
 Hovering a snapshot's row in the sidebar shows its state and the message's
 opening paragraph, rendered. A hover clips rather than scrolls, so the rest is a
@@ -467,14 +467,15 @@ Report in the human's reading order — schema and model first, then managers, t
 call sites — with real numbers for verification and a plain statement of what was
 not checked.
 
-The snapshot's own record is the summary of that report, not the report. Its
-first line becomes the sidebar row and the whole of it becomes the note the review
-opens with, read in the seconds before the diff — so it is `<kind>: <what the
-snapshot did>` in one line and at most four short ones under it: why, how, test
-numbers, where to look. The per-file detail stays in the reply, where you can see
-it beside the rest of the answer. The note is a diff row, which renders no
-markdown, so the skill tells agents to write it as plain text rather than as
-markup you would have to read through.
+The snapshot's own record is the summary of that report, not the report, and it
+is two separate fields. The **label** is one sentence and becomes the sidebar
+row; the **message** is at most three short lines — why, test numbers, where to
+look — and opens the review above the diff. Neither is the other cut in half, and
+the CLI refuses a message with no label, because a label sliced off the front of
+something else is how a row ends up reading like the middle of a turn. Everything
+that does not fit stays in the reply, where you can see it beside the rest of the
+answer. The note is a diff row, which renders no markdown, so the skill tells
+agents to write plain text rather than markup you would have to read through.
 
 An agent may snapshot several times in one turn, and the skill tells it to: one
 snapshot per unit of work, so each part arrives with its own message, reverts on
