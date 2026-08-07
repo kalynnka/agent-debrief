@@ -431,37 +431,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(vscode.commands.registerCommand(id, handler));
   };
 
-  register("octoview.snapshot", async () => {
+  /** Which repository an action is about.
+   *
+   * These buttons live on the repo row, so nearly always the row that was
+   * pressed. The exceptions each have an answer that is not a guess: a review tab
+   * knows the repo it is a review of, and a workspace of one repo has nothing to
+   * be ambiguous about. Only a palette invocation in a workspace of several is
+   * genuinely unanswerable, and that one asks. */
+  const repoOf = async (node?: RepoNode): Promise<Repo | undefined> => {
+    const known = node?.repo ?? activeReview()?.repo ?? (repos.all.length === 1 ? repos.all[0] : undefined);
+    if (known !== undefined) {
+      return known;
+    }
+    const picked = await vscode.window.showQuickPick(
+      repos.all.map((repo) => ({ label: repo.name, description: repo.lane.name, repo })),
+      { title: "Which repository?" },
+    );
+    return picked?.repo;
+  };
+
+  register("octoview.snapshot", async (node?: RepoNode) => {
+    const repo = await repoOf(node);
+    if (repo === undefined) {
+      return;
+    }
     const label = await vscode.window.showInputBox({
-      prompt: "What did this snapshot do?",
+      prompt: `What did this snapshot of ${repo.name} do?`,
       placeHolder: "e.g. added the review batch schema",
     });
     if (label === undefined) {
       return;
     }
-    const taken: string[] = [];
-    const unchanged: string[] = [];
-
-    for (const repo of repos.all) {
-      const result = await takeSnapshot(repo.git, repo.store, { label, agent: "manual" });
-      if (!result.created) {
-        // A repo the work never touched gets no snapshot — recording an empty one
-        // would put its numbering out of step with the work it describes — and one
-        // part-way through a merge gets none either, for a louder reason.
-        unchanged.push(
-          result.reason === "unchanged" ? repo.name : `${repo.name} (${result.operation})`,
-        );
-        continue;
-      }
-      taken.push(`${repo.name} (${result.files.length})`);
-    }
-
+    const result = await takeSnapshot(repo.git, repo.store, { label, agent: "manual" });
     snapshots.refresh();
     vscode.window.showInformationMessage(
-      taken.length === 0
-        ? `Octoview: nothing changed in ${unchanged.length} repo(s).`
-        : `Octoview: snapshotted ${taken.join(", ")}` +
-            (unchanged.length > 0 ? ` · unchanged: ${unchanged.join(", ")}` : ""),
+      result.created
+        ? `Octoview: snapshot ${result.snapshot.n} in ${repo.name} — ${result.files.length} file(s).`
+        : // Nothing to record, or nothing yet worth attributing: a tree part-way
+          // through a merge is git's work rather than anybody else's.
+          result.reason === "unchanged"
+          ? `Octoview: nothing changed in ${repo.name}.`
+          : `Octoview: ${repo.name} is part-way through ${result.operation} — nothing taken.`,
     );
   });
 
@@ -855,20 +865,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   });
 
-  register("octoview.stackedDiff", async () => {
-    let opened = 0;
-    for (const repo of repos.all) {
-      const selected = snapshots.selectedSnapshots(repo);
-      if (selected.length > 0) {
-        await openReview(repo, selected);
-        opened++;
-      }
+  register("octoview.stackedDiff", async (node?: RepoNode) => {
+    const repo = await repoOf(node);
+    if (repo === undefined) {
+      return;
     }
-    if (opened === 0) {
+    const selected = snapshots.selectedSnapshots(repo);
+    if (selected.length === 0) {
       vscode.window.showInformationMessage(
-        "Octoview: select one or more snapshots first — the stacked history shows their flow.",
+        `Octoview: select one or more of ${repo.name}'s snapshots first — the net diff is of what you picked.`,
       );
+      return;
     }
+    await openReview(repo, selected);
   });
 
   // The tick where GitHub puts it: on the file you are reading, not on a row in
@@ -976,45 +985,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     snapshots.refresh();
   });
 
-  register("octoview.submit", async () => {
-    const written: string[] = [];
-    for (const repo of repos.all) {
-      const result = await repo.store.submit();
-      if (result !== undefined) {
-        written.push(`${repo.name}: ${result.count} → ${result.path}`);
-      }
+  register("octoview.submit", async (node?: RepoNode) => {
+    const repo = await repoOf(node);
+    if (repo === undefined) {
+      return;
     }
-    if (written.length === 0) {
-      vscode.window.showInformationMessage("Octoview: no draft comments to submit.");
+    const result = await repo.store.submit();
+    if (result === undefined) {
+      vscode.window.showInformationMessage(`Octoview: no draft comments in ${repo.name}.`);
       return;
     }
     comments.refresh();
     snapshots.refresh();
-    vscode.window.showInformationMessage(`Octoview: submitted · ${written.join(" · ")}`);
+    vscode.window.showInformationMessage(
+      `Octoview: submitted ${result.count} thread(s) in ${repo.name} → ${result.path}`,
+    );
   });
 
   /** Submit whatever is still draft, then render everything the agent has not
    * answered. Both hand-over buttons mean "send my review", so leaving a draft
    * behind would make the one comment the reviewer just wrote the one the agent
    * never sees. */
-  const reviewForAgent = async (): Promise<string | undefined> => {
-    for (const repo of repos.all) {
-      await repo.store.submit();
-    }
-    const review = repos.all
-      .map((repo) => ({ repo: repo.name, threads: openThreads(repo.store) }))
-      .filter((one) => one.threads.length > 0);
+  const reviewForAgent = async (repo: Repo): Promise<string | undefined> => {
+    await repo.store.submit();
+    const threads = openThreads(repo.store);
     comments.refresh();
     snapshots.refresh();
-    if (review.length === 0) {
-      vscode.window.showInformationMessage("Octoview: no review comments waiting on the agent.");
+    if (threads.length === 0) {
+      vscode.window.showInformationMessage(
+        `Octoview: no review comments in ${repo.name} waiting on the agent.`,
+      );
       return undefined;
     }
-    return reviewText(review);
+    return reviewText(threads);
   };
 
-  register("octoview.copyReview", async () => {
-    const text = await reviewForAgent();
+  register("octoview.copyReview", async (node?: RepoNode) => {
+    const repo = await repoOf(node);
+    if (repo === undefined) {
+      return;
+    }
+    const text = await reviewForAgent(repo);
     if (text === undefined) {
       return;
     }
@@ -1036,7 +1047,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   });
 
-  register("octoview.sendReviewToTerminal", async () => {
+  register("octoview.sendReviewToTerminal", async (node?: RepoNode) => {
+    const repo = await repoOf(node);
+    if (repo === undefined) {
+      return;
+    }
     const terminals = vscode.window.terminals;
     if (terminals.length === 0) {
       vscode.window.showInformationMessage(
@@ -1044,7 +1059,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       return;
     }
-    const text = await reviewForAgent();
+    const text = await reviewForAgent(repo);
     if (text === undefined) {
       return;
     }

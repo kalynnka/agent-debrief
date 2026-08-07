@@ -35,16 +35,16 @@ Read the delta, not the branch. A file you cleared at snapshot 2 that nobody has
 touched since stays cleared; a file snapshot 5 touched is open again. The whole rule
 is `reviewed[file] >= snapshot`, so nothing has to be recomputed or invalidated.
 
-Select snapshots 3–6 and press **Open Net Diff of Selected Snapshots** to read them
-as one change, or walk them one at a time. A non-contiguous selection works too —
-ctrl-click snapshots 3 and 6 — and the diff shows only what those two did, not the
-snapshots in the gap.
+Select snapshots 3–6 and press **Open Net Diff of Selected Snapshots** on the
+repo's row to read them as one change, or walk them one at a time. A
+non-contiguous selection works too — ctrl-click snapshots 3 and 6 — and the diff
+shows only what those two did, not the snapshots in the gap.
 
 ### 1.3 You want to stop mid-turn
 
-Interrupt the agent and run **Octoview: Take Snapshot** yourself. A manual
-snapshot is a first-class entry point, not a fallback: it records whatever exists
-right now as its own snapshot, and the agent's next snapshot diffs against it.
+Interrupt the agent and press **Take Snapshot** on the repo's row yourself. A
+manual snapshot is a first-class entry point, not a fallback: it records whatever
+exists right now as its own snapshot, and the agent's next one diffs against it.
 
 If nothing has changed since the last one, nothing is taken — snapshotting is
 idempotent, so an idle interrupt cannot pollute the numbering.
@@ -63,7 +63,7 @@ Drop refuse for the same reason — mid-merge, the rows describe git's work.
 |---|---|
 | one file, one snapshot | click the file row under the snapshot |
 | everything one snapshot did | click the snapshot row |
-| several snapshots as one change | select them, then **Open Net Diff of Selected Snapshots** |
+| several snapshots as one change | select them, then **Open Net Diff of Selected Snapshots** on the repo row |
 | everything you have approved | click the **Reviewed** area row |
 | one file's evolution across snapshots | **Open Step History** on the file row |
 | the whole lane | click the repo row |
@@ -161,7 +161,7 @@ acknowledges the tick instead.
 ### 3.1 Batch your comments
 
 Comment on any line while you read. Drafts accumulate — nothing is sent until you
-press **Submit Review**, which writes one file:
+press **Submit Review** on the repo's row, which writes one file:
 
 ```
 .git/octoview/<lane>/batches/<timestamp>.json
@@ -191,7 +191,7 @@ and there are three ways because no two people run their agent the same way.
 **The agent asks.** Nothing to press: it runs `octoview review open` at the start
 of a turn. This is the one that costs you nothing and the one to prefer.
 
-**Copy Review for the Agent** (the clipboard in the view's title bar) submits any
+**Copy Review for the Agent** (the clipboard on the repo's row) submits any
 drafts, renders everything open as plain text, puts it on the clipboard, and
 focuses the agent's input if the Claude Code extension is installed. You press
 ⌘V. That last step stays yours: an extension cannot paste into another
@@ -199,7 +199,7 @@ extension's webview, and focusing the input is the whole of what Claude Code
 exposes. It also @-mentions the file you were looking at on the way in, which is
 its behaviour and not ours.
 
-**Send Review to the Agent's Terminal** (in the view's `⋯` menu) does the same
+**Send Review to the Agent's Terminal** (right-click the repo's row) does the same
 and types it into a terminal instead — the active one, or one you pick. It
 arrives as a *paste* rather than as typing, so a review of six comments does not
 send its first line as the whole prompt. It stops short of Enter, so you read it
@@ -421,10 +421,21 @@ is an edit you have to deal with in git.
 
 ### 6.1 Several repositories
 
-One **Take Snapshot** covers the workspace. Every repo the work actually changed gets
-a snapshot; repos it did not touch get none, so numbering never drifts from the work
-it describes. Each repo keeps its own state, its own numbering, and its own
-commit button.
+**Every action belongs to a repository, and its buttons are on that repository's
+row.** Hover it and you get: take a snapshot, open the net diff of what you have
+selected, submit your review, copy it for the agent — and, in the right-click
+menu, send it to a terminal or delete the lane's snapshots. Only **Refresh** is
+in the view's title bar, because only Refresh is about the view rather than about
+a repo.
+
+That is a change from one button covering the workspace. A snapshot of five repos
+at once records four of them for work that happened in the fifth, and a review
+submitted across the workspace goes to whichever agent reads it first. Each repo
+keeps its own state, its own numbering and its own review; the buttons now say so.
+
+From the command palette there is no row to have pressed, so the repo is the one
+whose review you are looking at, or the only one in the workspace — and when it is
+neither, it asks.
 
 A repo appears in the view once it has snapshots and not before.
 

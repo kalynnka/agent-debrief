@@ -9,7 +9,6 @@
 //   0  success
 //   2  usage error
 //   3  the repository, lane, snapshot or revision could not be resolved
-import * as path from "path";
 import { parseArgs } from "util";
 
 import { ChangedFile, Git, Snapshot } from "./git";
@@ -588,11 +587,7 @@ async function openReviewCommand(args: string[]): Promise<number> {
     );
     return 0;
   }
-  process.stdout.write(
-    threads.length === 0
-      ? "no open review comments\n"
-      : reviewText([{ repo: path.basename(lane.root), threads }]),
-  );
+  process.stdout.write(threads.length === 0 ? "no open review comments\n" : reviewText(threads));
   return 0;
 }
 

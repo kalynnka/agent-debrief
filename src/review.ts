@@ -347,56 +347,42 @@ export function openThreads(store: Store): Thread[] {
   return store.data.threads.filter((thread) => thread.state === "submitted");
 }
 
-/** One repository's share of an open review. */
-export interface OpenReview {
-  /** How the repository is named to a reader — its directory, not its root. */
-  repo: string;
-  threads: Thread[];
-}
-
-/** The open review as text an agent can act on.
+/** One repository's open review as text an agent can act on.
  *
  * One rendering serves all three ways it travels — printed by the CLI, put on
  * the clipboard, typed into a terminal — because those differ only in how the
- * text gets there, not in what it should say.
+ * text gets there, not in what it should say. One repository, because every one
+ * of those three is scoped to a repository: the CLI runs in one, and the buttons
+ * are on its row.
  *
  * References are `path:line`, never `@path#Lline`. The `@` form is Claude Code's
  * own and reads well in its input box, but it opens a file picker part-way
  * through the one route that types character by character, and a reference every
  * agent already understands is worth more than one host's autocomplete. */
-export function reviewText(review: OpenReview[]): string {
-  const total = review.reduce((count, one) => count + one.threads.length, 0);
+export function reviewText(threads: Thread[]): string {
   const out = [
-    `Octoview review — ${total} comment${total === 1 ? "" : "s"} still open.`,
+    `Octoview review — ${threads.length} comment${threads.length === 1 ? "" : "s"} still open.`,
     "Address each one, then close it with `octoview review resolve <id>`.",
     "",
   ];
-  for (const { repo, threads } of review) {
-    // Named only when there is something to tell it apart from: one repository is
-    // the ordinary case, and a heading over the whole review says nothing.
-    if (review.length > 1) {
-      out.push(`--- ${repo} ---`, "");
+  const ordered = [...threads].sort(
+    (a, b) => a.anchor.file.localeCompare(b.anchor.file) || a.anchor.startLine - b.anchor.startLine,
+  );
+  for (const thread of ordered) {
+    const { file, startLine, endLine } = thread.anchor;
+    const where =
+      startLine === endLine ? `${file}:${startLine + 1}` : `${file}:${startLine + 1}-${endLine + 1}`;
+    const about = [thread.id, `snapshot ${thread.snapshot}`];
+    if (thread.outdated) {
+      about.push("outdated — the lines it was written against have since changed");
     }
-    const ordered = [...threads].sort(
-      (a, b) =>
-        a.anchor.file.localeCompare(b.anchor.file) || a.anchor.startLine - b.anchor.startLine,
-    );
-    for (const thread of ordered) {
-      const { file, startLine, endLine } = thread.anchor;
-      const where =
-        startLine === endLine ? `${file}:${startLine + 1}` : `${file}:${startLine + 1}-${endLine + 1}`;
-      const about = [thread.id, `snapshot ${thread.snapshot}`];
-      if (thread.outdated) {
-        about.push("outdated — the lines it was written against have since changed");
-      }
-      out.push(`${where}  [${about.join(" · ")}]`);
-      for (const comment of thread.comments) {
-        const [first, ...rest] = comment.body.split("\n");
-        out.push(`  ${comment.author}: ${first}`);
-        out.push(...rest.map((line) => `    ${line}`));
-      }
-      out.push("");
+    out.push(`${where}  [${about.join(" · ")}]`);
+    for (const comment of thread.comments) {
+      const [first, ...rest] = comment.body.split("\n");
+      out.push(`  ${comment.author}: ${first}`);
+      out.push(...rest.map((line) => `    ${line}`));
     }
+    out.push("");
   }
   return out.join("\n");
 }

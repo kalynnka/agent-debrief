@@ -258,41 +258,36 @@
       ],
       "view/title": [
         {
-          "command": "octoview.snapshot",
-          "when": "view == octoview.snapshots",
-          "group": "navigation@1"
-        },
-        {
-          "command": "octoview.stackedDiff",
-          "when": "view == octoview.snapshots",
-          "group": "navigation@3"
-        },
-        {
-          "command": "octoview.submit",
-          "when": "view == octoview.snapshots",
-          "group": "navigation@4"
-        },
-        {
-          "command": "octoview.copyReview",
-          "when": "view == octoview.snapshots",
-          "group": "navigation@5"
-        },
-        {
           "command": "octoview.refresh",
           "when": "view == octoview.snapshots",
-          "group": "navigation@6"
-        },
-        {
-          "command": "octoview.sendReviewToTerminal",
-          "when": "view == octoview.snapshots",
-          "group": "octoview@1"
+          "group": "navigation@1"
         }
       ],
       "view/item/context": [
         {
+          "command": "octoview.snapshot",
+          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
+          "group": "inline@1"
+        },
+        {
+          "command": "octoview.stackedDiff",
+          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
+          "group": "inline@2"
+        },
+        {
+          "command": "octoview.submit",
+          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
+          "group": "inline@3"
+        },
+        {
+          "command": "octoview.copyReview",
+          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
+          "group": "inline@4"
+        },
+        {
           "command": "octoview.gc",
           "when": "view == octoview.snapshots && viewItem == repo-abandoned",
-          "group": "inline@1"
+          "group": "inline@5"
         },
         {
           "command": "octoview.commitReviewed",
@@ -330,9 +325,14 @@
           "group": "octoview@1"
         },
         {
-          "command": "octoview.clearLane",
+          "command": "octoview.sendReviewToTerminal",
           "when": "view == octoview.snapshots && viewItem =~ /^repo/",
           "group": "octoview@1"
+        },
+        {
+          "command": "octoview.clearLane",
+          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
+          "group": "octoview@2"
         }
       ],
       "multiDiffEditor/resource/title": [
