@@ -182,6 +182,12 @@
         "icon": "$(trash)"
       },
       {
+        "command": "octoview.clearLane",
+        "title": "Delete This Branch's Snapshots",
+        "category": "Octoview",
+        "icon": "$(trash)"
+      },
+      {
         "command": "octoview.showReadFiles",
         "title": "Show Files You Have Read",
         "category": "Octoview",
@@ -300,6 +306,11 @@
           "command": "octoview.stepHistory",
           "when": "view == octoview.snapshots && viewItem =~ /^file-/",
           "group": "octoview@1"
+        },
+        {
+          "command": "octoview.clearLane",
+          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
+          "group": "octoview@1"
         }
       ],
       "multiDiffEditor/resource/title": [
@@ -356,6 +367,10 @@
         },
         {
           "command": "octoview.gc",
+          "when": "false"
+        },
+        {
+          "command": "octoview.clearLane",
           "when": "false"
         },
         {

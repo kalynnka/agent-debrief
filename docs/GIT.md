@@ -269,6 +269,27 @@ trusting the row, since a branch can appear or vanish in a terminal in between.
 Nothing can read them and they pin their objects exactly as a live snapshot's ref
 does. Live dry runs find one in inky and two in kraken.
 
+**Phase 2e — the lane you are standing on.** ✅ **Done.** The sweep only ever acts
+on a branch that is gone, which is the right default and no use at all when a
+review on a live branch has served its purpose: it sits there until the branch
+dies. `clearLane` is the same act asked for outright — every ref of the current
+lane dropped, and its record emptied — reached from the repo row's context menu
+(**Delete This Branch's Snapshots**), never inline, because a permanent bin on
+every repo row is one misclick from an unrecoverable review.
+
+It is the more dangerous of the two, and the modal says which part. A closed lane
+keeps its `state.json`, so while the objects last it can be put back with `git
+update-ref`; this empties the file, so nothing anywhere remembers the shas. The
+modal counts what is already in a commit (safe in git whatever happens) against
+what is not (this lane is the only place it exists), names any unsubmitted draft
+comments, and says that numbering restarts at 1. What it still does not do is
+delete an object.
+*Verified:* 46 checks pass (25 smoke + 21 cli). The new smoke check clears a
+two-snapshot lane and asserts the refs, the record, the reviewed marks and the
+threads all go; that the commits are still on disk immediately afterwards —
+unreachable, not gone — and that `gc --prune=now` is what takes them; and that the
+next snapshot is number 1 again, diffing against HEAD like any first snapshot.
+
 This reverses HANDOFF §4's "leave the specimens be": those refs were kept as a
 before-and-after specimen of the virgin-index bug, which is now pinned by a
 regression test instead. `octoview gc` does not delete their objects either — the

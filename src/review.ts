@@ -318,6 +318,36 @@ export async function sweepLanes(git: Git, commonDir: string, apply: boolean): P
   return sweep;
 }
 
+/** Let go of every snapshot on the lane you are standing on.
+ *
+ * `sweepLanes` waits for a branch to be gone before touching anything, which is
+ * the right default and no help at all on the branch in front of you: a review
+ * that has served its purpose sits there until the branch dies. This is the same
+ * act, asked for rather than inferred — the lane's refs dropped, and its record
+ * with them.
+ *
+ * It goes further than the sweep does, and the difference is the whole of its
+ * risk. A closed lane keeps its `state.json`, so while the objects last it can be
+ * put back with `git update-ref`; this empties the file, so nothing anywhere
+ * remembers the shas. The commits are still on disk until git collects them and
+ * no longer reachable by any name — which is what "cannot be undone" means here,
+ * and why the only caller asks first.
+ *
+ * The threads go too. A thread is anchored to a snapshot, so a thread whose
+ * snapshot is gone is the state `dropSnapshot` already refuses to leave behind. */
+export async function clearLane(git: Git, store: Store): Promise<number> {
+  return store.withLock(async (state) => {
+    for (const snapshot of state.snapshots) {
+      await git.deleteRef(snapshotRef(store.lane.name, snapshot.n));
+    }
+    const count = state.snapshots.length;
+    state.snapshots = [];
+    state.reviewed = {};
+    state.threads = [];
+    return count;
+  });
+}
+
 /** How far a commit can reach: the unbroken run of reviewed snapshots from the
  * start of the lane, and the reviewed snapshots beyond it that it cannot take.
  *

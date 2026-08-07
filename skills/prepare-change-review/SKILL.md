@@ -50,13 +50,14 @@ skill `recover-change-context` is the one you want.
        octoview snapshot --agent <host> --json -m "$(cat <<'EOF'
        <kind>: <what the turn did>
 
-       <the paragraphs>
+       <the few lines under it>
        EOF
        )"
 
-   Pass the front page only — the one-line summary and the paragraphs. The
-   per-file detail belongs in your reply, not in the note a review opens with.
-   `--label` is unnecessary: the first line is the label.
+   Pass a summary, not the report: a subject line and at most four short lines
+   under it. The reasoning and the per-file detail belong in your reply, not in
+   the note a review opens with. `--label` is unnecessary: the first line is the
+   label.
 
    `"created": false` means the tree holds no new work — say so and stop. A
    snapshot that changed nothing is never recorded, by you or by the hook.
@@ -66,8 +67,8 @@ skill `recover-change-context` is the one you want.
    for a message because it has nothing better. On a tree you have already
    snapshotted it takes nothing at all, and your message stands.
 
-4. **Write the reply.** It opens with the same front page you just recorded, and
-   the per-file detail follows it — see the next section.
+4. **Write the reply.** It opens with the same summary you just recorded, and the
+   per-file detail follows it — see the next section.
 
 5. **Stop.** The human reviews in their editor. Their comments come back to you
    as one batch: `octoview review batch --json`.
@@ -127,6 +128,28 @@ becomes that snapshot's row in the sidebar**, cut at 72 characters, and the
 files. It is the only thing the human reads before the diff, so write it for that
 job.
 
+**It is a summary, and short is the whole of the job.** It is read in the two
+seconds between opening a review and reading the diff, so anything the reader has
+to wade through has already failed — and the diff below it is where the detail
+actually lives. A subject line and at most four short lines under it:
+
+    <kind>: <what this snapshot did>    ← one line, ≤72 characters
+
+    Why: the condition that wanted fixing, in a sentence.
+    How: the approach, and any decision the diff will not show on its own.
+    Tests: real numbers — 45 checks pass (24 smoke + 21 cli) — then what you
+      did not run.
+    Look at: the file to read first, and the assumption they may reject.
+
+`kind` is the set the commit subjects use — `feat`, `fix`, `docs`, `chore`,
+`refactor`, `test`, `perf` — so the row says what sort of change it is before it
+says anything else.
+
+Every line but the first is optional, and a line with nothing to say is left out
+rather than filled in. Two that carry something beat four that pad. A line that
+has run to three sentences is a paragraph wearing a label, and belongs in your
+reply instead.
+
 **Nothing renders it.** The review shows the message in a diff row, which draws
 no markdown at all — every `**`, every `[label](path)`, every `##` arrives as
 literal characters in the reader's face. Write plain text: name a file as
@@ -135,44 +158,17 @@ have done. The sidebar hover does render markdown, so anything that reads well
 both ways — a `-` list, a backticked identifier — is fine; anything that only
 works rendered is not.
 
-So give each part its own paragraph, in this order, ahead of any per-file
-detail:
+**The per-file detail goes in your reply, never here.** There it sits beside the
+rest of your answer and can be as long as the change deserves, in the human's
+reading order: schema and data model first, then managers and logic, then call
+sites and tests. For each file: what changed, why, and anything you did not
+verify. Distinguish claims (yours) from evidence (command output).
 
-    <kind>: <what this turn did>        ← one line, ≤72 characters
-
-    The problem or goal. What was wrong, or what was wanted — the condition
-    itself, not a restatement of the request.
-
-    How, in summary. The approach, and the one or two decisions inside it a
-    reviewer would otherwise have to reconstruct from the diff.
-
-    Test status, in real numbers — 37 checks pass (18 smoke + 19 cli), never
-    "tests pass" — and a plain statement of what you did not run. A pre-existing
-    failure is the first clause, not the last.
-
-    What to look at. Where the risk is, which file to read first, and any
-    assumption you took that the human may want to reject.
-
-`kind` is the set the commit subjects use — `feat`, `fix`, `docs`, `chore`,
-`refactor`, `test`, `perf` — so the row says what sort of change it is before it
-says anything else.
-
-Four paragraphs, two or three sentences each, and the reader can stop after any
-of them. One dense block holding all four is the same words arranged so that
-none of them can be skipped.
-
-Then the per-file detail, in the human's reading order: schema and data model
-first, then managers and logic, then call sites and tests. For each file: what
-changed, why, and anything you did not verify. Distinguish claims (yours) from
-evidence (command output).
-
-It is one snapshot's worth of change, so it is a pull request's description at a
-tenth of the length. Aim for something a reviewer reads in fifteen seconds and is
-then ready to read the diff.
-
-It is also what the *next* agent on this branch will read to work out what
+The note is also what the *next* agent on this branch will read to work out what
 happened here, long after this session is gone — see `recover-change-context`.
-Write it for a reader who has none of your context.
+That is an argument for writing it for a reader with none of your context, not
+for writing more: what that reader needs is the same five lines, and the diff is
+still right there underneath them.
 
 ### What ruins it
 
@@ -185,6 +181,11 @@ Write it for a reader who has none of your context.
 - **Detail with no statement in front of it.** A wall of per-file notes leaves
   the reviewer to derive the goal from the diff, which is the work the message
   exists to save.
+- **Length.** Paragraphs where a line would do, the reasoning behind the
+  approach, the alternatives you rejected, a file-by-file account — all of it is
+  worth saying and none of it belongs in the row above the diff. A note the
+  reader has to scroll is one they skip, and then the four lines that mattered
+  went unread too.
 - **Markup nobody renders.** `Read [cli.ts:220](src/cli.ts#L220) first` is read
   exactly like that, brackets and all, by the one reader it was written for. The
   reply you type in chat is rendered; this is not. Keep them in different

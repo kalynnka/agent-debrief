@@ -74,8 +74,8 @@ which snapshots and how big, and the tree row has room for the first line — th
 is the whole of it, and it is meant to be read before the diff. It is a diff row
 like any other, so it shows the message as text. The `prepare-change-review`
 skill is what tells an agent to close a turn with a message worth putting there:
-kind, goal, how, test numbers, what to look at — in plain text, because nothing
-renders that row.
+a subject line and four short ones — why, how, test numbers, what to look at — in
+plain text, because nothing renders that row.
 
 Hovering a snapshot's row in the sidebar shows its state and the message's
 opening paragraph, rendered. A hover clips rather than scrolls, so the rest is a
@@ -346,7 +346,22 @@ branch, whose commits `git reflog` can still find for 90 days. Until git collect
 them, `state.json` holds every sha and a lane can be put back with `git
 update-ref`. Widen that window with `gc.pruneExpire` if you want longer.
 
-### 5.7 Reverting after a commit
+### 5.7 Letting go of the branch you are on
+
+The sweep waits for a branch to die. When a review on a *live* branch has served
+its purpose — the work is committed, or you simply want to start the branch's
+review over — right-click the repo row: **Delete This Branch's Snapshots**. It is
+in the context menu rather than on the row, because a permanent bin beside every
+repo is one misclick from a review you cannot get back.
+
+Same rule as the sweep: octoview lets go of the refs and deletes no commit. The
+difference is the record. A dead lane keeps its `state.json`, so `git update-ref`
+can put it back while the objects last; this **empties** it, so nothing anywhere
+remembers the shas. The modal counts what is already in a commit against what is
+not, says how many draft comments go with them, and tells you the next snapshot
+here will be number 1 again.
+
+### 5.8 Reverting after a commit
 
 Revert does not know the work is committed. It will put files back, creating an
 uncommitted diff against your own commit — recoverable with `git restore`, but
@@ -420,13 +435,14 @@ Report in the human's reading order — schema and model first, then managers, t
 call sites — with real numbers for verification and a plain statement of what was
 not checked.
 
-That report is also the snapshot's own record: its first line becomes the sidebar
-row and the whole of it becomes the note the review opens with. So it leads with
-`<kind>: <what the snapshot did>` in one line, then one short paragraph each for
-the goal, the approach, the test numbers and where to look — a pull request's
-description at one snapshot's scale — and only then the per-file detail. The note
-is a diff row, which renders no markdown, so the skill tells agents to write it
-as plain text rather than as markup you would have to read through.
+The snapshot's own record is the summary of that report, not the report. Its
+first line becomes the sidebar row and the whole of it becomes the note the review
+opens with, read in the seconds before the diff — so it is `<kind>: <what the
+snapshot did>` in one line and at most four short ones under it: why, how, test
+numbers, where to look. The per-file detail stays in the reply, where you can see
+it beside the rest of the answer. The note is a diff row, which renders no
+markdown, so the skill tells agents to write it as plain text rather than as
+markup you would have to read through.
 
 An agent may snapshot several times in one turn, and the skill tells it to: one
 snapshot per unit of work, so each part arrives with its own message, reverts on

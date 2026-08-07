@@ -12,6 +12,7 @@ const { resolveLane } = require("../out/lanes");
 const { Repos } = require("../out/repos");
 const {
   adoptLane,
+  clearLane,
   committableRun,
   dropSnapshot,
   foreignPaths,
@@ -787,6 +788,62 @@ async function main() {
   fs.rmSync(stashRoot, { recursive: true, force: true });
   console.log("a stash is not a revert               ok");
   console.log("a merge's files are not the agent's   ok");
+
+  // 25. Letting go of the lane you are standing on. The sweep waits for a branch
+  //     to die; this is the same act asked for outright, and it goes further —
+  //     the record is emptied too, so nothing anywhere remembers the shas. What it
+  //     still does not do is delete an object: git decides that, as always.
+  const clearRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-clear-"));
+  const clg = (args) => execFileSync("git", args, { cwd: clearRoot, encoding: "utf8" });
+  clg(["init", "-q", "-b", "main", "."]);
+  clg(["config", "user.email", "t@t"]);
+  clg(["config", "user.name", "t"]);
+  fs.writeFileSync(path.join(clearRoot, "c.txt"), "base\n");
+  clg(["add", "."]);
+  clg(["commit", "-qm", "base"]);
+  const clgit = new Git(clearRoot);
+  const clane = await resolveLane(clearRoot);
+  const clstore = new Store(clane);
+  fs.writeFileSync(path.join(clearRoot, "c.txt"), "one\n");
+  const c1 = await takeSnapshot(clgit, clstore, { label: "one", agent: "manual" });
+  fs.writeFileSync(path.join(clearRoot, "c.txt"), "two\n");
+  const c2 = await takeSnapshot(clgit, clstore, { label: "two", agent: "manual" });
+  await clstore.withLock((state) => {
+    state.reviewed["c.txt"] = 1;
+    state.threads.push({
+      id: "t1",
+      anchor: { file: "c.txt", startLine: 0, endLine: 0, blobSha: "", contentHash: "" },
+      snapshot: 1,
+      state: "draft",
+      outdated: false,
+      comments: [],
+    });
+  });
+
+  assert.strictEqual(await clearLane(clgit, clstore), 2, "both snapshots are let go");
+  assert.strictEqual(await clgit.refExists(snapshotRef(clane.name, 1)), false, "ref 1 is gone");
+  assert.strictEqual(await clgit.refExists(snapshotRef(clane.name, 2)), false, "ref 2 is gone");
+  assert.deepStrictEqual(clstore.data.snapshots, [], "and the record with them");
+  assert.deepStrictEqual(clstore.data.reviewed, {}, "marks that name no snapshot are not kept");
+  assert.deepStrictEqual(clstore.data.threads, [], "nor threads anchored to one");
+  assert.strictEqual(
+    await clgit.has(c2.snapshot.sha),
+    true,
+    "octoview deleted no object — the commits are unreachable, not gone",
+  );
+  clg(["gc", "--prune=now", "-q"]);
+  assert.strictEqual(await clgit.has(c1.snapshot.sha), false, "git is what collects them");
+
+  fs.writeFileSync(path.join(clearRoot, "c.txt"), "three\n");
+  const c3 = await takeSnapshot(clgit, clstore, { label: "three", agent: "manual" });
+  assert.strictEqual(c3.snapshot.n, 1, "an empty lane numbers from 1 again");
+  assert.strictEqual(
+    c3.snapshot.parent,
+    clg(["rev-parse", "HEAD"]).trim(),
+    "and diffs against HEAD, like any first snapshot",
+  );
+  fs.rmSync(clearRoot, { recursive: true, force: true });
+  console.log("a lane can be let go on purpose       ok");
 
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });

@@ -19,6 +19,7 @@ import { ChangedFile, Snapshot } from "./git";
 import { GitWatch, gitApi } from "./gitwatch";
 import { Repo, Repos } from "./repos";
 import {
+  clearLane,
   committableRun,
   dropSnapshot,
   landedCommits,
@@ -682,6 +683,66 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.showInformationMessage(
       `Octoview: let go of ${done.closed.length} lane(s), forgot ${done.collected.length}, ` +
         `dropped ${done.stray.length} stray ref(s). ` +
+        `Run \`git gc\` when you want the space back.`,
+    );
+  });
+
+  // Let go of the lane you are standing on. The sweep above waits for a branch to
+  // die before it touches anything; this is the same act asked for outright, on a
+  // review that has served its purpose. It is the more dangerous of the two —
+  // nothing keeps the shas afterwards — so the modal counts what only this lane
+  // holds, and puts that count in front of the button.
+  register("octoview.clearLane", async (node: RepoNode) => {
+    const { repo } = node;
+    // Re-read rather than trust the row: a snapshot can be taken by a hook between
+    // the tree being drawn and the button being pressed.
+    await repo.store.load();
+    const all = repo.store.data.snapshots;
+    if (all.length === 0) {
+      vscode.window.showInformationMessage(
+        `Octoview: ${repo.name} has no snapshots on ${repo.lane.name}.`,
+      );
+      snapshots.refresh();
+      return;
+    }
+    const landed = new Set(
+      (await landedCommits(repo.git, all, await repo.git.head())).flatMap(
+        (commit) => commit.snapshots,
+      ),
+    );
+    const open = all.length - all.filter((snapshot) => landed.has(snapshot.n)).length;
+    const drafts = repo.store.pending.length;
+    const answer = await vscode.window.showWarningMessage(
+      `Delete all ${all.length} snapshot${all.length === 1 ? "" : "s"} on ${repo.lane.name} in ${repo.name}?`,
+      {
+        modal: true,
+        detail: [
+          `${all.length - open} already in a commit — git keeps that content whatever happens here.`,
+          `${open} in no commit — this lane is the only place they exist.`,
+          ...(drafts > 0
+            ? [`${drafts} draft comment${drafts === 1 ? "" : "s"} you have not submitted.`]
+            : []),
+          "",
+          "Octoview deletes no commits. It stops holding the refs that keep these " +
+            "snapshots alive, and git decides from there: a grace period, then the " +
+            "next `git gc`.",
+          "",
+          "This cannot be undone, and it goes further than letting go of an abandoned " +
+            "lane does: the recorded shas are dropped with the refs, so there is no " +
+            "`git update-ref` back. What you have marked read and every comment thread " +
+            "on this lane go too. The next snapshot here starts again at 1.",
+        ].join("\n"),
+      },
+      "Delete Snapshots",
+    );
+    if (answer !== "Delete Snapshots") {
+      return;
+    }
+    const gone = await clearLane(repo.git, repo.store);
+    comments.refresh();
+    snapshots.refresh();
+    vscode.window.showInformationMessage(
+      `Octoview: deleted ${gone} snapshot${gone === 1 ? "" : "s"} on ${repo.lane.name}. ` +
         `Run \`git gc\` when you want the space back.`,
     );
   });
