@@ -1,6 +1,6 @@
 ---
 name: recover-change-context
-description: Recover what earlier agents did on this branch from their octoview snapshots — the message each one left and the files it changed. Use when you are picking up work you did not do and cannot account for: a new session on an existing branch, uncommitted changes of unknown origin, a summary that lost the details, or a question about "what has been done so far".
+description: Recover what earlier agents did on this branch from their debrief snapshots — the message each one left and the files it changed. Use when you are picking up work you did not do and cannot account for: a new session on an existing branch, uncommitted changes of unknown origin, a summary that lost the details, or a question about "what has been done so far".
 ---
 
 # Recover the change context
@@ -35,7 +35,7 @@ the diff already answer the question, or when the branch is clean and new.
 **0. Is there anything to read?** One command, and it exits non-zero (3) when the
 lane has no repository or no state at all:
 
-    octoview status
+    debrief status
 
 That prints the lane and one line per snapshot: number, the label the agent gave
 it, how many files it touched, how many you have already reviewed, and which
@@ -52,15 +52,15 @@ A snapshot is a unit of work, not a session — one turn often left several, eac
 describing its own part. Read a run of them as one narrative rather than
 assuming one per agent.
 
-    octoview status --json | jq -r '.snapshots[] | select(.n >= 7) | "── \(.n) [\(.agent)]\n\(.message // .label)\n"'
+    debrief status --json | jq -r '.snapshots[] | select(.n >= 7) | "── \(.n) [\(.agent)]\n\(.message // .label)\n"'
 
 Pick the range deliberately. The newest two or three usually carry the live
 thread of work; older ones matter only when you are touching what they built.
 
 **2. See what a snapshot actually changed.**
 
-    octoview diff <n>              # its files, with review state
-    octoview show <n> <path>       # that file as of that snapshot
+    debrief diff <n>              # its files, with review state
+    debrief show <n> <path>       # that file as of that snapshot
 
 **3. Read content only where it decides something.** Snapshot shas are ordinary
 commits, so the net change across a run of them is `git diff <parent-of-first>
@@ -75,7 +75,7 @@ hand. Where the two disagree, the tree wins.
 Three things the messages will not tell you, each worth one command when it
 bears on your task:
 
-- **What the human said back.** `octoview review batch --json` prints the latest
+- **What the human said back.** `debrief review batch --json` prints the latest
   submitted review — line comments, per file, with the snapshot each was opened
   against. If a batch exists and its points are not addressed in the tree, that
   is very likely your actual job.
@@ -107,7 +107,7 @@ here.
 
 ## Never
 
-- Never read or write `.git/octoview/` directly. The CLI owns that state and its
+- Never read or write `.git/debrief/` directly. The CLI owns that state and its
   locking.
 - Never stage, commit, or revert to "clean up" what you found. Uncommitted work
   from an earlier turn is the human's to review; report what you found and ask.

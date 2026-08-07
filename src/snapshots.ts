@@ -396,14 +396,14 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
         item.resourceUri = abandonedRepoUri(node.repo.root, node.abandonedCount);
         item.tooltip = new vscode.MarkdownString(
           `${node.repo.root}\n\n**${node.abandonedCount} lane(s) whose branch is gone.** ` +
-            `Their snapshot refs are what keep those commits alive — until octoview lets ` +
+            `Their snapshot refs are what keep those commits alive — until debrief lets ` +
             `go, \`git gc\` cannot collect them.`,
         );
       }
       // The whole lane at once: every snapshot's net change, the same diff the
       // header button gives for a selection.
       item.command = {
-        command: "octoview.openSnapshot",
+        command: "debrief.openSnapshot",
         title: "Open Snapshot Diff",
         arguments: [node],
       };
@@ -438,14 +438,14 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
           ? `**Commits**\n\nThe snapshots each commit took. Read back from git rather ` +
             `than recorded, so amending or rebasing moves them.`
           : `**Open**\n\nEverything no commit has taken yet, oldest first. Land a run of ` +
-            `it with \`octoview snapshot commit <n>\`, which commits 1..n and leaves ` +
+            `it with \`debrief snapshot commit <n>\`, which commits 1..n and leaves ` +
             `the rest in the working tree.`,
       );
       if (!committed) {
         // The area's own net diff: everything still open, in one tab. The
         // committed area spans commits, which have no single diff between them.
         item.command = {
-          command: "octoview.openSnapshot",
+          command: "debrief.openSnapshot",
           title: "Open Snapshot Diff",
           arguments: [node],
         };
@@ -463,7 +463,7 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       item.iconPath = new vscode.ThemeIcon("ellipsis");
       item.contextValue = "more";
       item.tooltip = `${node.hidden} older commit(s) of this lane, not drawn until asked for.`;
-      item.command = { command: "octoview.showMore", title: "Show Earlier Commits", arguments: [node] };
+      item.command = { command: "debrief.showMore", title: "Show Earlier Commits", arguments: [node] };
       return item;
     }
 
@@ -483,7 +483,7 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
           `\`${node.sha.slice(0, 7)}\` · ${span}`,
       );
       item.command = {
-        command: "octoview.openSnapshot",
+        command: "debrief.openSnapshot",
         title: "Open Snapshot Diff",
         arguments: [node],
       };
@@ -611,14 +611,14 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
         // and takes no input from the message.
         hover.isTrusted = true;
         const args = encodeURIComponent(JSON.stringify([node.repo.root, node.snapshot.n]));
-        hover.appendMarkdown(`\n\n[Read the whole note](command:octoview.openNote?${args})`);
+        hover.appendMarkdown(`\n\n[Read the whole note](command:debrief.openNote?${args})`);
       }
       // Clicking the row reads the snapshot, and building a multi-snapshot scope does not:
       // VS Code runs a tree item's command only when the selection is a single
       // element, so a ctrl- or shift-click extends the scope silently and the
       // header's net diff is what opens it.
       item.command = {
-        command: "octoview.openSnapshot",
+        command: "debrief.openSnapshot",
         title: "Open Snapshot Diff",
         arguments: [node],
       };
@@ -653,7 +653,7 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       node.revertable ? "-revertable" : ""
     }`;
     item.command = {
-      command: "octoview.openDiff",
+      command: "debrief.openDiff",
       title: "Open Diff",
       arguments: [node],
     };

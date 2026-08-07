@@ -84,7 +84,7 @@ export async function takeSnapshot(
     }
     const n = (previous?.n ?? 0) + 1;
     const label = opts.label !== undefined && opts.label !== "" ? opts.label : `snapshot ${n}`;
-    const sha = await git.commitTree(tree, `octoview snapshot ${n}: ${label}`, seeded);
+    const sha = await git.commitTree(tree, `debrief snapshot ${n}: ${label}`, seeded);
     await git.updateRef(snapshotRef(store.lane.name, n), sha);
     const files = await git.changedFiles(parent, sha);
     const snapshot: Snapshot = {
@@ -169,7 +169,7 @@ export async function adoptLane(git: Git, lane: Lane): Promise<void> {
  *
  * `git stash` is the one thing that makes every snapshot look reverted without
  * anything being reverted: the working tree goes back to where the snapshot
- * started, which is the same shape as a reviewer undoing it file by file. Octoview
+ * started, which is the same shape as a reviewer undoing it file by file. Debrief
  * cannot tell those apart from the tree alone, and the cost of guessing wrong is
  * a reviewer dropping the last record of work that is sitting safely in a stash.
  *
@@ -225,13 +225,13 @@ export async function foreignPaths(
 /** What a sweep found, whether or not it was allowed to act. */
 export interface LaneSweep {
   /** Lanes whose branch is gone. Dropping their refs is the whole of what
-   * octoview does to them. */
+   * debrief does to them. */
   closed: string[];
   /** Lanes git has already collected the snapshots of — nothing left to review,
    * so the record goes with them. */
   collected: string[];
-  /** Refs under `refs/octoview/` that no lane claims — the pre-lane POC scheme's
-   * unscoped `refs/octoview/turns/<n>`, and anything a half-finished operation
+  /** Refs under `refs/debrief/` that no lane claims — the pre-lane POC scheme's
+   * unscoped `refs/debrief/turns/<n>`, and anything a half-finished operation
    * left behind. Nothing can read them, and they pin their objects exactly as a
    * live snapshot's ref does. */
   stray: string[];
@@ -240,7 +240,7 @@ export interface LaneSweep {
 /** Every lane the clone holds state for, named by the directory that spells it
  * out. A lane directory is one holding `state.json`; `batches/` sits inside one
  * and is never mistaken for another, because the walk stops as soon as it finds
- * the file. The octoview root itself is skipped — POC-era clones have a
+ * the file. The debrief root itself is skipped — POC-era clones have a
  * `state.json` sitting there from before lanes existed, and it names no lane. */
 async function laneDirs(commonDir: string): Promise<{ name: string; dir: string }[]> {
   const found: { name: string; dir: string }[] = [];
@@ -254,15 +254,15 @@ async function laneDirs(commonDir: string): Promise<{ name: string; dir: string 
       await walk(path.join(dir, entry.name), [...segments, entry.name]);
     }
   };
-  await walk(path.join(commonDir, "octoview"), []);
+  await walk(path.join(commonDir, "debrief"), []);
   return found;
 }
 
 /** Let go of the lanes whose branches are gone, and forget the ones git has
  * already collected.
  *
- * Octoview has no retention policy, deliberately. A snapshot ref is a GC root, so
- * while octoview holds one, `git gc --prune=now` cannot touch the snapshot — which
+ * Debrief has no retention policy, deliberately. A snapshot ref is a GC root, so
+ * while debrief holds one, `git gc --prune=now` cannot touch the snapshot — which
  * is why a lane left behind by `git branch -d` pins its objects forever. Dropping
  * the ref is the entire act: from that moment the snapshot is an ordinary
  * unreachable object, and *git* decides when it goes. A real cleanup then takes
@@ -271,10 +271,10 @@ async function laneDirs(commonDir: string): Promise<{ name: string; dir: string 
  * It is not quite the grace a deleted branch gets. A branch's commits stay named
  * in HEAD's reflog for `gc.reflogExpireUnreachable` — 90 days by default — while a
  * snapshot commit was never on a branch and `core.logAllRefUpdates` does not cover
- * `refs/octoview/`, so nothing names it once the ref is gone. `state.json` is what
+ * `refs/debrief/`, so nothing names it once the ref is gone. `state.json` is what
  * stands in: it keeps every snapshot's sha, so while the objects last a lane can be
  * put back with `git update-ref`. Widening that window is `gc.pruneExpire`, git's
- * own knob rather than one octoview invents.
+ * own knob rather than one debrief invents.
  *
  * Nothing here deletes an object, and nothing decides a lane is stale on its own
  * authority: a lane is closed because its branch is, and forgotten because git
@@ -329,7 +329,7 @@ export async function sweepLanes(git: Git, commonDir: string, apply: boolean): P
       }
     }
   }
-  sweep.stray = (await git.refsUnder("refs/octoview/")).filter((ref) => !claimed.has(ref));
+  sweep.stray = (await git.refsUnder("refs/debrief/")).filter((ref) => !claimed.has(ref));
   if (apply) {
     for (const ref of sweep.stray) {
       await git.deleteRef(ref);
@@ -361,8 +361,8 @@ export function openThreads(store: Store): Thread[] {
  * agent already understands is worth more than one host's autocomplete. */
 export function reviewText(threads: Thread[]): string {
   const out = [
-    `Octoview review — ${threads.length} comment${threads.length === 1 ? "" : "s"} still open.`,
-    "Address each one, then close it with `octoview review resolve <id>`.",
+    `Debrief review — ${threads.length} comment${threads.length === 1 ? "" : "s"} still open.`,
+    "Address each one, then close it with `debrief review resolve <id>`.",
     "",
   ];
   const ordered = [...threads].sort(
@@ -423,7 +423,7 @@ export async function resolveThreads(store: Store, ids: string[]): Promise<strin
  * One thing is kept, and it is not a snapshot: **where the lane now starts.** An
  * empty lane falls back to HEAD, so on a tree with uncommitted work in it the
  * next agent turn would open by claiming all of it. Clearing is the one moment
- * octoview can be sure that work is not the agent's — a human is standing there
+ * debrief can be sure that work is not the agent's — a human is standing there
  * pressing the button — so the tree is written as a commit and the lane is
  * pointed at it. Nothing to read and nothing to review: one ref, so the next
  * snapshot's diff is the agent's own doing and nothing else. */
@@ -445,7 +445,7 @@ export async function clearLane(
     // says the same thing would be a ref kept for nothing.
     const based = head !== undefined && tree !== (await git.treeOf(head));
     state.base = based
-      ? await git.commitTree(tree, `octoview base: ${store.lane.name} cleared here`, head)
+      ? await git.commitTree(tree, `debrief base: ${store.lane.name} cleared here`, head)
       : undefined;
     if (state.base === undefined) {
       await git.deleteRef(baseRef(store.lane.name));
@@ -561,7 +561,7 @@ function present(
 
 /** The commits that have landed snapshots of this lane, oldest first.
  *
- * Recognised by content, not by tree equality. A commit octoview makes holds a
+ * Recognised by content, not by tree equality. A commit debrief makes holds a
  * snapshot's tree exactly, but a reviewer who stages what they have read and
  * commits that produces a tree matching nothing — and that is the normal way to
  * work, not the exception. So a commit takes every snapshot whose changes it
@@ -667,7 +667,7 @@ export async function revertPaths(
   await store.withLock(async (state) => {
     const start = state.snapshots.findIndex((snapshot) => snapshot.n === from);
     if (start < 0) {
-      throw new Error(`octoview: no snapshot ${from} to revert from`);
+      throw new Error(`debrief: no snapshot ${from} to revert from`);
     }
     const rewriting = state.snapshots.slice(start);
     const mine = await git.entriesAt(rewriting[0].sha, paths);
@@ -676,7 +676,7 @@ export async function revertPaths(
       for (const file of paths) {
         if (theirs.get(file)?.blob !== mine.get(file)?.blob) {
           throw new Error(
-            `octoview: snapshot ${snapshot.n} changed ${file} after snapshot ${from} — ` +
+            `debrief: snapshot ${snapshot.n} changed ${file} after snapshot ${from} — ` +
               `revert that snapshot first`,
           );
         }
@@ -691,7 +691,7 @@ export async function revertPaths(
         store.indexFile,
         snapshot.sha,
         parent === empty ? undefined : parent,
-        `octoview snapshot ${snapshot.n}: ${snapshot.label}`,
+        `debrief snapshot ${snapshot.n}: ${snapshot.label}`,
         planted,
       );
       await git.updateRef(snapshotRef(store.lane.name, snapshot.n), sha);

@@ -1,4 +1,4 @@
-# Octoview — Executor Handoff
+# Debrief — Executor Handoff
 
 **Status:** M1 landed at `733bc0b` (2026-08-04, TypeScript end to end) · next:
 hands-on verification, the §1 gate answer, then M2 planning
@@ -53,31 +53,32 @@ real reuse. Prefer fail-fast errors over fallback control flow. Package manager
 is pnpm with `nodeLinker: hoisted` (`pnpm-workspace.yaml`) — do not reintroduce
 an npm lockfile or the symlinked layout.
 
-**One proposed API is opted into** (owner decision 2026-08-06):
-`contribMultiDiffEditorMenus`, for the tick on a multi-diff row's own toolbar
-(`multiDiffEditor/resource/title`, which hands the command that row's URI). VS
-Code allows this because octoview is run from source in the Extension
-Development Host — it is not installed from the marketplace — and
-`.vscode/launch.json` passes `--enable-proposed-api=octoverse.octoview` so it
-does not depend on the dev-mode path. A host that read the manifest before the
-opt-in rejects the menu with a message naming the proposal, so after changing
-either file, restart with F5 rather than only reloading the window. The price is
-that
-**this build cannot be published as-is**, and a VS Code update can change or
-withdraw the proposal, which shows up as the row button silently vanishing.
-Everything else keeps working when it does, and `⌘⌥V` does the same job from the
-keyboard. Do not add a second proposal without asking.
+**No proposed API is opted into** (owner decision 2026-08-07). There was one —
+`contribMultiDiffEditorMenus`, for the tick on a multi-diff row's own toolbar —
+and it went with the marking feature that was its only user (see PRD §4.4 and
+WORKFLOWS §5.2). So `enabledApiProposals` is gone from the manifest, this build
+can be published as it stands, and no VS Code update can withdraw something out
+from under it. `--enable-proposed-api=octoverse.debrief` is still passed by
+`pnpm dev` and `.vscode/launch.json`, where it now does nothing and costs
+nothing; it is what the row tick would need if marking comes back. Do not add a
+proposal without asking.
+
+**Every command is in the palette** (owner decision 2026-08-07). A command that
+takes a tree row falls back to the view's selection when it is invoked without
+one, and says so when there is no selection. The three exceptions are the comment
+commands — their only possible argument is a live widget VS Code owns, so the
+palette can never supply one, and they stay hidden with `when: false`.
 
 **Running it takes one window, not two** (owner decision 2026-08-06). F5 needs a
-parent window to host the debugger, which leaves you editing octoview in one
+parent window to host the debugger, which leaves you editing debrief in one
 window and using it in another. The dev host is only a window launched with a
 flag, so launch it directly instead:
 
 ```bash
-pnpm dev     # in octoview/
+pnpm dev     # in debrief/
 ```
 
-That opens the octoverse workspace with octoview running in it and octoview's own
+That opens the octoverse workspace with debrief running in it and debrief's own
 source in the same tree. **The compiler is not chained to it** — the watch task
 carries `runOn: folderOpen`, so the new window starts its own, in its own
 integrated terminal. Nothing has to be babysat from outside: the launching
@@ -93,13 +94,13 @@ trap as F5-not-reload above.
 Two things to know about the auto-started watch. It needs **Tasks: Allow
 Automatic Tasks** once per folder, or it stays silent — `⌘⇧B` starts it by hand in
 the meantime. And it starts in *every* window that opens this folder, so while you
-still keep a second window on octoview both will compile into the same `out/`.
+still keep a second window on debrief both will compile into the same `out/`.
 That stops mattering as soon as one window is all you keep, which is the point.
 
 The price is breakpoints. The JS debugger is an extension living in the host you
 would be pausing, so a window cannot debug itself. `pnpm dev` holds
 `--inspect-extensions=9229` open for when you need them: attach from a second
-window with the **Attach to Octoview** config, or go back to F5. The port is
+window with the **Attach to Debrief** config, or go back to F5. The port is
 fixed, so only one such window at a time.
 
 **A redraw has two halves** (owner decision 2026-08-07). The working tree decides
@@ -124,7 +125,7 @@ reports HEAD and the refs standing still.
 
 | Path | What it is |
 |---|---|
-| `~/Projects/octoverse/octoview` | This repo: core + CLI + extension (TypeScript) + these docs. History starts at `733bc0b` |
+| `~/Projects/octoverse/debrief` | This repo: core + CLI + extension (TypeScript) + these docs. History starts at `733bc0b` |
 | `~/Projects/octoverse/kraken` | Clone of octomate at `3707d51`, venv synced. **The test subject.** Stop hook installed via `.claude/settings.local.json`, kept out of `git status` by `.git/info/exclude` |
 | `~/Projects/octoverse/inky` | The octomate working repo. Do not experiment here — but it is hooked the same way, so real work there snapshots itself |
 | `~/Projects/octoverse/nautilus` | An older octomate clone, unrelated |
@@ -149,15 +150,15 @@ view, comment widgets or diff rendering can only be checked there, by a human.
 ref scheme** the M1 code no longer reads:
 
 ```
-refs/octoview/turns/1  843c628   tests reproducing a strip_markdown bug
-refs/octoview/turns/2  2148454   the fix
+refs/debrief/turns/1  843c628   tests reproducing a strip_markdown bug
+refs/debrief/turns/2  2148454   the fix
 ```
 
 Its working tree is **clean** — the owner reverted that change after reviewing
 it. The snapshots survive anyway, which is the model working as intended: a
 snapshot records what the tree was, not what it still is.
 
-**`octoview gc` now reports these as stray** (owner decision 2026-08-06), because
+**`debrief gc` now reports these as stray** (owner decision 2026-08-06), because
 no lane claims them and they pin their objects the way any snapshot ref does. That
 reverses the "leave the specimens be" line below: what the specimens documented —
 the virgin-index bug — is pinned by a regression test now, which is a better place
@@ -166,16 +167,16 @@ git.
 
 `inky` has one POC snapshot, `c269621`, with a phantom `D .python-version` from the
 virgin-index bug — a before-and-after specimen. Both repos also carry POC-era
-top-level files (`.git/octoview/{index,state.json}`) beside the new per-lane
-dirs (`.git/octoview/<lane>/`). **All POC state is ignored, not migrated** —
+top-level files (`.git/debrief/{index,state.json}`) beside the new per-lane
+dirs (`.git/debrief/<lane>/`). **All POC state is ignored, not migrated** —
 the decision stands. Do not write migration code, and leave the specimens be.
 
 The turn → snapshot rename moved the lane-scoped refs to
-`refs/octoview/snapshots/<lane>/<n>` and the state file's `turns` array to
+`refs/debrief/snapshots/<lane>/<n>` and the state file's `turns` array to
 `snapshots` (schemaVersion 2). The POC refs above keep their old paths, because
 nothing reads them either way.
 
-Per-repo ownership is a stated principle now (PRD §4.3): everything octoview
+Per-repo ownership is a stated principle now (PRD §4.3): everything debrief
 records about a repo lives in that repo's own `.git`; the tool has no central
 store.
 
@@ -190,8 +191,8 @@ explains why the code looks the way it does.
 | Trap | What happens | What to do |
 |---|---|---|
 | Virgin private index | `git add -A` skips a file that is tracked *and* gitignored, so every snapshot reports it deleted. `kraken` pins `.python-version` this way | `git read-tree <parent>` into the private index before `add -A` |
-| `.git` is a **file** in a linked worktree | `mkdir .git/octoview` fails `ENOTDIR`; snapshot and store both die | Resolve paths through `git rev-parse --git-common-dir` |
-| Refs are shared across a clone's worktrees | `refs/octoview/snapshots/<n>` collides between worktrees | Lane-scope every ref: `refs/octoview/snapshots/<lane>/<n>` |
+| `.git` is a **file** in a linked worktree | `mkdir .git/debrief` fails `ENOTDIR`; snapshot and store both die | Resolve paths through `git rev-parse --git-common-dir` |
+| Refs are shared across a clone's worktrees | `refs/debrief/snapshots/<n>` collides between worktrees | Lane-scope every ref: `refs/debrief/snapshots/<lane>/<n>` |
 | `--name-status -z` rename records | Three fields, not two. Pair-wise parsing silently drops the new path | Parse `R`/`C` statuses as three fields, or pass `--no-renames` |
 | Unborn HEAD | `commit-tree -p` fails in a fresh `git init` repo | Snapshot 1 commits with no parent; diff against the empty-tree hash |
 | Refs may point at blobs | Not a trap — a capability. `update-ref` accepts a blob and `git diff <blobA> <blobB>` works | This is how plan artifacts avoid touching the tree (§4.7) |

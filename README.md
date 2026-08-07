@@ -1,4 +1,4 @@
-# Octoview
+# Debrief
 
 Snapshot-by-snapshot review of agent changes, in the editor where the language server
 already runs.
@@ -18,7 +18,7 @@ turn's worth of work keeps a real decision point at a granularity worth reading.
 
 Snapshots are built through a private index file (`GIT_INDEX_FILE`), so `git add -A`
 never reads or writes the index you are curating. The commit object is written with
-`commit-tree` and referenced under `refs/octoview/snapshots/<lane>/<n>` — outside
+`commit-tree` and referenced under `refs/debrief/snapshots/<lane>/<n>` — outside
 `refs/heads`, so `git branch` never lists it.
 
 | | before snapshot | after |
@@ -27,7 +27,7 @@ never reads or writes the index you are curating. The commit object is written w
 | HEAD | `base` | `base` |
 | branches | `main` | `main` |
 
-Review state lives in `.git/octoview/`, so it never appears in `git status` and needs
+Review state lives in `.git/debrief/`, so it never appears in `git status` and needs
 no `.gitignore` entry.
 
 ## Several repositories at once
@@ -35,7 +35,7 @@ no `.gitignore` entry.
 The unit of review is the repository, not the workspace folder. Folders are resolved to
 their git roots and deduped, so a workspace holding four clones shows four repos, and a
 `.vscode` directory added as its own folder folds back into the clone that contains it.
-Each repo keeps its own snapshot numbering and its own `.git/octoview/`.
+Each repo keeps its own snapshot numbering and its own `.git/debrief/`.
 
 One **Take Snapshot** covers the whole workspace: every repo the work actually changed
 gets a snapshot, and repos it did not touch get none, so a repo's numbering never
@@ -46,15 +46,15 @@ drifts from the work it describes.
 1. **Snapshot once before the agent starts.** The first snapshot diffs against `HEAD`,
    so any changes already in your tree would otherwise show up inside snapshot 1.
 2. Let the agent work.
-3. **Octoview: Take Snapshot** (command palette, or the camera icon in the Snapshots
+3. **Debrief: Take Snapshot** (command palette, or the camera icon in the Snapshots
    view).
 4. Click a file to open its snapshot-over-snapshot diff. For the newest snapshot the
    right-hand side is the real file on disk, so Pylance/pyright attaches — hover,
    types and go-to-definition all work while you read.
 5. Comment on any line. Drafts accumulate.
-6. **Octoview: Submit Review** writes the batch to
-   `.git/octoview/<lane>/batches/<timestamp>.json` in the reviewed repo and
-   marks the drafts submitted. Agents read it back with `octoview review batch`.
+6. **Debrief: Submit Review** writes the batch to
+   `.git/debrief/<lane>/batches/<timestamp>.json` in the reviewed repo and
+   marks the drafts submitted. Agents read it back with `debrief review batch`.
 
 Marking a file reviewed records the snapshot you reviewed it at. A later snapshot
 touching that file makes it unreviewed again — the rule is just

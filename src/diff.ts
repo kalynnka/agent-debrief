@@ -18,7 +18,7 @@ export class RevisionContentProvider implements vscode.TextDocumentContentProvid
   provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
     const located = this.repos.locate(pathOf(uri));
     if (located === undefined) {
-      throw new Error(`octoview: ${uri.path} is not inside any repository in this workspace`);
+      throw new Error(`debrief: ${uri.path} is not inside any repository in this workspace`);
     }
     return located.repo.git.fileAt(uri.query, located.rel);
   }
@@ -27,7 +27,7 @@ export class RevisionContentProvider implements vscode.TextDocumentContentProvid
 /** Where a review's opening note is served from. Its query is the snapshots it
  * covers, in order; an empty query is the empty left-hand side that makes the
  * note render as one added block rather than as a file with no changes. */
-export const NOTE_SCHEME = "octoview-note";
+export const NOTE_SCHEME = "debrief-note";
 
 /** Named as a file so the row header reads as one, and given a markdown
  * extension so the icon theme draws it as a note rather than as source. Short,
@@ -68,7 +68,7 @@ export class NoteContentProvider implements vscode.TextDocumentContentProvider {
     }
     const located = this.repos.locate(uri.path);
     if (located === undefined) {
-      throw new Error(`octoview: ${uri.path} is not inside any repository in this workspace`);
+      throw new Error(`debrief: ${uri.path} is not inside any repository in this workspace`);
     }
     const wanted = new Set(uri.query.split(","));
     const all = located.repo.store.data.snapshots;
@@ -173,7 +173,7 @@ function titleCase(agent: string): string {
  *
  * Two things leave one of these tabs showing the wrong thing, and reopening is
  * the fix for both. A window reload restores tabs before the extension has
- * activated, so nothing is serving the `octoview:` scheme yet and the editor
+ * activated, so nothing is serving the `debrief:` scheme yet and the editor
  * comes back unresolved — the tab is still there, but its content never arrives.
  * And a revert rewrites snapshot commits, which leaves a tab pointed at a snapshot
  * that is no longer any snapshot's; `moved` carries it to the one that replaced it.
@@ -233,7 +233,7 @@ export async function openStackedDiff(
   const last = snapshots[snapshots.length - 1];
   if (rows.length === 0) {
     vscode.window.showInformationMessage(
-      `Octoview: snapshots ${snapshots[0].n}→${last.n} in ${repo.name} net out to no changes.`,
+      `Debrief: snapshots ${snapshots[0].n}→${last.n} in ${repo.name} net out to no changes.`,
     );
     return undefined;
   }
@@ -346,7 +346,7 @@ export async function openStepHistory(
     }
   }
   if (steps.length === 0) {
-    vscode.window.showInformationMessage(`Octoview: no selected snapshot touched ${rel}.`);
+    vscode.window.showInformationMessage(`Debrief: no selected snapshot touched ${rel}.`);
     return;
   }
   const latest = repo.store.latestSnapshot?.n;

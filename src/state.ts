@@ -52,7 +52,7 @@ export interface State {
    * Without it the first snapshot after a clear diffs against HEAD, so every
    * uncommitted change already sitting in the tree — the reviewer's own work,
    * usually — is recorded as the next agent turn's. Clearing is exactly the
-   * moment octoview knows the tree is not the agent's, because a human pressed
+   * moment debrief knows the tree is not the agent's, because a human pressed
    * the button; this is that knowledge, kept. */
   base?: string;
 }

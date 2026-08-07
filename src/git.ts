@@ -5,7 +5,7 @@ import { promisify } from "util";
 
 const exec = promisify(execFile);
 
-/** How many `git` processes octoview will have running at once, across every
+/** How many `git` processes debrief will have running at once, across every
  * repository in the workspace.
  *
  * The work is fanned out with `Promise.all` — one call per snapshot, per repo —
@@ -41,13 +41,13 @@ async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
  * snapshot — and lane-scoped, because refs are shared across a clone's worktrees
  * and unscoped snapshot numbers collide between two worktrees of one clone. */
 export function snapshotRef(lane: string, n: number): string {
-  return `refs/octoview/snapshots/${lane}/${n}`;
+  return `refs/debrief/snapshots/${lane}/${n}`;
 }
 
 /** What keeps a cleared lane's starting point alive. One per lane, replaced on
  * each clear, and a GC root exactly as a snapshot ref is. */
 export function baseRef(lane: string): string {
-  return `refs/octoview/base/${lane}`;
+  return `refs/debrief/base/${lane}`;
 }
 
 export interface Snapshot {
@@ -334,7 +334,7 @@ export class Git {
 
   /** Whether a commit is still in the object store.
    *
-   * Once octoview lets go of a snapshot's ref the commit is unreachable, and how
+   * Once debrief lets go of a snapshot's ref the commit is unreachable, and how
    * long it survives after that is git's business — a grace period, then the next
    * `gc`. This is how a lane finds out that decision has been made. */
   async has(sha: string): Promise<boolean> {

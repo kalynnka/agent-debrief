@@ -36,6 +36,7 @@ import {
   FileNode,
   GroupNode,
   MoreNode,
+  Node,
   RepoNode,
   SnapshotNode,
   SnapshotsProvider,
@@ -103,7 +104,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.window.registerFileDecorationProvider(decorations),
   );
 
-  const view = vscode.window.createTreeView("octoview.snapshots", {
+  const view = vscode.window.createTreeView("debrief.snapshots", {
     treeDataProvider: snapshots,
     canSelectMany: true,
   });
@@ -289,7 +290,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
 
-  /** The octoview diff in the active tab: which file it shows, and the snapshot a
+  /** The debrief diff in the active tab: which file it shows, and the snapshot a
    * review mark on it belongs at. The right-hand side answers both — a snapshot
    * revision names its snapshot in the query, and the working tree means the newest
    * snapshot, which is the only snapshot whose diff ends on disk. */
@@ -351,7 +352,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * for its own file; a review tab gets the actions for everything it covers, and
    * the tick for whichever row the cursor is in.
    *
-   * The row's own toolbar carries a tick too (`octoview.toggleRowViewed`), for
+   * The row's own toolbar carries a tick too (`debrief.toggleRowViewed`), for
    * the mouse. This one is what the keyboard aims at, and it is also the only one
    * that says whether the file it is pointed at has been read. */
   const trackActiveDiff = async (): Promise<void> => {
@@ -372,34 +373,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const active = activeDiff() ?? (await rowAt(undefined));
     const review = activeReview();
     const rows = review === undefined ? [] : await rowsFor(review.repo, review.snapshots);
-    await vscode.commands.executeCommand("setContext", "octoview.inDiff", active !== undefined);
+    await vscode.commands.executeCommand("setContext", "debrief.inDiff", active !== undefined);
     await vscode.commands.executeCommand(
       "setContext",
-      "octoview.diffViewed",
+      "debrief.diffViewed",
       active !== undefined && active.repo.store.isReviewed(active.rel, active.at),
     );
     // A one-file review opens as a plain diff, which already carries the tick for
     // that file. Offering "mark all" beside it would be the same button twice.
     await vscode.commands.executeCommand(
       "setContext",
-      "octoview.inReview",
+      "debrief.inReview",
       rows.length > 0 && activeDiff() === undefined,
     );
     // Which way the toggle points, and whether there is anything to toggle: a
     // review with nothing read yet should not offer to hide nothing.
     await vscode.commands.executeCommand(
       "setContext",
-      "octoview.reviewShowingRead",
+      "debrief.reviewShowingRead",
       review?.showRead ?? false,
     );
     await vscode.commands.executeCommand(
       "setContext",
-      "octoview.reviewHasRead",
+      "debrief.reviewHasRead",
       rows.some((row) => row.reviewed),
     );
     await vscode.commands.executeCommand(
       "setContext",
-      "octoview.reviewAllViewed",
+      "debrief.reviewAllViewed",
       rows.length > 0 && rows.every((row) => row.reviewed),
     );
   };
@@ -450,7 +451,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return picked?.repo;
   };
 
-  register("octoview.snapshot", async (node?: RepoNode) => {
+  register("debrief.snapshot", async (node?: RepoNode) => {
     const repo = await repoOf(node);
     if (repo === undefined) {
       return;
@@ -466,37 +467,67 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     snapshots.refresh();
     vscode.window.showInformationMessage(
       result.created
-        ? `Octoview: snapshot ${result.snapshot.n} in ${repo.name} — ${result.files.length} file(s).`
+        ? `Debrief: snapshot ${result.snapshot.n} in ${repo.name} — ${result.files.length} file(s).`
         : // Nothing to record, or nothing yet worth attributing: a tree part-way
           // through a merge is git's work rather than anybody else's.
           result.reason === "unchanged"
-          ? `Octoview: nothing changed in ${repo.name}.`
-          : `Octoview: ${repo.name} is part-way through ${result.operation} — nothing taken.`,
+          ? `Debrief: nothing changed in ${repo.name}.`
+          : `Debrief: ${repo.name} is part-way through ${result.operation} — nothing taken.`,
     );
   });
 
-  register("octoview.refresh", async () => {
+  register("debrief.refresh", async () => {
     await repos.discover(workspaceFolders());
     rewatch();
     comments.refresh();
     snapshots.refresh();
   });
 
-  register("octoview.openDiff", async (node: FileNode) => {
-    await openDiff(node.repo, node);
+  /** The row a command acts on when it was not launched from one.
+   *
+   * Every one of these lives on a context menu, where VS Code hands the node in.
+   * From the command palette there is no node, and the honest answer is the row
+   * the reviewer has selected in the view — the one they are looking at. Nothing
+   * selected is not an error worth throwing; it is a sentence. */
+  const rowOf = <K extends Node["kind"]>(
+    kind: K,
+    say: string,
+  ): Extract<Node, { kind: K }> | undefined => {
+    const found = view.selection.find(
+      (node): node is Extract<Node, { kind: K }> => node.kind === kind,
+    );
+    if (found === undefined) {
+      vscode.window.showInformationMessage(`Debrief: select ${say} in the Snapshots view first.`);
+    }
+    return found;
+  };
+
+  register("debrief.openDiff", async (node?: FileNode) => {
+    const file = node ?? rowOf("file", "a file");
+    if (file !== undefined) {
+      await openDiff(file.repo, file);
+    }
   });
 
-  register("octoview.stepHistory", async (node: FileNode) => {
-    const selected = snapshots.selectedSnapshots(node.repo);
+  register("debrief.stepHistory", async (node?: FileNode) => {
+    const file = node ?? rowOf("file", "a file");
+    if (file === undefined) {
+      return;
+    }
+    const selected = snapshots.selectedSnapshots(file.repo);
     await openStepHistory(
-      node.repo,
-      node.file.path,
-      selected.length > 0 ? selected : node.repo.store.data.snapshots,
+      file.repo,
+      file.file.path,
+      selected.length > 0 ? selected : file.repo.store.data.snapshots,
     );
   });
 
-  register("octoview.openFile", async (node: FileNode) => {
-    const uri = vscode.Uri.file(path.join(node.repo.root, node.file.path));
+  register("debrief.openFile", async (node?: FileNode) => {
+    const file = node ?? rowOf("file", "a file");
+    if (file === undefined) {
+      return;
+    }
+    const uri = vscode.Uri.file(path.join(file.repo.root, file.file.path));
     await vscode.window.showTextDocument(uri, { preview: false });
   });
 
@@ -504,7 +535,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // the stack unwinds one snapshot at a time. The rows already only offer what will
   // work; this runs the same check again because a tree that has not refreshed
   // since a terminal `git restore` would otherwise put back more than its snapshot.
-  const revert = async (node: FileNode | SnapshotNode): Promise<void> => {
+  const revert = async (from?: FileNode | SnapshotNode): Promise<void> => {
+    // From the palette, whichever of the two kinds the reviewer has selected — a
+    // file row reverts one file, a snapshot row the whole snapshot, exactly as
+    // pressing the button on that row does.
+    const node =
+      from ??
+      view.selection.find(
+        (row): row is FileNode | SnapshotNode => row.kind === "file" || row.kind === "snapshot",
+      );
+    if (node === undefined) {
+      vscode.window.showInformationMessage(
+        "Debrief: select a file or a snapshot in the Snapshots view first.",
+      );
+      return;
+    }
     // Mid-operation, the worktree belongs to git, and the rows describing it are
     // reading a merge's half-finished state as though the agent had left it there.
     // Putting files back now would be fighting git for the same paths — and on a
@@ -513,7 +558,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const operation = await node.repo.git.operationInProgress();
     if (operation !== undefined) {
       vscode.window.showWarningMessage(
-        `Octoview: ${operation} is in progress in ${node.repo.name}. Finish or abort it ` +
+        `Debrief: ${operation} is in progress in ${node.repo.name}. Finish or abort it ` +
           `first — until then these rows describe git's work, not the agent's.`,
       );
       return;
@@ -536,7 +581,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (await stashedSince(node.repo.git, node.repo.store))
     ) {
       vscode.window.showWarningMessage(
-        `Octoview: the stash has moved since the last snapshot, so this looks reverted ` +
+        `Debrief: the stash has moved since the last snapshot, so this looks reverted ` +
           `because it is stashed, not because it was undone. Pop the stash — or take a ` +
           `snapshot to make this the new starting point — before dropping anything.`,
       );
@@ -545,7 +590,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const blocked = changed.filter((file) => !intact.has(file.path) && !undone.has(file.path));
     if (blocked.length > 0) {
       vscode.window.showWarningMessage(
-        `Octoview: a later snapshot wrote over ${blocked
+        `Debrief: a later snapshot wrote over ${blocked
           .map((file) => path.basename(file.path))
           .join(", ")} — revert that snapshot first.`,
       );
@@ -602,38 +647,57 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await dropSnapshot(node.repo.git, node.repo.store, node.snapshot.n);
     snapshots.refresh();
   };
-  register("octoview.revert", revert);
+  register("debrief.revert", revert);
   // The same operation under its own name: on a snapshot that has already been
   // reverted away there is nothing to revert, only a dead entry to throw out —
   // and a bin says that where a discard arrow would not.
-  register("octoview.dropSnapshot", revert);
+  register("debrief.dropSnapshot", revert);
 
   type OpenTarget = RepoNode | GroupNode | CommitNode | SnapshotNode;
-  register("octoview.openSnapshot", async (node: OpenTarget) => {
+  register("debrief.openSnapshot", async (node?: OpenTarget) => {
+    // No row means the palette. The selection answers it when there is one, and
+    // otherwise the whole lane is what a repo row would have opened anyway.
+    const target =
+      node ??
+      view.selection.find((row): row is OpenTarget => row.kind !== "file" && row.kind !== "more");
+    if (target === undefined) {
+      const repo = await repoOf();
+      if (repo !== undefined) {
+        await openReview(repo, repo.store.data.snapshots);
+      }
+      return;
+    }
     const scope =
-      node.kind === "snapshot"
-        ? [node.snapshot]
-        : node.kind === "repo"
-          ? node.repo.store.data.snapshots
-          : node.snapshots.map((snapshot) => snapshot.snapshot);
-    await openReview(node.repo, scope);
+      target.kind === "snapshot"
+        ? [target.snapshot]
+        : target.kind === "repo"
+          ? target.repo.store.data.snapshots
+          : target.snapshots.map((snapshot) => snapshot.snapshot);
+    await openReview(target.repo, scope);
   });
 
   /** Open one snapshot's note as a document. Reached from the link in the
    * sidebar hover, which is a markdown command link and can therefore carry only
    * serialisable arguments — the repository root and the snapshot number, looked
    * back up here. */
-  register("octoview.openNote", async (root: string, n: number) => {
+  register("debrief.openNote", async (root?: string, n?: number) => {
+    if (root === undefined || n === undefined) {
+      const row = rowOf("snapshot", "a snapshot");
+      if (row !== undefined) {
+        await openNote(row.repo, [row.snapshot]);
+      }
+      return;
+    }
     const repo = repos.all.find((candidate) => candidate.root === root);
     const snapshot = repo?.store.data.snapshots.find((candidate) => candidate.n === n);
     if (repo === undefined || snapshot === undefined) {
-      throw new Error(`octoview: no snapshot ${n} in ${root}`);
+      throw new Error(`debrief: no snapshot ${n} in ${root}`);
     }
     await openNote(repo, [snapshot]);
   });
 
   // Let go of the lanes whose branches are gone. This is the one action in the
-  // view that cannot be taken back, and the modal says exactly which part: octoview
+  // view that cannot be taken back, and the modal says exactly which part: debrief
   // deletes no commits, but a snapshot commit sits in no reflog, so once the ref is
   // gone git's collector is the only thing standing between it and nothing.
   // Put the files you have already read back into the review, or take them out
@@ -650,20 +714,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // One action, two names: a menu entry takes its icon from the command, so an
   // eye that changes with the state has to be two commands pointing at the same
   // thing. Their `when` clauses are exclusive, so only ever one is on the bar.
-  register("octoview.showReadFiles", toggleReadFiles);
-  register("octoview.hideReadFiles", toggleReadFiles);
+  register("debrief.showReadFiles", toggleReadFiles);
+  register("debrief.hideReadFiles", toggleReadFiles);
 
-  register("octoview.showMore", (node: MoreNode) => snapshots.showMoreCommits(node.repo));
+  register("debrief.showMore", async (node?: MoreNode) => {
+    const repo = node?.repo ?? (await repoOf());
+    if (repo !== undefined) {
+      snapshots.showMoreCommits(repo);
+    }
+  });
 
-  register("octoview.gc", async (node: RepoNode) => {
-    const { repo } = node;
+  register("debrief.gc", async (node?: RepoNode) => {
+    const repo = await repoOf(node);
+    if (repo === undefined) {
+      return;
+    }
     // Re-read rather than trust the row: a branch can be created or deleted in a
     // terminal between the tree being drawn and the button being pressed.
     const found = await sweepLanes(repo.git, repo.lane.commonDir, false);
     const lanes = [...found.closed, ...found.collected, ...found.stray];
     if (lanes.length === 0) {
       vscode.window.showInformationMessage(
-        `Octoview: every lane in ${repo.name} still has its branch.`,
+        `Debrief: every lane in ${repo.name} still has its branch.`,
       );
       snapshots.refresh();
       return;
@@ -679,7 +751,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ),
           ...found.stray.map((ref) => `${ref} — a ref no lane claims`),
           "",
-          "Octoview deletes no commits. It stops holding the refs that keep them " +
+          "Debrief deletes no commits. It stops holding the refs that keep them " +
             "alive, and git decides from there: a grace period, then the next `git gc`.",
           "",
           "This cannot be undone once git collects them. A snapshot commit is in no " +
@@ -698,7 +770,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     rewatch();
     snapshots.refresh();
     vscode.window.showInformationMessage(
-      `Octoview: let go of ${done.closed.length} lane(s), forgot ${done.collected.length}, ` +
+      `Debrief: let go of ${done.closed.length} lane(s), forgot ${done.collected.length}, ` +
         `dropped ${done.stray.length} stray ref(s). ` +
         `Run \`git gc\` when you want the space back.`,
     );
@@ -709,15 +781,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // review that has served its purpose. It is the more dangerous of the two —
   // nothing keeps the shas afterwards — so the modal counts what only this lane
   // holds, and puts that count in front of the button.
-  register("octoview.clearLane", async (node: RepoNode) => {
-    const { repo } = node;
+  register("debrief.clearLane", async (node?: RepoNode) => {
+    const repo = await repoOf(node);
+    if (repo === undefined) {
+      return;
+    }
     // Re-read rather than trust the row: a snapshot can be taken by a hook between
     // the tree being drawn and the button being pressed.
     await repo.store.load();
     const all = repo.store.data.snapshots;
     if (all.length === 0) {
       vscode.window.showInformationMessage(
-        `Octoview: ${repo.name} has no snapshots on ${repo.lane.name}.`,
+        `Debrief: ${repo.name} has no snapshots on ${repo.lane.name}.`,
       );
       snapshots.refresh();
       return;
@@ -740,7 +815,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ? [`${drafts} draft comment${drafts === 1 ? "" : "s"} you have not submitted.`]
             : []),
           "",
-          "Octoview deletes no commits. It stops holding the refs that keep these " +
+          "Debrief deletes no commits. It stops holding the refs that keep these " +
             "snapshots alive, and git decides from there: a grace period, then the " +
             "next `git gc`.",
           "",
@@ -763,7 +838,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     comments.refresh();
     snapshots.refresh();
     vscode.window.showInformationMessage(
-      `Octoview: deleted ${dropped} snapshot${dropped === 1 ? "" : "s"} on ${repo.lane.name}. ` +
+      `Debrief: deleted ${dropped} snapshot${dropped === 1 ? "" : "s"} on ${repo.lane.name}. ` +
         (based
           ? `The next one starts from the tree as it is now, not from HEAD. `
           : `The tree is clean, so the next one starts from HEAD. `) +
@@ -776,7 +851,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // from the earliest snapshot can be landed, and the tree is re-read here rather
   // than trusted: a `git restore` in a terminal moves what is reviewable between
   // the row being drawn and the button being pressed.
-  register("octoview.commitReviewed", async (node: GroupNode) => {
+  register("debrief.commitReviewed", async (node: GroupNode) => {
     const { repo } = node;
     const nodes = await snapshots.shapeOf(repo);
     // Only what a commit has not already taken: the run restarts after the last
@@ -792,7 +867,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
     if (through === undefined && blocked.length === 0) {
       vscode.window.showInformationMessage(
-        `Octoview: nothing in ${repo.name} is marked reviewed yet.`,
+        `Debrief: nothing in ${repo.name} is marked reviewed yet.`,
       );
       return;
     }
@@ -804,7 +879,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         `A commit takes the snapshots from the earliest one onwards, so it cannot ` +
         `reach past a snapshot you have not read.`;
       const answer = await vscode.window.showWarningMessage(
-        `Octoview: snapshot ${gap?.n} is in the way.`,
+        `Debrief: snapshot ${gap?.n} is in the way.`,
         { modal: true, detail },
         ...(through === undefined ? [] : [`Commit Through Snapshot ${through}`]),
       );
@@ -817,7 +892,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     const snapshot = repo.store.data.snapshots.find((t) => t.n === through);
     if (snapshot === undefined) {
-      throw new Error(`octoview: snapshot ${through} went away while committing`);
+      throw new Error(`debrief: snapshot ${through} went away while committing`);
     }
     // A snapshot the agent never described is one the Stop hook answered for,
     // which is the shape an interrupted turn leaves behind — and what a commit
@@ -825,7 +900,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // after: the reviewer is the only one who can tell finished from cut off.
     if (snapshot.described === "transcript") {
       const answer = await vscode.window.showWarningMessage(
-        `Octoview: snapshot ${through} was recorded by the hook, not described by the agent.`,
+        `Debrief: snapshot ${through} was recorded by the hook, not described by the agent.`,
         {
           modal: true,
           detail:
@@ -844,7 +919,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // is the reviewer's own progress marker. Refuse rather than replace it.
     if (await repo.git.staged()) {
       vscode.window.showWarningMessage(
-        `Octoview: ${repo.name} has staged changes, and committing snapshot ` +
+        `Debrief: ${repo.name} has staged changes, and committing snapshot ` +
           `${through} would replace them. Commit or unstage them first.`,
       );
       return;
@@ -861,11 +936,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const sha = await repo.git.commitSnapshot(snapshot.sha, message);
     snapshots.refresh();
     vscode.window.showInformationMessage(
-      `Octoview: committed ${sha.slice(0, 8)} — ${repo.name} snapshots ${first}–${through}.`,
+      `Debrief: committed ${sha.slice(0, 8)} — ${repo.name} snapshots ${first}–${through}.`,
     );
   });
 
-  register("octoview.stackedDiff", async (node?: RepoNode) => {
+  register("debrief.stackedDiff", async (node?: RepoNode) => {
     const repo = await repoOf(node);
     if (repo === undefined) {
       return;
@@ -873,7 +948,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const selected = snapshots.selectedSnapshots(repo);
     if (selected.length === 0) {
       vscode.window.showInformationMessage(
-        `Octoview: select one or more of ${repo.name}'s snapshots first — the net diff is of what you picked.`,
+        `Debrief: select one or more of ${repo.name}'s snapshots first — the net diff is of what you picked.`,
       );
       return;
     }
@@ -903,7 +978,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     await trackActiveDiff();
     vscode.window.setStatusBarMessage(
-      `Octoview: ${path.basename(target.rel)} ${viewed ? "marked viewed" : "unmarked"}`,
+      `Debrief: ${path.basename(target.rel)} ${viewed ? "marked viewed" : "unmarked"}`,
       3000,
     );
   };
@@ -911,12 +986,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const markHere = async (viewed: boolean): Promise<void> => {
     const active = activeDiff() ?? (await rowAt(undefined));
     if (active === undefined) {
-      throw new Error("octoview: no snapshot diff is showing");
+      throw new Error("debrief: no snapshot diff is showing");
     }
     await markOne(active, viewed);
   };
-  register("octoview.markViewedHere", () => markHere(true));
-  register("octoview.markUnviewedHere", () => markHere(false));
+  register("debrief.markViewedHere", () => markHere(true));
+  register("debrief.markUnviewedHere", () => markHere(false));
 
   /** The tick on a multi-diff row's own toolbar. The menu it sits in is proposed
    * API (`contribMultiDiffEditorMenus`, opted into by the manifest), and it hands
@@ -925,13 +1000,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    *
    * One button that toggles, because a menu item's `when` cannot ask whether
    * *this* row is reviewed: context keys are per window, not per row. */
-  register("octoview.toggleRowViewed", async (uri: unknown) => {
+  register("debrief.toggleRowViewed", async (uri: unknown) => {
     if (!(uri instanceof vscode.Uri)) {
-      throw new Error("octoview: the row toolbar gave no resource to act on");
+      throw new Error("debrief: the row toolbar gave no resource to act on");
     }
     const row = await rowAt(uri);
     if (row === undefined) {
-      throw new Error("octoview: that row is not part of the review in front of you");
+      throw new Error("debrief: that row is not part of the review in front of you");
     }
     await markOne(row, !row.reviewed);
   });
@@ -941,16 +1016,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const markReview = async (viewed: boolean): Promise<void> => {
     const review = activeReview();
     if (review === undefined) {
-      throw new Error("octoview: no review tab is showing");
+      throw new Error("debrief: no review tab is showing");
     }
     await markRows(await rowsFor(review.repo, review.snapshots), viewed);
     snapshots.refresh();
     await reopenReview(review);
   };
-  register("octoview.markAllReviewed", () => markReview(true));
-  register("octoview.markAllUnreviewed", () => markReview(false));
+  register("debrief.markAllReviewed", () => markReview(true));
+  register("debrief.markAllUnreviewed", () => markReview(false));
 
-  register("octoview.markReviewed", async (node: FileNode | SnapshotNode) => {
+  register("debrief.markReviewed", async (node: FileNode | SnapshotNode) => {
     const changed = await filesOf(node);
     await mark(
       node.repo,
@@ -960,7 +1035,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     snapshots.refresh();
   });
 
-  register("octoview.markUnreviewed", async (node: FileNode | SnapshotNode) => {
+  register("debrief.markUnreviewed", async (node: FileNode | SnapshotNode) => {
     const changed = await filesOf(node);
     await mark(
       node.repo,
@@ -970,35 +1045,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     snapshots.refresh();
   });
 
-  register("octoview.createThread", async (reply: vscode.CommentReply) => {
+  register("debrief.createThread", async (reply: vscode.CommentReply) => {
     await comments.reply(reply);
     snapshots.refresh();
   });
 
-  register("octoview.replyThread", async (reply: vscode.CommentReply) => {
+  register("debrief.replyThread", async (reply: vscode.CommentReply) => {
     await comments.reply(reply);
     snapshots.refresh();
   });
 
-  register("octoview.deleteThread", async (thread: vscode.CommentThread) => {
+  register("debrief.deleteThread", async (thread: vscode.CommentThread) => {
     await comments.delete(thread);
     snapshots.refresh();
   });
 
-  register("octoview.submit", async (node?: RepoNode) => {
+  register("debrief.submit", async (node?: RepoNode) => {
     const repo = await repoOf(node);
     if (repo === undefined) {
       return;
     }
     const result = await repo.store.submit();
     if (result === undefined) {
-      vscode.window.showInformationMessage(`Octoview: no draft comments in ${repo.name}.`);
+      vscode.window.showInformationMessage(`Debrief: no draft comments in ${repo.name}.`);
       return;
     }
     comments.refresh();
     snapshots.refresh();
     vscode.window.showInformationMessage(
-      `Octoview: submitted ${result.count} thread(s) in ${repo.name} → ${result.path}`,
+      `Debrief: submitted ${result.count} thread(s) in ${repo.name} → ${result.path}`,
     );
   });
 
@@ -1013,14 +1088,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     snapshots.refresh();
     if (threads.length === 0) {
       vscode.window.showInformationMessage(
-        `Octoview: no review comments in ${repo.name} waiting on the agent.`,
+        `Debrief: no review comments in ${repo.name} waiting on the agent.`,
       );
       return undefined;
     }
     return reviewText(threads);
   };
 
-  register("octoview.copyReview", async (node?: RepoNode) => {
+  register("debrief.copyReview", async (node?: RepoNode) => {
     const repo = await repoOf(node);
     if (repo === undefined) {
       return;
@@ -1042,12 +1117,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     vscode.window.showInformationMessage(
       focus
-        ? "Octoview: review copied — paste it into the agent's input."
-        : "Octoview: review copied to the clipboard.",
+        ? "Debrief: review copied — paste it into the agent's input."
+        : "Debrief: review copied to the clipboard.",
     );
   });
 
-  register("octoview.sendReviewToTerminal", async (node?: RepoNode) => {
+  register("debrief.sendReviewToTerminal", async (node?: RepoNode) => {
     const repo = await repoOf(node);
     if (repo === undefined) {
       return;
@@ -1055,7 +1130,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const terminals = vscode.window.terminals;
     if (terminals.length === 0) {
       vscode.window.showInformationMessage(
-        "Octoview: no terminal open. Start the agent in one, or use Copy Review for the Agent.",
+        "Debrief: no terminal open. Start the agent in one, or use Copy Review for the Agent.",
       );
       return;
     }

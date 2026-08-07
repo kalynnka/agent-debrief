@@ -1,13 +1,13 @@
-# Working with an agent through Octoview
+# Working with an agent through Debrief
 
 The situations this tool is for, and what each side does in them.
 [PRD §3](PRD.md) states the use cases as requirements; this is the practical
-companion — what you click, what the agent runs, and what Octoview does in
+companion — what you click, what the agent runs, and what Debrief does in
 between. Everything here works against the current build unless it is marked
 **not built yet**.
 
 The unit is the **snapshot**: one agent turn's work, captured as a real git commit
-under `refs/octoview/snapshots/<lane>/<n>` and diffed against the snapshot before
+under `refs/debrief/snapshots/<lane>/<n>` and diffed against the snapshot before
 it. Your index, your HEAD and your branches are never touched.
 
 ---
@@ -19,7 +19,7 @@ it. Your index, your HEAD and your branches are never touched.
 The Stop hook snapshots the working tree the moment the agent stops:
 
 ```bash
-octoview snapshot --from-stop-hook   # reads the hook payload on stdin
+debrief snapshot --from-stop-hook   # reads the hook payload on stdin
 ```
 
 It takes the repo, the session id and a label from the transcript, so the snapshot
@@ -84,7 +84,7 @@ makes it scrollable, if you would rather stay there.)
 
 A `src/review.ts:270` in a note is a **link** — in the note and in the hover both.
 Click it and the file opens at that line. Nothing renders that row, so agents are
-told to write references plainly rather than as markdown; octoview finds them
+told to write references plainly rather than as markdown; debrief finds them
 afterwards and underlines them where they stand. They point at the file on disk,
 which is the copy with a language server attached, so a reference to a file since
 deleted is left as plain text rather than given a link that goes nowhere.
@@ -93,7 +93,7 @@ For the **newest** snapshot the right-hand side of a diff is the real file on di
 so the language server attaches — hover, types and go-to-definition all work while
 you read. Older snapshots diff two revisions and are read-only by nature.
 
-That has an edge, and Octoview handles it rather than leaving it to you. A review
+That has an edge, and Debrief handles it rather than leaving it to you. A review
 of snapshot 10, opened while 10 was newest, points at the file; when snapshot 11
 lands, the file holds 11's work, so the tab would quietly be showing 9→11 under a
 title saying 10. It is **frozen** instead: the next time you look at that tab it
@@ -120,7 +120,7 @@ snapshot and the agent's turn starts after them:
 
 ```json
 "UserPromptSubmit": [{ "hooks": [{ "type": "command",
-  "command": "node <octoview>/out/cli.js snapshot --agent manual --label 'before the turn'" }]}]
+  "command": "node <debrief>/out/cli.js snapshot --agent manual --label 'before the turn'" }]}]
 ```
 
 Snapshotting is idempotent, so a turn where you changed nothing costs nothing. An
@@ -137,7 +137,7 @@ Comment on any line while you read. Drafts accumulate — nothing is sent until 
 press **Submit Review** on the repo's row, which writes one file:
 
 ```
-.git/octoview/<lane>/batches/<timestamp>.json
+.git/debrief/<lane>/batches/<timestamp>.json
 ```
 
 and flips those threads to submitted. This is the whole point of the tool: the
@@ -146,8 +146,8 @@ agent gets the shape of your review in one reply, not five interruptions.
 The agent reads it back with:
 
 ```bash
-octoview review open           # every comment still waiting on it, across submits
-octoview review resolve <id>…  # what it has dealt with
+debrief review open           # every comment still waiting on it, across submits
+debrief review resolve <id>…  # what it has dealt with
 ```
 
 `review open` is the one to work from — `review batch` is still there and answers
@@ -161,7 +161,7 @@ with open for you.
 Submitting writes the file. Getting it in front of an agent is a separate step,
 and there are three ways because no two people run their agent the same way.
 
-**The agent asks.** Nothing to press: it runs `octoview review open` at the start
+**The agent asks.** Nothing to press: it runs `debrief review open` at the start
 of a turn. This is the one that costs you nothing and the one to prefer.
 
 **Copy Review for the Agent** (the clipboard on the repo's row) submits any
@@ -230,7 +230,7 @@ committed with it as its git parent, so the chain stays reachable.
 
 `git stash` puts the working tree back exactly where a snapshot started, which is
 indistinguishable from you having undone it — every snapshot goes frozen at once.
-Octoview records `refs/stash` with each snapshot, so when the stash has moved
+Debrief records `refs/stash` with each snapshot, so when the stash has moved
 since the last one the row says **stashed**, not reverted, and Drop is refused.
 Pop the stash and everything comes back; or take a snapshot, which makes the
 stashed state the new starting point.
@@ -252,7 +252,7 @@ their order. Drop it when you want it gone.
 The Snapshots view splits each repo into what has landed and what has not:
 
 ```
-octoview                     main · 34 snapshots
+debrief                     main · 34 snapshots
   › Commits      2 commits · 9 snapshots
       › c6dfa54  feat(review): net and step diffs…   snapshots 5–13
   ⌄ Open         5 snapshots
@@ -290,7 +290,7 @@ gated entirely on marks. Reviews now open whole, every time.
 Committing is the CLI's:
 
 ```bash
-octoview snapshot commit <n> -m "<subject>"
+debrief snapshot commit <n> -m "<subject>"
 ```
 
 A commit is a **prefix** of the lane — snapshot 12's content sits on top of snapshot
@@ -303,7 +303,7 @@ in the numbers, and snapshots 29 and 31 still commit together.
 One thing gets in the way, deliberately. A snapshot whose message the **hook**
 wrote — rather than the agent describing its own work — is the shape an interrupted
 turn leaves behind, and a commit takes that snapshot exactly as it stands, half-done
-work included. `octoview snapshot commit` stops and says so; the snapshot row's
+work included. `debrief snapshot commit` stops and says so; the snapshot row's
 hover says it earlier, before you get there.
 
 ### 5.4 Commit 1–10 now, 11–20 later
@@ -312,7 +312,7 @@ This is the case the whole design bends around, and there is **no restore step**
 The content comes from snapshot 10 itself, so the working tree never moves:
 
 ```bash
-octoview snapshot commit 10 -m "project registry"
+debrief snapshot commit 10 -m "project registry"
 ```
 
 Snapshots 11+ stay uncommitted on disk exactly as they were. A file snapshot 12
@@ -349,24 +349,24 @@ still has work outstanding.
 Landing is therefore **not** a prefix. Commit snapshot 2's files and leave snapshot 1's
 half done, and 2 lands while 1 waits — a commit's row says `snapshots 2, 5–7` when
 that is what it took. The commit *button* is still a prefix (§5.2); that is a rule
-about what octoview may commit for you, not about what git has already done.
+about what debrief may commit for you, not about what git has already done.
 
 Nothing is recorded, so amend, reset and rebase all just move the answer.
 
 ### 5.7 Letting go of a dead branch
 
 Delete a branch and its lane is left holding refs nobody can reach. Those refs are
-**GC roots** — while octoview holds one, `git gc --prune=now` cannot collect the
+**GC roots** — while debrief holds one, `git gc --prune=now` cannot collect the
 snapshot. That is the only real leak, and it is why cleanup exists at all.
 
-The repo row goes warning-coloured with a count and grows a bin; `octoview gc
+The repo row goes warning-coloured with a count and grows a bin; `debrief gc
 [--dry-run]` does the same from a terminal. Both do exactly one thing: **let go of
 the refs.** No commit is deleted. From that moment the snapshots are ordinary
 unreachable objects and git's own retention decides — its grace period, then your
 next `git gc`. A lane whose objects git has already taken is then forgotten,
 because there is nothing left to review.
 
-Octoview has no age window, no per-lane cap, and no opinion about when your work
+Debrief has no age window, no per-lane cap, and no opinion about when your work
 goes stale. It also never runs `git gc` for you.
 
 **What cannot be undone.** Once git collects them, they are gone: a snapshot commit
@@ -383,7 +383,7 @@ review over — right-click the repo row: **Delete This Branch's Snapshots**. It
 in the context menu rather than on the row, because a permanent bin beside every
 repo is one misclick from a review you cannot get back.
 
-Same rule as the sweep: octoview lets go of the refs and deletes no commit. The
+Same rule as the sweep: debrief lets go of the refs and deletes no commit. The
 difference is the record. A dead lane keeps its `state.json`, so `git update-ref`
 can put it back while the objects last; this **empties** it, so nothing anywhere
 remembers the shas. The modal counts what is already in a commit against what is
@@ -402,7 +402,7 @@ nothing, because HEAD already says the same thing.
 
 Revert does not know the work is committed. It will put files back, creating an
 uncommitted diff against your own commit — recoverable with `git restore`, but
-Octoview will not warn you first. Before a commit a revert is free; after it, it
+Debrief will not warn you first. Before a commit a revert is free; after it, it
 is an edit you have to deal with in git.
 
 ---
@@ -423,9 +423,13 @@ at once records four of them for work that happened in the fifth, and a review
 submitted across the workspace goes to whichever agent reads it first. Each repo
 keeps its own state, its own numbering and its own review; the buttons now say so.
 
-From the command palette there is no row to have pressed, so the repo is the one
-whose review you are looking at, or the only one in the workspace — and when it is
-neither, it asks.
+**Everything is also in the command palette** — `⌘⇧P`, then "Debrief". A command
+that would normally act on a row takes the row you have **selected** in the view,
+and tells you when nothing is selected. A repo-scoped one takes the repo whose
+review you are looking at, or the only one in the workspace, and asks when it is
+neither. The only commands not in the palette are the three that add, reply to and
+delete a review comment: their argument is a comment widget VS Code owns, and the
+palette has no way to hand one over.
 
 A repo appears in the view once it has snapshots and not before.
 
@@ -445,7 +449,7 @@ extension's state and refreshes on real changes only, so a background `git
 status` does not make the rows flicker. A checkout re-discovers the lane.
 
 Snapshots never read or write your index; they go through a private index file, so
-`git add -A` inside Octoview cannot touch the set you are curating.
+`git add -A` inside Debrief cannot touch the set you are curating.
 
 ### 6.4 Which agent made a snapshot
 
@@ -458,7 +462,7 @@ anything else — because an agent this build has never heard of is still an age
 Any agent that can run a command can record a snapshot:
 
 ```bash
-octoview snapshot --label "what the snapshot did" --agent codex
+debrief snapshot --label "what the snapshot did" --agent codex
 ```
 
 And any agent at all can be reviewed by snapshotting manually before and after
@@ -474,9 +478,9 @@ The `prepare-change-review` skill is the contract: capture the snapshot, then bu
 a report from CLI facts rather than from memory of the work.
 
 ```bash
-octoview status --json        # snapshots so far, files, review state
-octoview diff <n> --json      # exactly this snapshot's changed files
-octoview show <rev> <path>    # file content at a snapshot, for before/after
+debrief status --json        # snapshots so far, files, review state
+debrief diff <n> --json      # exactly this snapshot's changed files
+debrief show <rev> <path>    # file content at a snapshot, for before/after
 ```
 
 Report in the human's reading order — schema and model first, then managers, then
@@ -509,10 +513,10 @@ deliberately lazy — reached for only when an agent cannot account for the work
 already in the tree, and abandoned as soon as it can. Cheapest rung first:
 
 ```bash
-octoview status               # one line per snapshot: label, files, review state
-octoview status --json        # …and the full message each agent left
-octoview diff <n>             # what that snapshot actually changed
-octoview review batch --json  # what you said back, which is often the real job
+debrief status               # one line per snapshot: label, files, review state
+debrief status --json        # …and the full message each agent left
+debrief diff <n>             # what that snapshot actually changed
+debrief review batch --json  # what you said back, which is often the real job
 ```
 
 It also says what the record cannot tell them: a message is what an agent
@@ -524,10 +528,10 @@ may have reverted a file or dropped a snapshot since.
 - Touch the index. The staged set is the human's review progress marker.
 - Approve or waive anything. That boundary is the product, and it is the human's
   side of it.
-- Commit uninvited. `octoview snapshot commit` exists so the human's instruction can
+- Commit uninvited. `debrief snapshot commit` exists so the human's instruction can
   be carried out, not so an agent can decide to land work — and the instruction
   is scoped to the message it was given in.
-- Read or write `.git/octoview/` directly. The CLI owns that state and its
+- Read or write `.git/debrief/` directly. The CLI owns that state and its
   locking; two writers share it.
 
 ---

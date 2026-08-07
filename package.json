@@ -1,6 +1,6 @@
 {
-  "name": "octoview",
-  "displayName": "Octoview",
+  "name": "debrief",
+  "displayName": "Debrief",
   "description": "Snapshot-by-snapshot review of agent changes: snapshot each turn, diff snapshot-over-snapshot, batch line comments.",
   "version": "0.0.1",
   "publisher": "octoverse",
@@ -15,7 +15,7 @@
   ],
   "main": "./out/extension.js",
   "bin": {
-    "octoview": "./out/cli.js"
+    "debrief": "./out/cli.js"
   },
   "activationEvents": [
     "onStartupFinished"
@@ -27,16 +27,16 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "octoview",
-          "title": "Octoview",
+          "id": "debrief",
+          "title": "Debrief",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "octoview": [
+      "debrief": [
         {
-          "id": "octoview.snapshots",
+          "id": "debrief.snapshots",
           "name": "Snapshots",
           "icon": "media/icon.svg"
         }
@@ -44,246 +44,232 @@
     },
     "viewsWelcome": [
       {
-        "view": "octoview.snapshots",
-        "contents": "No snapshots yet in this workspace. A snapshot is captured when an agent finishes its turn, or you can take one now.\n[Take Snapshot](command:octoview.snapshot)"
+        "view": "debrief.snapshots",
+        "contents": "No snapshots yet in this workspace. A snapshot is captured when an agent finishes its turn, or you can take one now.\n[Take Snapshot](command:debrief.snapshot)"
       }
     ],
     "commands": [
       {
-        "command": "octoview.snapshot",
+        "command": "debrief.snapshot",
         "title": "Take Snapshot",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(device-camera)"
       },
       {
-        "command": "octoview.refresh",
+        "command": "debrief.refresh",
         "title": "Refresh",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(refresh)"
       },
       {
-        "command": "octoview.stackedDiff",
+        "command": "debrief.stackedDiff",
         "title": "Open Net Diff of Selected Snapshots",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(diff-multiple)"
       },
       {
-        "command": "octoview.stepHistory",
+        "command": "debrief.stepHistory",
         "title": "Open Step History",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(history)"
       },
       {
-        "command": "octoview.submit",
+        "command": "debrief.submit",
         "title": "Submit Review",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(check-all)"
       },
       {
-        "command": "octoview.copyReview",
+        "command": "debrief.copyReview",
         "title": "Copy Review for the Agent",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(clippy)"
       },
       {
-        "command": "octoview.sendReviewToTerminal",
+        "command": "debrief.sendReviewToTerminal",
         "title": "Send Review to the Agent's Terminal",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(terminal)"
       },
       {
-        "command": "octoview.createThread",
+        "command": "debrief.createThread",
         "title": "Add Review Comment",
-        "category": "Octoview"
+        "category": "Debrief"
       },
       {
-        "command": "octoview.replyThread",
+        "command": "debrief.replyThread",
         "title": "Reply",
-        "category": "Octoview"
+        "category": "Debrief"
       },
       {
-        "command": "octoview.deleteThread",
+        "command": "debrief.deleteThread",
         "title": "Delete Thread",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(trash)"
       },
       {
-        "command": "octoview.openFile",
+        "command": "debrief.openDiff",
+        "title": "Open This File's Diff",
+        "category": "Debrief",
+        "icon": "$(diff-single)"
+      },
+      {
+        "command": "debrief.openFile",
         "title": "Open File",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(go-to-file)"
       },
       {
-        "command": "octoview.revert",
+        "command": "debrief.revert",
         "title": "Revert This Snapshot's Change",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(discard)"
       },
       {
-        "command": "octoview.dropSnapshot",
+        "command": "debrief.dropSnapshot",
         "title": "Drop This Snapshot",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(trash)"
       },
       {
-        "command": "octoview.openSnapshot",
+        "command": "debrief.openSnapshot",
         "title": "Open Snapshot Diff",
-        "category": "Octoview"
+        "category": "Debrief"
       },
       {
-        "command": "octoview.openNote",
+        "command": "debrief.openNote",
         "title": "Read the Whole Note",
-        "category": "Octoview"
+        "category": "Debrief"
       },
       {
-        "command": "octoview.gc",
+        "command": "debrief.gc",
         "title": "Let Go of Abandoned Lanes",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(trash)"
       },
       {
-        "command": "octoview.clearLane",
+        "command": "debrief.clearLane",
         "title": "Delete This Branch's Snapshots",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(trash)"
       },
       {
-        "command": "octoview.showMore",
+        "command": "debrief.showMore",
         "title": "Show Earlier Commits",
-        "category": "Octoview",
+        "category": "Debrief",
         "icon": "$(ellipsis)"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "octoview.submit",
-          "when": "octoview.inReview",
+          "command": "debrief.submit",
+          "when": "debrief.inReview",
           "group": "navigation@2"
         }
       ],
       "view/title": [
         {
-          "command": "octoview.refresh",
-          "when": "view == octoview.snapshots",
+          "command": "debrief.refresh",
+          "when": "view == debrief.snapshots",
           "group": "navigation@1"
         }
       ],
       "view/item/context": [
         {
-          "command": "octoview.snapshot",
-          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
+          "command": "debrief.snapshot",
+          "when": "view == debrief.snapshots && viewItem =~ /^repo/",
           "group": "inline@1"
         },
         {
-          "command": "octoview.stackedDiff",
-          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
+          "command": "debrief.stackedDiff",
+          "when": "view == debrief.snapshots && viewItem =~ /^repo/",
           "group": "inline@2"
         },
         {
-          "command": "octoview.submit",
-          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
+          "command": "debrief.submit",
+          "when": "view == debrief.snapshots && viewItem =~ /^repo/",
           "group": "inline@3"
         },
         {
-          "command": "octoview.copyReview",
-          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
+          "command": "debrief.copyReview",
+          "when": "view == debrief.snapshots && viewItem =~ /^repo/",
           "group": "inline@4"
         },
         {
-          "command": "octoview.gc",
-          "when": "view == octoview.snapshots && viewItem == repo-abandoned",
+          "command": "debrief.gc",
+          "when": "view == debrief.snapshots && viewItem == repo-abandoned",
           "group": "inline@5"
         },
         {
-          "command": "octoview.openFile",
-          "when": "view == octoview.snapshots && viewItem =~ /^file-/",
+          "command": "debrief.openFile",
+          "when": "view == debrief.snapshots && viewItem =~ /^file-/",
           "group": "inline@1"
         },
         {
-          "command": "octoview.revert",
-          "when": "view == octoview.snapshots && (viewItem =~ /-revertable$/ || viewItem =~ /^snapshot-(un)?reviewed-droppable$/)",
+          "command": "debrief.revert",
+          "when": "view == debrief.snapshots && (viewItem =~ /-revertable$/ || viewItem =~ /^snapshot-(un)?reviewed-droppable$/)",
           "group": "inline@2"
         },
         {
-          "command": "octoview.dropSnapshot",
-          "when": "view == octoview.snapshots && viewItem == snapshot-frozen-droppable",
+          "command": "debrief.dropSnapshot",
+          "when": "view == debrief.snapshots && viewItem == snapshot-frozen-droppable",
           "group": "inline@2"
         },
         {
-          "command": "octoview.stepHistory",
-          "when": "view == octoview.snapshots && viewItem =~ /^file-/",
-          "group": "octoview@1"
+          "command": "debrief.stepHistory",
+          "when": "view == debrief.snapshots && viewItem =~ /^file-/",
+          "group": "debrief@1"
         },
         {
-          "command": "octoview.sendReviewToTerminal",
-          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
-          "group": "octoview@1"
+          "command": "debrief.sendReviewToTerminal",
+          "when": "view == debrief.snapshots && viewItem =~ /^repo/",
+          "group": "debrief@1"
         },
         {
-          "command": "octoview.clearLane",
-          "when": "view == octoview.snapshots && viewItem =~ /^repo/",
-          "group": "octoview@2"
+          "command": "debrief.clearLane",
+          "when": "view == debrief.snapshots && viewItem =~ /^repo/",
+          "group": "debrief@2"
         }
       ],
       "commandPalette": [
         {
-          "command": "octoview.openFile",
+          "command": "debrief.createThread",
           "when": "false"
         },
         {
-          "command": "octoview.openNote",
+          "command": "debrief.replyThread",
           "when": "false"
         },
         {
-          "command": "octoview.revert",
-          "when": "false"
-        },
-        {
-          "command": "octoview.dropSnapshot",
-          "when": "false"
-        },
-        {
-          "command": "octoview.openSnapshot",
-          "when": "false"
-        },
-        {
-          "command": "octoview.gc",
-          "when": "false"
-        },
-        {
-          "command": "octoview.clearLane",
-          "when": "false"
-        },
-        {
-          "command": "octoview.showMore",
+          "command": "debrief.deleteThread",
           "when": "false"
         }
       ],
       "comments/commentThread/context": [
         {
-          "command": "octoview.createThread",
+          "command": "debrief.createThread",
           "group": "inline@1",
-          "when": "commentController == octoview"
+          "when": "commentController == debrief"
         },
         {
-          "command": "octoview.replyThread",
+          "command": "debrief.replyThread",
           "group": "inline@2",
-          "when": "commentController == octoview && commentThreadIsEmpty == false"
+          "when": "commentController == debrief && commentThreadIsEmpty == false"
         }
       ],
       "comments/commentThread/title": [
         {
-          "command": "octoview.deleteThread",
+          "command": "debrief.deleteThread",
           "group": "navigation",
-          "when": "commentController == octoview && commentThreadIsEmpty == false"
+          "when": "commentController == debrief && commentThreadIsEmpty == false"
         }
       ]
     },
     "configuration": {
-      "title": "Octoview",
+      "title": "Debrief",
       "properties": {
-        "octoview.author": {
+        "debrief.author": {
           "type": "string",
           "default": "",
           "description": "Name recorded on review comments. Empty uses the repository's git user.name, which is what every other record of this work carries."
@@ -292,7 +278,7 @@
     }
   },
   "scripts": {
-    "dev": "code -n --extensionDevelopmentPath=\"$PWD\" --enable-proposed-api=octoverse.octoview --inspect-extensions=9229 ../octoverse.code-workspace",
+    "dev": "code -n --extensionDevelopmentPath=\"$PWD\" --enable-proposed-api=octoverse.debrief --inspect-extensions=9229 ../octoverse.code-workspace",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "node test/smoke.js && node test/cli.js"

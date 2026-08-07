@@ -1,11 +1,11 @@
-# Octoview — Product Requirements
+# Debrief — Product Requirements
 
 **Status:** draft · **Owner:** Lu Hui · **Last updated:** 2026-08-04
 
 Snapshot-by-snapshot review of agent changes, in the editor where the language server
 already runs.
 
-**Positioning — the one sentence everything else serves:** Octoview is a
+**Positioning — the one sentence everything else serves:** Debrief is a
 **pre-commit, pre-PR, human-in-the-loop review tool.** It reviews work that is
 not committed yet, in the window between the agent finishing and me deciding, and
 a human makes every decision in it. Anything that only works after a commit, only
@@ -85,13 +85,13 @@ No feature is worth violating this.
 - **Not** per-edit approve/reject. That is the failure mode, not the feature.
   Per-edit *provenance* — explaining a hunk without asking me to rule on it — is
   in scope, and §4.9 keeps the two apart.
-- **Not** an agent runtime. Octoview never runs a model; it hands work to agents.
+- **Not** an agent runtime. Debrief never runs a model; it hands work to agents.
 - **Not** an MCP server shipped inside the extension. An MCP→CLI adapter can be
   added later for a host that genuinely benefits, but the core never depends on
   MCP.
 - **Not** a long-running daemon or local service, until something forces one.
 - **Not** a second conversation model. Octomate already owns threads, runs and
-  history; Octoview does not re-invent them.
+  history; Debrief does not re-invent them.
 
 ---
 
@@ -174,10 +174,10 @@ This is not a concurrency feature bolted on; it is a correctness fix the POC
 needs regardless:
 
 - **Refs are shared across worktrees.** A linked worktree writes to the same
-  `refs/` as its main tree, so `refs/octoview/snapshots/<n>` collides between two
+  `refs/` as its main tree, so `refs/debrief/snapshots/<n>` collides between two
   worktrees of one clone — verified, not assumed.
 - **`.git` is a *file* in a linked worktree**, not a directory. The POC's
-  `mkdir .git/octoview` fails with `ENOTDIR`, so both snapshotting and review
+  `mkdir .git/debrief` fails with `ENOTDIR`, so both snapshotting and review
   state are broken in any worktree today.
 
 Resolution:
@@ -185,8 +185,8 @@ Resolution:
 | Concern | Rule |
 |---|---|
 | Lane id | Current branch. A detached HEAD is `detached/<sha>` — its own lane, since the worktree's name is shared by every detached checkout in the clone; a pulled PR is `pr/<number>` |
-| Snapshot refs | `refs/octoview/snapshots/<lane>/<n>` |
-| State | `<git-common-dir>/octoview/<lane>/state.json`, resolved via `git rev-parse --git-common-dir` so every worktree agrees |
+| Snapshot refs | `refs/debrief/snapshots/<lane>/<n>` |
+| State | `<git-common-dir>/debrief/<lane>/state.json`, resolved via `git rev-parse --git-common-dir` so every worktree agrees |
 
 Branch is the lane key rather than worktree path because git already forbids the
 same branch in two worktrees, so branch → at most one worktree, and a branch
@@ -202,8 +202,8 @@ while the new branch still stands exactly where it was created — once it has a
 commit of its own it is a line of work of its own, and inherits nothing.
 
 **A lane ends the way its branch ends** — when the branch is deleted, and only
-then. A merged branch still exists, and git keeps its objects, so octoview keeps
-the lane; the reviewer deleting the branch is the signal, not a status octoview
+then. A merged branch still exists, and git keeps its objects, so debrief keeps
+the lane; the reviewer deleting the branch is the signal, not a status debrief
 infers. A closed lane is handed back to git (§4.8).
 
 **Concurrent agents** follow from this. Two agents working at once belong in two
@@ -214,15 +214,15 @@ is now a supported alternative rather than an unanswered question.
 ### 4.3 Snapshotting without touching git state
 
 ```
-GIT_INDEX_FILE=<common>/octoview/<lane>/index  git read-tree <parent>
+GIT_INDEX_FILE=<common>/debrief/<lane>/index  git read-tree <parent>
                                                git add -A
                                                git write-tree
                                                git commit-tree <tree> -p <parent>
-                                               git update-ref refs/octoview/snapshots/<lane>/<n> <sha>
+                                               git update-ref refs/debrief/snapshots/<lane>/<n> <sha>
 ```
 
 - The private index means the staged set I curate is never read or written.
-- `refs/octoview/` is outside `refs/heads`, so `git branch` never lists a snapshot.
+- `refs/debrief/` is outside `refs/heads`, so `git branch` never lists a snapshot.
 - **The `read-tree` seed is required, not an optimization.** Without it `add -A`
   starts from an empty index, where a file that is tracked *and* matched by
   `.gitignore` looks like a new ignored file — so it is skipped and every snapshot
@@ -230,9 +230,9 @@ GIT_INDEX_FILE=<common>/octoview/<lane>/index  git read-tree <parent>
   that way, and the POC's first snapshot reported it deleted.
 - A repo the work did not change gets **no snapshot**. An empty one would put a
   repo's numbering out of step with the work it describes.
-- **Everything octoview records about a repo lives in that repo's own `.git`** —
-  refs under `refs/octoview/`, state and batches under
-  `<git-common-dir>/octoview/<lane>/`. The tool keeps no central store:
+- **Everything debrief records about a repo lives in that repo's own `.git`** —
+  refs under `refs/debrief/`, state and batches under
+  `<git-common-dir>/debrief/<lane>/`. The tool keeps no central store:
   reviewing four repos writes four repos' `.git` and nothing anywhere else,
   so a clone carries its own review history and deleting a clone deletes it.
 
@@ -268,7 +268,7 @@ actual output.
 
 ### 4.6 Evidence
 
-The agent owns the explanation; **Octoview owns the evidence.** When an agent
+The agent owns the explanation; **Debrief owns the evidence.** When an agent
 claims "all tests pass", the claim is text; the CLI attaches the command, exit
 code, output summary and the snapshot sha it ran against. A report carries both,
 and they are distinguishable.
@@ -284,7 +284,7 @@ a ref, and diffed with git:
 
 ```
 git hash-object -w --stdin                                    # object store only
-git update-ref refs/octoview/artifacts/<lane>/<slug> <blob>   # refs may point at blobs
+git update-ref refs/debrief/artifacts/<lane>/<slug> <blob>   # refs may point at blobs
 git diff <blobA> <blobB>                                      # a real diff
 ```
 
@@ -325,7 +325,7 @@ agent to explain how a snapshot follows the plan; the CLI supplies the facts —
 the plan revision, the files each snapshot changed, and the changed paths the plan
 text never mentions. That last one is a crude token match, and it is stated as
 "the plan does not mention these paths", never as "the agent drifted". The agent
-owns the explanation, Octoview owns the facts (§4.6), and a fuzzy signal is
+owns the explanation, Debrief owns the facts (§4.6), and a fuzzy signal is
 honest as long as it is labelled as one.
 
 Deliberately deferred: structured plan steps with stable ids and per-step
@@ -336,7 +336,7 @@ enough to prove it is missed.
 
 ### 4.8 Retention and cleanup
 
-**Octoview has no retention policy** (owner decision 2026-08-06, docs/GIT.md D2).
+**Debrief has no retention policy** (owner decision 2026-08-06, docs/GIT.md D2).
 It has exactly one rule, and the rest is git's:
 
 | | |
@@ -344,11 +344,11 @@ It has exactly one rule, and the rest is git's:
 | A lane whose branch no longer exists | **Let go of its refs.** Nothing else |
 | A lane whose snapshots git has since collected | Forget it — there is nothing left to review |
 
-That is the whole of `octoview gc`. No age window, no per-lane cap, no notion of
-a lane being stale on octoview's own authority.
+That is the whole of `debrief gc`. No age window, no per-lane cap, no notion of
+a lane being stale on debrief's own authority.
 
 The reason is mechanical rather than tasteful. **A snapshot ref is a GC root**, so
-while octoview holds one, `git gc --prune=now` cannot touch that snapshot — a lane
+while debrief holds one, `git gc --prune=now` cannot touch that snapshot — a lane
 left behind by `git branch -d` pins its objects forever, which is the actual leak.
 Letting the ref go is the entire act: from that moment the snapshot is an ordinary
 unreachable object and git's own retention decides when it goes. A real cleanup
@@ -358,13 +358,13 @@ by cleaning up.
 It is not quite the grace a deleted branch gets, and the difference is worth
 knowing. A branch's commits stay named in HEAD's reflog for
 `gc.reflogExpireUnreachable` (90 days by default), while a snapshot commit was
-never on a branch and `core.logAllRefUpdates` does not cover `refs/octoview/` —
+never on a branch and `core.logAllRefUpdates` does not cover `refs/debrief/` —
 verified, not assumed — so nothing names it once the ref is gone. **`state.json`
 is what stands in for the reflog:** it keeps every snapshot's sha, so while the
 objects last a lane can be restored with `git update-ref`. Widening that window is
-`gc.pruneExpire`, git's own knob rather than one octoview invents.
+`gc.pruneExpire`, git's own knob rather than one debrief invents.
 
-Octoview never deletes an object and never runs `git gc` for you. Deleting a ref
+Debrief never deletes an object and never runs `git gc` for you. Deleting a ref
 it created itself is the only destructive git command it will run.
 
 ### 4.9 Edit provenance inside a snapshot
@@ -421,9 +421,9 @@ comparable transcript, so its snapshots carry diffs without provenance.
 ## 5. Architecture
 
 ```
-  skills / hooks / agents ──► octoview CLI ──┐
-                                             ├──► review core ──► git + <repo>/.git/octoview
-  Octoview UI (VS Code) ── in-process ───────┘
+  skills / hooks / agents ──► debrief CLI ──┐
+                                             ├──► review core ──► git + <repo>/.git/debrief
+  Debrief UI (VS Code) ── in-process ───────┘
                                   │
                                   └── sync (M5) ──► Octomate API ──► Web UI
 ```
@@ -435,8 +435,8 @@ stale-review detection, comment anchoring and carry-forward, state transitions,
 report and evidence schemas, locking.
 
 It is a library of editor-free TypeScript modules (`lanes`, `git`, `state`,
-`review`, `transcript`) in the octoview repo. The extension imports it
-in-process; the `octoview` CLI is a thin bin over the same modules and is the
+`review`, `transcript`) in the debrief repo. The extension imports it
+in-process; the `debrief` CLI is a thin bin over the same modules and is the
 contract everything that is not the extension talks through. **One language for
 core, CLI and extension** replaced the original Python-core plan (owner
 decision, 2026-08-04): the POC's tested plumbing carried forward instead of
@@ -460,14 +460,14 @@ machine-facing command:
 
 | Command | Purpose |
 |---|---|
-| `octoview snapshot` | Capture a snapshot. `--label`, `--agent`, `--session`; `--from-stop-hook` reads Claude's Stop payload (session id, transcript path, project cwd) from stdin |
-| `octoview status` | Lanes, snapshots, changed files, review state |
-| `octoview diff <snapshot>` | Changed files for a snapshot |
-| `octoview show <rev> <path>` | File content at a revision |
-| `octoview plan put` / `plan show` | Write and read a plan artifact revision (§4.7) |
-| `octoview review submit` | Emit the comment batch |
-| `octoview review batch` | Read the latest batch (for agents) |
-| `octoview gc` | Prune spent lanes and snapshots (§4.8) |
+| `debrief snapshot` | Capture a snapshot. `--label`, `--agent`, `--session`; `--from-stop-hook` reads Claude's Stop payload (session id, transcript path, project cwd) from stdin |
+| `debrief status` | Lanes, snapshots, changed files, review state |
+| `debrief diff <snapshot>` | Changed files for a snapshot |
+| `debrief show <rev> <path>` | File content at a revision |
+| `debrief plan put` / `plan show` | Write and read a plan artifact revision (§4.7) |
+| `debrief review submit` | Emit the comment batch |
+| `debrief review batch` | Read the latest batch (for agents) |
+| `debrief gc` | Prune spent lanes and snapshots (§4.8) |
 
 Every command takes `--repo` and `--lane`; both default to the current directory
 and its checked-out branch. As of M1 all of these exist except `plan put/show`
@@ -487,12 +487,12 @@ on an unborn HEAD); neither should ever need fixing twice.
 
 ### 5.3 Distribution — where the decoupling actually lives
 
-**The `octoview` CLI ships as its own installable and must not import
+**The `debrief` CLI ships as its own installable and must not import
 `octomate`.** This is the decision that determines whether the extension works
 with Copilot or Cursor; the architecture diagram does not. If the CLI lands
 inside the octomate package, the tool is re-coupled through the back door.
 
-Repo layout: CLI and extension in the `octoview` repo (one pnpm package, the
+Repo layout: CLI and extension in the `debrief` repo (one pnpm package, the
 CLI as its `bin`), released separately when release time comes. Dev install is
 `pnpm link --global`, or an absolute `node <repo>/out/cli.js` path in hook
 configs.
@@ -511,7 +511,7 @@ the same locked store the CLI uses. A second IDE client still needs only
 process execution of the CLI plus JSON rendering.
 
 All the VS Code APIs used are finalized and stable, with no Copilot involvement
-and no model API. Octoview does not plug into VS Code's agent system: that would
+and no model API. Debrief does not plug into VS Code's agent system: that would
 mean adopting a second conversation model from a vendor whose product competes
 with Octomate's.
 
@@ -531,7 +531,7 @@ window on the same branch — recovers it from the CLI rather than from the huma
 Deliberately lazy: entered only when the tree holds work the agent cannot
 account for, and left as soon as it can act.
 
-**Skills invoke the CLI. Skills never write `.git/octoview/` directly.**
+**Skills invoke the CLI. Skills never write `.git/debrief/` directly.**
 
 A skill is model-selected: the agent may forget it, decline to load it, or use it
 wrong. So the CLI computes the git facts, validates payloads and refuses invalid
@@ -550,7 +550,7 @@ skills/prepare-change-review/SKILL.md      canonical, git-tracked in this repo
 ```
 
 A repo-local `.claude/skills/` wrapper was tried first and dropped (2026-08-04):
-it only reached sessions opened in the octoview repo itself — exactly where the
+it only reached sessions opened in the debrief repo itself — exactly where the
 skill is least needed. When delivery has to reach beyond this machine, the
 packaged form is a Claude Code plugin: one install carrying the skill *and* the
 Stop hook, replacing the per-repo `settings.local.json` wiring.
@@ -579,7 +579,7 @@ without another protocol server anywhere. The hook passes `--agent` and
 from the transcript the hook already points at — the agent's own closing
 summary — falling back to `snapshot <n>`.
 
-**Manual (UC-2).** `octoview snapshot`, and a VS Code command bound to it.
+**Manual (UC-2).** `debrief snapshot`, and a VS Code command bound to it.
 Required for the interrupt case, and the only path on hosts without hooks.
 
 **Host order is Claude, then Codex, then Copilot.** The loop is proven end to end
@@ -603,7 +603,7 @@ that agent's own session** so it answers with its reasoning history intact:
 `session` recorded at snapshot time.
 
 **When resume is unavailable** — Copilot today, or a manual snapshot with no
-session recorded — Octoview starts a **fresh session with the same agent and
+session recorded — Debrief starts a **fresh session with the same agent and
 model**, seeded with the snapshot diff, the comment batch and the agent's closing
 summary. History is lost; the agent is not.
 
@@ -628,22 +628,22 @@ only works on two of four hosts is worse than a stated limit.
 
 ## 8. GitHub PR review (UC-5)
 
-`octoview pr pull <number>` fetches the PR into its own lane, `pr/<number>`, and
+`debrief pr pull <number>` fetches the PR into its own lane, `pr/<number>`, and
 presents it as a **single snapshot**: `parent` = `merge-base(target, head)`, `sha` =
 PR head. Everything downstream — diff view, review state, comment batching,
 helper agent — is unchanged, and the lane keeps it clear of my own work.
 
 **Real files, because §1.2 applies here too.** Default is a git worktree under
-`.git/octoview/pr/<n>`: the language server attaches, my main tree and index are
+`.git/debrief/pr/<n>`: the language server attaches, my main tree and index are
 untouched, and it is disposable. `--in-place` checks the PR out in the main tree
 for people who prefer what the official GitHub extension does.
 
-`octoview review submit --to github` posts the batch as a PR review through the
+`debrief review submit --to github` posts the batch as a PR review through the
 `gh` CLI, reusing its authentication rather than shipping a GitHub client.
 
-**Future — shared snapshots.** If the PR author also uses Octoview, their snapshot
+**Future — shared snapshots.** If the PR author also uses Debrief, their snapshot
 history could be published so a reviewer reads snapshot-by-snapshot instead of one
-squashed diff. Transport is undecided: `refs/notes/octoview` is attractive
+squashed diff. Transport is undecided: `refs/notes/debrief` is attractive
 because notes anchor to commits and never touch the index, but it only works for
 *committed* work. Deferred until the single-user loop is proven.
 
@@ -699,10 +699,10 @@ adding the second host costs nothing structural.
   later agent turn changes the file — the same rule as §4.4. That covers a
   meaningful part of UC-1, UC-3 and UC-4 natively.
 
-  What it does **not** cover, and what Octoview's value now rests on:
+  What it does **not** cover, and what Debrief's value now rests on:
 
   - **Durability.** VS Code's snapshots are per-request and explicitly temporary,
-    designed to "complement Git but not replace it". Octoview's snapshots are git
+    designed to "complement Git but not replace it". Debrief's snapshots are git
     commits, reviewable days later and after a restart.
   - **The index invariant.** Staging in the Source Control view *auto-accepts*
     pending edits, and discarding discards them — VS Code's edit state is coupled
@@ -723,7 +723,7 @@ Resolved: concurrent agents → lanes keyed to branches and worktrees (§4.2); l
 lifecycle → closes when its branch is deleted or merged (§4.2); plan review →
 plans are git-blob artifacts sharing the comment model (§4.7); plan-to-code
 linkage → the snapshot cites the plan revision, drift is evidence rather than a
-verdict (§4.7); retention → `octoview gc`, never pruning open review work (§4.8);
+verdict (§4.7); retention → `debrief gc`, never pruning open review work (§4.8);
 host order → Claude end to end first, Copilot postponed (§6); implementation
 language → TypeScript end to end (§5.1, 2026-08-04); concurrent writers → an
 advisory lock file around every read-modify-write, one implementation covering
@@ -755,7 +755,7 @@ Still open:
 | VS Code, Zed, Cline and hunk-review extensions all diff against a *baseline copy* | Their "per-edit" is per-hunk, attributable to nothing; transcript-derived provenance is unoccupied ground |
 | Tracked-but-ignored files vanish from a virgin index | `read-tree` seed is mandatory |
 | Refs are shared across a clone's worktrees | Snapshot refs must be lane-scoped |
-| `.git` is a file in a linked worktree — `mkdir .git/octoview` gives `ENOTDIR` | State lives under `--git-common-dir`; worktrees are broken in the POC |
+| `.git` is a file in a linked worktree — `mkdir .git/debrief` gives `ENOTDIR` | State lives under `--git-common-dir`; worktrees are broken in the POC |
 | `update-ref` accepts a blob, and `git diff` works between two blobs | Plans can be pure git objects, touching nothing |
 | `--name-status -z` rename records have three fields | Parser bug; fixed in M1, regression-tested |
 | `commit-tree -p` fails on an unborn HEAD | A fresh `git init` repo cannot be snapshotted; fixed in M1 via the empty-tree base, regression-tested |

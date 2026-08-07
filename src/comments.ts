@@ -4,7 +4,7 @@ import { Repo, Repos } from "./repos";
 import { makeAnchor } from "./review";
 import { Thread } from "./state";
 
-export const SCHEME = "octoview";
+export const SCHEME = "debrief";
 
 /** Build the URI for a file's content at a snapshot revision.
  *
@@ -53,7 +53,7 @@ export class Comments {
   private readonly live = new Map<string, Live>();
 
   constructor(private readonly repos: Repos) {
-    this.controller = vscode.comments.createCommentController(SCHEME, "Octoview");
+    this.controller = vscode.comments.createCommentController(SCHEME, "Debrief");
     this.controller.commentingRangeProvider = {
       provideCommentingRanges: (document) => {
         if (this.repos.locate(pathOf(document.uri)) === undefined) {
@@ -71,11 +71,11 @@ export class Comments {
   /** Who a comment is from.
    *
    * Git already knows, and it is the name every other record of this work carries,
-   * so it is the default rather than something to configure. `octoview.author` is
+   * so it is the default rather than something to configure. `debrief.author` is
    * there for the case git's answer is wrong for a review — a shared machine, a
    * work identity on a personal clone — and only then. */
   private async author(repo: Repo): Promise<vscode.CommentAuthorInformation> {
-    const configured = vscode.workspace.getConfiguration("octoview").get<string>("author", "");
+    const configured = vscode.workspace.getConfiguration("debrief").get<string>("author", "");
     return { name: configured !== "" ? configured : ((await repo.git.userName()) ?? "reviewer") };
   }
 

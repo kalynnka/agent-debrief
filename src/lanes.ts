@@ -13,7 +13,7 @@ export interface Lane {
   commonDir: string;
   /** The branch, or `detached/<sha>` when HEAD is detached. */
   name: string;
-  /** This lane's state directory: `<commonDir>/octoview/<name>`. */
+  /** This lane's state directory: `<commonDir>/debrief/<name>`. */
   dir: string;
 }
 
@@ -34,7 +34,7 @@ export async function resolveLane(repo: string, lane?: string): Promise<Lane> {
   if (segments.some((s) => s === "" || s === "." || s === "..")) {
     throw new Error(`invalid lane name: '${name}'`);
   }
-  return { root, commonDir, name, dir: path.join(commonDir, "octoview", ...segments) };
+  return { root, commonDir, name, dir: path.join(commonDir, "debrief", ...segments) };
 }
 
 /** The checked-out branch, or undefined on a detached HEAD.

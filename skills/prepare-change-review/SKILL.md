@@ -1,11 +1,11 @@
 ---
 name: prepare-change-review
-description: Prepare a finished agent turn for human review with octoview — make sure the turn is snapshotted, then assemble a change report from CLI facts, ordered the way the human reads a review. Use when a coding turn is complete and a human will review it.
+description: Prepare a finished agent turn for human review with debrief — make sure the turn is snapshotted, then assemble a change report from CLI facts, ordered the way the human reads a review. Use when a coding turn is complete and a human will review it.
 ---
 
 # Prepare a change review
 
-Octoview reviews work at the turn boundary, before anything is committed. Each
+Debrief reviews work at the turn boundary, before anything is committed. Each
 turn's work is captured as a **snapshot** — a real git commit outside
 `refs/heads`. Your job at the end of a turn: make sure the snapshot is taken,
 then hand the human a report whose facts come from the CLI, ordered for their
@@ -18,10 +18,10 @@ skill `recover-change-context` is the one you want.
 
 - **Never touch the user's git state.** No `git add`, no commits, no branch or
   stash operations. The staged set is the human's review progress marker; the
-  tool exists to protect it. `octoview snapshot commit` is the one exception, and
+  tool exists to protect it. `debrief snapshot commit` is the one exception, and
   only on an instruction to commit in the human's *latest* message — see below.
-- **Every git fact comes from the `octoview` CLI.** Never read or write
-  `.git/octoview/` directly and never create or delete refs yourself — the CLI
+- **Every git fact comes from the `debrief` CLI.** Never read or write
+  `.git/debrief/` directly and never create or delete refs yourself — the CLI
   owns that state and its locking.
 - **Do not approve or waive anything.** Those judgements belong to the human; the
   boundary is advisory and your side of it is to stay on it.
@@ -32,7 +32,7 @@ skill `recover-change-context` is the one you want.
    were interrupted in was snapshotted by the hook with whatever you had last
    said — often a sentence from the middle of the work. Say it properly:
 
-       octoview snapshot describe <n> \
+       debrief snapshot describe <n> \
          --label "<kind>: <one sentence saying what that snapshot did>" \
          -m "<the two or three lines under it>"
 
@@ -42,14 +42,14 @@ skill `recover-change-context` is the one you want.
 
 2. **Collect the facts from the CLI, not from your memory of the work:**
 
-       octoview status --json        # snapshots so far, files, review state
-       octoview diff <n> --json      # exactly this snapshot's changed files
-       octoview show <rev> <path>    # file content at a snapshot, for before/after
+       debrief status --json        # snapshots so far, files, review state
+       debrief diff <n> --json      # exactly this snapshot's changed files
+       debrief show <rev> <path>    # file content at a snapshot, for before/after
 
 3. **Take the snapshot with its label and message**, as the last thing you do
    before writing your reply — you cannot run a command after it:
 
-       octoview snapshot --agent <host> --json \
+       debrief snapshot --agent <host> --json \
          --label "<kind>: <one sentence saying what this snapshot did>" \
          -m "$(cat <<'EOF'
        <two or three short lines>
@@ -82,9 +82,9 @@ of work**, not one session of it. Whenever a piece of the work is finished and
 would stand on its own in a review, snapshot it and say what it did, then start
 the next piece.
 
-    …schema and migration done…      octoview snapshot --label "feat(schema): …" -m …
-    …managers updated…               octoview snapshot --label "feat(managers): …" -m …
-    …call sites and tests…           octoview snapshot --label "test: …" -m …  ← closes the turn
+    …schema and migration done…      debrief snapshot --label "feat(schema): …" -m …
+    …managers updated…               debrief snapshot --label "feat(managers): …" -m …
+    …call sites and tests…           debrief snapshot --label "test: …" -m …  ← closes the turn
 
 The human gets what they would otherwise have to ask for: a change landed in the
 order they read it, each part revertable on its own, and a commit prefix that can
@@ -102,7 +102,7 @@ Two rules make it worth doing rather than noise:
 
 ## When no snapshot is taken
 
-`octoview snapshot` reports `created: false` for two different reasons, and only
+`debrief snapshot` reports `created: false` for two different reasons, and only
 one of them is routine.
 
 `nothing changed` is the normal one — an idle turn, or work you already
@@ -116,7 +116,7 @@ everything up.
 
 One more thing worth saying in your message when it applies: if HEAD moved while
 you worked — you pulled, merged, or the human committed — the review will mark
-those files `⇣ not the agent's`. Do not claim them. Octoview works that out from
+those files `⇣ not the agent's`. Do not claim them. Debrief works that out from
 the recorded HEAD, but a sentence naming what arrived saves the reviewer the
 guess.
 
@@ -160,17 +160,17 @@ Purpose and Verification are the two that usually earn their place. One is fine.
 is one they skip, and then the line that mattered went unread with it.
 
 **A `path:line` reference becomes a clickable link.** Write it plainly —
-`src/extension.ts:52`, or `src/review.ts:270-275` for a span — and octoview
+`src/extension.ts:52`, or `src/review.ts:270-275` for a span — and debrief
 underlines it in the note and in the sidebar hover, jumping to the file on disk.
 This is the reason to write plain text rather than markdown: a markdown link
 arrives with its brackets showing, and a plain reference reads correctly
 everywhere *and* clicks.
 
-Both are required together: `octoview snapshot -m …` without `--label` is a usage
+Both are required together: `debrief snapshot -m …` without `--label` is a usage
 error, because a label taken off the front of a message is how rows end up
 reading like the middle of a turn.
 
-    octoview snapshot --agent <host> --json \
+    debrief snapshot --agent <host> --json \
       --label "<kind>: <one sentence>" \
       -m "$(cat <<'EOF'
       Purpose: …
@@ -222,8 +222,8 @@ and arrive all at once when they press Submit — so the first thing to do when
 they mention a review, or when a message arrives with comments pasted into it, is
 to ask what is actually waiting:
 
-    octoview review open           # every comment still waiting on you
-    octoview review open --json    # the same, with anchors, ids and state
+    debrief review open           # every comment still waiting on you
+    debrief review open --json    # the same, with anchors, ids and state
 
 Each one carries `path:line`, the snapshot it was written against, and an id.
 `outdated` on a comment means the lines it was written against have changed since
@@ -232,7 +232,7 @@ number.
 
 Work through them, then close what you have dealt with:
 
-    octoview review resolve <id> <id> …
+    debrief review resolve <id> <id> …
 
 **Closing is not bookkeeping, it is the state.** `review open` is the only thing
 that says what is left, so a comment you answered but did not resolve comes back
@@ -247,14 +247,14 @@ disagreement is the one use of this command that is a lie.
 Then snapshot the work the review produced, exactly as any other turn: it is its
 own unit of work and the human will read it as one.
 
-`octoview review batch --json` still exists and answers a different question —
+`debrief review batch --json` still exists and answers a different question —
 the contents of one submit, as a record. `review open` is the one to work from.
 
 ## Landing a reviewed prefix
 
 Only when the human asks for it in the message you are answering:
 
-    octoview snapshot commit <n> -m "<subject>" --json
+    debrief snapshot commit <n> -m "<subject>" --json
 
 This commits snapshots 1..n as one commit and leaves every later snapshot
 uncommitted in the working tree, which is what makes "commit through snapshot 10,

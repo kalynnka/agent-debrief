@@ -1,4 +1,4 @@
-# Octoview — Landing Plan
+# Debrief — Landing Plan
 
 **Status:** M1 landed at `733bc0b` · **Covers:** M0 → M1 · **Last updated:** 2026-08-04
 
@@ -56,7 +56,7 @@ Cost: under an hour. Everything downstream is cheaper than getting this wrong.
 **Lands:** a CLI that resolves where it is and prints valid JSON.
 
 ```
-octoview/
+debrief/
   src/lanes.ts     # repo + lane resolution (core)
   src/cli.ts       # bin entry, envelope, exit codes
   test/cli.js      # lane resolution + CLI contract
@@ -66,7 +66,7 @@ octoview/
   diagnostics on stderr, documented exit codes.
 - `--repo` and `--lane` resolution: git root, `--git-common-dir`, current branch,
   detached-HEAD fallback to worktree name.
-- One command, `octoview status`, reporting repo, lane and an empty snapshot list.
+- One command, `debrief status`, reporting repo, lane and an empty snapshot list.
 
 **Why first, given the model-before-interface rule:** the envelope *is* a schema.
 Every later step conforms to it, and changing it afterwards means rewriting every
@@ -78,7 +78,7 @@ and on a detached HEAD. **Not verified:** nothing yet reads real snapshots.
 **Size:** small.
 
 **Landed:** as written (in TS, after a false start in Python the owner redirected).
-An unborn-HEAD lane resolves too — octoview's own pre-first-commit state forced it.
+An unborn-HEAD lane resolves too — debrief's own pre-first-commit state forced it.
 
 ---
 
@@ -86,8 +86,8 @@ An unborn-HEAD lane resolves too — octoview's own pre-first-commit state force
 
 **Lands:** all snapshot plumbing in Python, lane-scoped, with the POC's bugs dead.
 
-- Private index at `<common>/octoview/<lane>/index`, seeded with `read-tree`.
-- Refs at `refs/octoview/snapshots/<lane>/<n>`.
+- Private index at `<common>/debrief/<lane>/index`, seeded with `read-tree`.
+- Refs at `refs/debrief/snapshots/<lane>/<n>`.
 - `changed_files` parsing `--name-status -z` correctly — **rename records carry
   three fields**, which the POC reads as pairs and silently truncates.
 - **Unborn HEAD** handled: snapshot 1 in a fresh `git init` repo commits with no
@@ -171,14 +171,14 @@ goes `outdated` rather than guessed.
 **Lands:** deletion. `src/git.ts` and `src/state.ts` go; `src/cli.ts` replaces
 them with process execution, JSON parsing and a schema-version check. The tree,
 diff and comment surfaces render CLI output. The revision content provider calls
-`octoview show`.
+`debrief show`.
 
 This is the step that makes §5.4 true rather than aspirational, and it should
 read as mostly-removal.
 
 **Two decisions inside it:**
 
-- **Finding the CLI.** An `octoview.cliPath` setting, else `octoview` on `PATH`.
+- **Finding the CLI.** An `debrief.cliPath` setting, else `debrief` on `PATH`.
   Dev install is `uv tool install --editable ./cli`.
 - **Existing POC state is discarded, not migrated.** Two snapshots in `inky`, two in
   `kraken`, one of them carrying the phantom-deletion bug. Migration code would
@@ -205,7 +205,7 @@ the lane-scoped scheme. The editor-host gap above remains real and open.
 **Lands:** UC-1's "a snapshot is taken automatically".
 
 - A Claude Code `Stop` hook calling
-  `octoview snapshot --agent claude --session <id>`.
+  `debrief snapshot --agent claude --session <id>`.
 - Label derived from the transcript the hook already points at.
 - The extension notices.
 
@@ -235,14 +235,14 @@ still owed.**
 `.claude/` wrapper.
 
 **Verified:** the agent runs the workflow, calls the CLI for every fact, and
-writes nothing under `.git/octoview/` directly. The last clause is the one worth
+writes nothing under `.git/debrief/` directly. The last clause is the one worth
 checking deliberately, because it is the boundary §5.5 rests on.
 
 **Size:** small.
 
 **Landed:** `skills/prepare-change-review/SKILL.md` canonical; delivery is a
 `~/.claude/skills` symlink to it — the in-repo `.claude/skills/` wrapper was
-dropped because it only reached octoview's own sessions (PRD §5.5). The
+dropped because it only reached debrief's own sessions (PRD §5.5). The
 verified-clause above is behavioral and gets its check the first time an agent
 actually runs the workflow.
 

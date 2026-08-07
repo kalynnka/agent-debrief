@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The octoview command-line interface — the integration contract every surface
+// The debrief command-line interface — the integration contract every surface
 // that is not the extension (hooks, skills, agents, other editors) talks through.
 //
 // Machine-facing commands print one JSON object on stdout when given --json,
@@ -31,7 +31,7 @@ import { labelOf, summaryFromTranscript } from "./transcript";
  * lane a `base`, the commit a cleared lane starts from. */
 const SCHEMA_VERSION = 5;
 
-const USAGE = `usage: octoview <command> [options]
+const USAGE = `usage: debrief <command> [options]
 
   status                 capture nothing; report repo, lane, snapshots and review state
   snapshot               capture a snapshot  (--label, -m, --agent, --session, --from-stop-hook)
@@ -68,10 +68,10 @@ export async function main(argv: string[]): Promise<number> {
     return await dispatch(argv);
   } catch (error) {
     if (error instanceof UsageError) {
-      console.error(`octoview: ${error.message}\n\n${USAGE}`);
+      console.error(`debrief: ${error.message}\n\n${USAGE}`);
       return 2;
     }
-    console.error(`octoview: ${(error as Error).message}`);
+    console.error(`debrief: ${(error as Error).message}`);
     return 3;
   }
 }
@@ -226,7 +226,7 @@ async function gcCommand(args: string[]): Promise<number> {
     process.stdout.write("  every lane still has its branch\n");
   } else if (sweep.closed.length + sweep.stray.length > 0) {
     // The refs were the only thing keeping them: say what actually frees the disk,
-    // since octoview deliberately never runs it.
+    // since debrief deliberately never runs it.
     process.stdout.write("\nrun `git gc` when you want the objects back.\n");
   }
   return 0;

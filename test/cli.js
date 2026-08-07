@@ -12,7 +12,7 @@ const { hashLines, renderHistory, stackedHistory } = require("../out/review");
 const { Store } = require("../out/state");
 
 const cliPath = path.join(__dirname, "..", "out", "cli.js");
-const octoview = (args, cwd, input) =>
+const debrief = (args, cwd, input) =>
   spawnSync(process.execPath, [cliPath, ...args], { cwd, encoding: "utf8", input });
 const collect = (child) =>
   new Promise((resolve) => {
@@ -24,7 +24,7 @@ const collect = (child) =>
 
 // realpath up front so every path is physical; git reports physical paths and
 // macOS temp dirs are symlinked.
-const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "octoview-cli-")));
+const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "debrief-cli-")));
 // The directory name is deliberately distinct from the branch name, so the
 // detached-HEAD fallback is distinguishable from branch resolution.
 const root = path.join(parent, "repo");
@@ -70,7 +70,7 @@ async function main() {
   console.log("detached HEAD -> its own lane         ok");
 
   // 4. An unborn HEAD (fresh `git init`, no commits) still resolves its init
-  //    branch — octoview's own repo is in exactly this state.
+  //    branch — debrief's own repo is in exactly this state.
   const fresh = path.join(parent, "fresh");
   fs.mkdirSync(fresh);
   git(["init", "-q", "-b", "main", "."], fresh);
@@ -85,7 +85,7 @@ async function main() {
   console.log("override + non-repo refusal           ok");
 
   // 6. The JSON envelope: exact shape, data on stdout, nothing on stderr.
-  const json = octoview(["status", "--repo", root, "--json"], parent);
+  const json = debrief(["status", "--repo", root, "--json"], parent);
   assert.strictEqual(json.status, 0);
   assert.strictEqual(json.stderr, "");
   assert.deepStrictEqual(JSON.parse(json.stdout), {
@@ -97,22 +97,22 @@ async function main() {
   console.log("status --json envelope                ok");
 
   // 7. The human summary, and --lane plumbed through to the payload.
-  const human = octoview(["status"], root);
+  const human = debrief(["status"], root);
   assert.strictEqual(human.status, 0);
   assert.strictEqual(human.stdout.includes("lane:      main"), true);
-  const overridden = octoview(["status", "--repo", root, "--lane", "pr/7", "--json"], root);
+  const overridden = debrief(["status", "--repo", root, "--lane", "pr/7", "--json"], root);
   assert.strictEqual(JSON.parse(overridden.stdout).lane, "pr/7");
   console.log("summary + --lane flag                 ok");
 
   // 8. Documented exit codes: 3 for an unresolvable repo (stderr only), 2 for
   //    usage errors.
-  const notRepo = octoview(["status", "--json"], empty);
+  const notRepo = debrief(["status", "--json"], empty);
   assert.strictEqual(notRepo.status, 3);
   assert.strictEqual(notRepo.stdout, "");
   assert.strictEqual(notRepo.stderr.includes("not a git repository"), true);
-  const unknownCommand = octoview(["bogus"], root);
+  const unknownCommand = debrief(["bogus"], root);
   assert.strictEqual(unknownCommand.status, 2);
-  const unknownFlag = octoview(["status", "--bogus"], root);
+  const unknownFlag = debrief(["status", "--bogus"], root);
   assert.strictEqual(unknownFlag.status, 2);
   assert.strictEqual(unknownFlag.stderr.includes("usage:"), true);
   console.log("exit codes 3 and 2                    ok");
@@ -126,15 +126,15 @@ async function main() {
   const statusBefore = git(["status", "--porcelain"]);
   const headBefore = git(["rev-parse", "HEAD"]).trim();
   const branchesBefore = git(["branch", "--list"]);
-  const snap1 = octoview(["snapshot", "--label", "add b", "--json"], root);
+  const snap1 = debrief(["snapshot", "--label", "add b", "--json"], root);
   assert.strictEqual(snap1.status, 0);
   const p1 = JSON.parse(snap1.stdout);
   assert.strictEqual(p1.created, true);
   assert.strictEqual(p1.snapshot.n, 1);
   assert.deepStrictEqual(p1.snapshot.files.map((f) => f.path).sort(), ["b.txt", "staged.txt"]);
-  const again = JSON.parse(octoview(["snapshot", "--json"], root).stdout);
+  const again = JSON.parse(debrief(["snapshot", "--json"], root).stdout);
   assert.strictEqual(again.created, false, "an unchanged tree must not create a snapshot");
-  const status9 = JSON.parse(octoview(["status", "--repo", root, "--json"], parent).stdout);
+  const status9 = JSON.parse(debrief(["status", "--repo", root, "--json"], parent).stdout);
   assert.strictEqual(status9.snapshots.length, 1);
   assert.strictEqual(status9.snapshots[0].label, "add b");
   assert.strictEqual(status9.snapshots[0].agent, "manual");
@@ -146,15 +146,15 @@ async function main() {
   // 10. A linked worktree snapshots through the clone's shared .git (the
   //     `.git`-is-a-file ENOTDIR bug), with its own numbering and its own refs.
   fs.writeFileSync(path.join(worktree, "wt.txt"), "w\n");
-  const wsnap = JSON.parse(octoview(["snapshot", "--label", "wt change", "--json"], worktree).stdout);
+  const wsnap = JSON.parse(debrief(["snapshot", "--label", "wt change", "--json"], worktree).stdout);
   assert.strictEqual(wsnap.created, true);
   assert.strictEqual(wsnap.lane, "feature");
   assert.strictEqual(wsnap.snapshot.n, 1, "worktree numbering must be independent");
-  const refs = git(["for-each-ref", "refs/octoview/snapshots", "--format=%(refname)"]);
-  assert.strictEqual(refs.includes("refs/octoview/snapshots/main/1"), true);
-  assert.strictEqual(refs.includes("refs/octoview/snapshots/feature/1"), true);
+  const refs = git(["for-each-ref", "refs/debrief/snapshots", "--format=%(refname)"]);
+  assert.strictEqual(refs.includes("refs/debrief/snapshots/main/1"), true);
+  assert.strictEqual(refs.includes("refs/debrief/snapshots/feature/1"), true);
   assert.strictEqual(
-    fs.existsSync(path.join(root, ".git", "octoview", "feature", "state.json")),
+    fs.existsSync(path.join(root, ".git", "debrief", "feature", "state.json")),
     true,
     "worktree state must live under the shared common dir",
   );
@@ -162,7 +162,7 @@ async function main() {
 
   // 11. A rename is one record carrying both paths, not a silently dropped pair.
   fs.renameSync(path.join(root, "a.txt"), path.join(root, "renamed.txt"));
-  const rsnap = JSON.parse(octoview(["snapshot", "--label", "rename a", "--json"], root).stdout);
+  const rsnap = JSON.parse(debrief(["snapshot", "--label", "rename a", "--json"], root).stdout);
   assert.strictEqual(rsnap.snapshot.files.length, 1);
   assert.strictEqual(rsnap.snapshot.files[0].status, "R");
   assert.strictEqual(rsnap.snapshot.files[0].oldPath, "a.txt");
@@ -170,24 +170,24 @@ async function main() {
   console.log("rename record: three fields           ok");
 
   // 12. show: content at a snapshot number, empty for a file absent there.
-  const shown = octoview(["show", "1", "b.txt", "--repo", root], parent);
+  const shown = debrief(["show", "1", "b.txt", "--repo", root], parent);
   assert.strictEqual(shown.status, 0);
   assert.strictEqual(shown.stdout, "b\n");
-  const missing = octoview(["show", "1", "nope.txt", "--repo", root], parent);
+  const missing = debrief(["show", "1", "nope.txt", "--repo", root], parent);
   assert.strictEqual(missing.status, 0);
   assert.strictEqual(missing.stdout, "");
-  const badSnapshot = octoview(["diff", "9", "--repo", root], parent);
+  const badSnapshot = debrief(["diff", "9", "--repo", root], parent);
   assert.strictEqual(badSnapshot.status, 3);
   console.log("show + missing file + bad snapshot    ok");
 
   // 13. A repo with no commits can be snapshotted: snapshot 1 has no commit parent,
   //     diffs against the empty tree, and still creates no branch.
   fs.writeFileSync(path.join(fresh, "first.txt"), "hello\n");
-  const fsnap = JSON.parse(octoview(["snapshot", "--label", "first files", "--json"], fresh).stdout);
+  const fsnap = JSON.parse(debrief(["snapshot", "--label", "first files", "--json"], fresh).stdout);
   assert.strictEqual(fsnap.created, true);
   assert.deepStrictEqual(fsnap.snapshot.files.map((f) => `${f.status} ${f.path}`), ["A first.txt"]);
   assert.strictEqual(git(["branch", "--list"], fresh).trim(), "", "a branch appeared in the unborn repo");
-  const fagain = JSON.parse(octoview(["snapshot", "--json"], fresh).stdout);
+  const fagain = JSON.parse(debrief(["snapshot", "--json"], fresh).stdout);
   assert.strictEqual(fagain.created, false);
   console.log("unborn HEAD snapshot                  ok");
 
@@ -207,42 +207,42 @@ async function main() {
       comments: [{ body: "why rename?", author: "me", at: new Date().toISOString() }],
     });
   });
-  const draftOpen = JSON.parse(octoview(["review", "open", "--repo", root, "--json"], parent).stdout);
+  const draftOpen = JSON.parse(debrief(["review", "open", "--repo", root, "--json"], parent).stdout);
   assert.deepStrictEqual(draftOpen.threads, [], "a draft is the reviewer's own until they submit");
-  const sub = JSON.parse(octoview(["review", "submit", "--repo", root, "--json"], parent).stdout);
+  const sub = JSON.parse(debrief(["review", "submit", "--repo", root, "--json"], parent).stdout);
   assert.strictEqual(sub.submitted, 1);
-  const batch = JSON.parse(octoview(["review", "batch", "--repo", root, "--json"], parent).stdout);
+  const batch = JSON.parse(debrief(["review", "batch", "--repo", root, "--json"], parent).stdout);
   assert.strictEqual(batch.batch.comments.length, 1);
   assert.strictEqual(batch.batch.comments[0].file, "renamed.txt");
   assert.strictEqual(batch.batch.comments[0].line, 1);
-  const subAgain = JSON.parse(octoview(["review", "submit", "--repo", root, "--json"], parent).stdout);
+  const subAgain = JSON.parse(debrief(["review", "submit", "--repo", root, "--json"], parent).stdout);
   assert.strictEqual(subAgain.submitted, 0);
   console.log("review submit -> batch round-trip     ok");
 
   // 14b. `review open` answers what one batch cannot: everything still waiting on
   //      the agent, however many submits it arrived over. `review resolve` is what
   //      makes that set shrink — without it the same comments print forever.
-  const waiting = JSON.parse(octoview(["review", "open", "--repo", root, "--json"], parent).stdout);
+  const waiting = JSON.parse(debrief(["review", "open", "--repo", root, "--json"], parent).stdout);
   assert.deepStrictEqual(waiting.threads.map((t) => t.id), ["cli-t1"], "a submitted thread is open");
-  const rendered = octoview(["review", "open", "--repo", root], parent).stdout;
+  const rendered = debrief(["review", "open", "--repo", root], parent).stdout;
   assert.ok(rendered.includes("renamed.txt:1  ["), "the reference is path:line, and 1-based");
   assert.ok(rendered.includes("  me: why rename?"), "with the comment under it");
   assert.ok(!rendered.includes("@renamed.txt"), "never the @-mention form — it types badly");
 
   const closed = JSON.parse(
-    octoview(["review", "resolve", "cli-t1", "--repo", root, "--json"], parent).stdout,
+    debrief(["review", "resolve", "cli-t1", "--repo", root, "--json"], parent).stdout,
   );
   assert.deepStrictEqual(closed.resolved, ["cli-t1"]);
   assert.deepStrictEqual(closed.unknown, []);
-  const settled = JSON.parse(octoview(["review", "open", "--repo", root, "--json"], parent).stdout);
+  const settled = JSON.parse(debrief(["review", "open", "--repo", root, "--json"], parent).stdout);
   assert.deepStrictEqual(settled.threads, [], "a resolved thread stops waiting");
   const reclosed = JSON.parse(
-    octoview(["review", "resolve", "cli-t1", "nope", "--repo", root, "--json"], parent).stdout,
+    debrief(["review", "resolve", "cli-t1", "nope", "--repo", root, "--json"], parent).stdout,
   );
   assert.deepStrictEqual(reclosed.resolved, [], "closing what is closed changes nothing");
   assert.deepStrictEqual(reclosed.unknown, ["cli-t1", "nope"], "a stale id is reported, not fatal");
   assert.strictEqual(
-    octoview(["review", "resolve", "--repo", root], parent).status,
+    debrief(["review", "resolve", "--repo", root], parent).status,
     2,
     "resolve with no id is a usage error",
   );
@@ -251,7 +251,7 @@ async function main() {
   // 15. Carry-forward: a thread follows its lines when they move, and goes
   //     outdated when the lines themselves change.
   fs.writeFileSync(path.join(root, "code.txt"), "alpha\nbeta\ngamma\n");
-  const csnap = JSON.parse(octoview(["snapshot", "--label", "add code", "--json"], root).stdout);
+  const csnap = JSON.parse(debrief(["snapshot", "--label", "add code", "--json"], root).stdout);
   const codeBlob = await g.blobAt(csnap.snapshot.sha, "code.txt");
   await store.withLock((state) => {
     state.threads.push({
@@ -264,13 +264,13 @@ async function main() {
     });
   });
   fs.writeFileSync(path.join(root, "code.txt"), "intro\nalpha\nbeta\ngamma\n");
-  octoview(["snapshot", "--label", "shift lines", "--json"], root);
+  debrief(["snapshot", "--label", "shift lines", "--json"], root);
   await store.load();
   const moved = store.data.threads.find((t) => t.id === "cf-t1");
   assert.strictEqual(moved.anchor.startLine, 2, "thread did not follow its lines");
   assert.strictEqual(moved.outdated, false);
   fs.writeFileSync(path.join(root, "code.txt"), "intro\nalpha\nBETA!\ngamma\n");
-  octoview(["snapshot", "--label", "edit anchored line", "--json"], root);
+  debrief(["snapshot", "--label", "edit anchored line", "--json"], root);
   await store.load();
   const gone = store.data.threads.find((t) => t.id === "cf-t1");
   assert.strictEqual(gone.outdated, true, "changed lines must mark the thread outdated");
@@ -329,7 +329,7 @@ async function main() {
     ].join("\n"),
   );
   fs.writeFileSync(path.join(root, "hooked.txt"), "h\n");
-  const hookRun = octoview(
+  const hookRun = debrief(
     ["snapshot", "--from-stop-hook", "--json"],
     parent, // deliberately not the repo: the repo must come from the payload's cwd
     JSON.stringify({ session_id: "sess-123", transcript_path: transcript, cwd: root }),
@@ -352,7 +352,7 @@ async function main() {
   //     A label given on the command line wins, and the message is read anyway:
   //     the label can be the caller's, but the message is the agent's own.
   fs.writeFileSync(path.join(root, "hooked-again.txt"), "h\n");
-  const labelled = octoview(
+  const labelled = debrief(
     ["snapshot", "--from-stop-hook", "--label", "mine", "--json"],
     parent,
     JSON.stringify({ session_id: "sess-123", transcript_path: transcript, cwd: root }),
@@ -377,9 +377,9 @@ async function main() {
   git(["commit", "-qm", "base"], stack);
   const stackHead = git(["rev-parse", "HEAD"], stack).trim();
   fs.writeFileSync(path.join(stack, "f.txt"), "x\nbbb\ny\n");
-  const s1 = JSON.parse(octoview(["snapshot", "--label", "t1", "--json"], stack).stdout);
+  const s1 = JSON.parse(debrief(["snapshot", "--label", "t1", "--json"], stack).stdout);
   fs.writeFileSync(path.join(stack, "f.txt"), "x\nn\nccc\ny\n");
-  const s2 = JSON.parse(octoview(["snapshot", "--label", "t2", "--json"], stack).stdout);
+  const s2 = JSON.parse(debrief(["snapshot", "--label", "t2", "--json"], stack).stdout);
   const stackGit = new Git(stack);
   const single = await stackedHistory(stackGit, "f.txt", stackHead, [s1.snapshot]);
   assert.strictEqual(
@@ -398,21 +398,21 @@ async function main() {
   // 19. `snapshot commit n`: snapshots 1..n become one commit, later snapshots stay on disk,
   //     the message is required, and staged work is protected without --force.
   fs.writeFileSync(path.join(stack, "later.txt"), "later\n");
-  JSON.parse(octoview(["snapshot", "--label", "t3", "--json"], stack).stdout);
-  const noMsg = octoview(["snapshot", "commit", "2"], stack);
+  JSON.parse(debrief(["snapshot", "--label", "t3", "--json"], stack).stdout);
+  const noMsg = debrief(["snapshot", "commit", "2"], stack);
   assert.strictEqual(noMsg.status, 2, "a commit without a message is a usage error");
-  const noSnapshot = octoview(["snapshot", "commit", "99", "-m", "x"], stack);
+  const noSnapshot = debrief(["snapshot", "commit", "99", "-m", "x"], stack);
   assert.strictEqual(noSnapshot.status, 3, "committing a snapshot that does not exist must fail");
 
   fs.writeFileSync(path.join(stack, "mine.txt"), "staged by the human\n");
   git(["add", "mine.txt"], stack);
-  const refused = octoview(["snapshot", "commit", "2", "-m", "land t1-t2"], stack);
+  const refused = debrief(["snapshot", "commit", "2", "-m", "land t1-t2"], stack);
   assert.strictEqual(refused.status, 3, "staged work must not be silently replaced");
   assert.ok(refused.stderr.includes("--force"), "the refusal must name the way through");
   git(["restore", "--staged", "mine.txt"], stack);
 
   const landedOut = JSON.parse(
-    octoview(["snapshot", "commit", "2", "-m", "land t1-t2", "--json"], stack).stdout,
+    debrief(["snapshot", "commit", "2", "-m", "land t1-t2", "--json"], stack).stdout,
   );
   assert.deepStrictEqual(landedOut.landed, [1, 2], "snapshots 1-2 land, snapshot 3 does not");
   assert.strictEqual(
@@ -447,12 +447,12 @@ async function main() {
   const spokenLabel = "feat: the snapshot says what it did";
   const spoken = "Why: the row said nothing.\nTests: 47 checks pass.";
   assert.strictEqual(
-    octoview(["snapshot", "-m", spoken], told).status,
+    debrief(["snapshot", "-m", spoken], told).status,
     2,
     "a message with no label is a usage error — a label is written, not sliced",
   );
   const own = JSON.parse(
-    octoview(["snapshot", "--label", spokenLabel, "-m", spoken, "--json"], told).stdout,
+    debrief(["snapshot", "--label", spokenLabel, "-m", spoken, "--json"], told).stdout,
   );
   assert.strictEqual(own.created, true);
   assert.strictEqual(own.snapshot.label, spokenLabel, "the label is the sentence that was given");
@@ -469,7 +469,7 @@ async function main() {
     }),
   );
   const after = JSON.parse(
-    octoview(
+    debrief(
       ["snapshot", "--from-stop-hook", "--json"],
       parent,
       JSON.stringify({ session_id: "s", transcript_path: transcript2, cwd: told }),
@@ -485,7 +485,7 @@ async function main() {
   // last word is mid-work. The next run says it properly.
   fs.writeFileSync(path.join(told, "f.txt"), "two\n");
   const cut = JSON.parse(
-    octoview(
+    debrief(
       ["snapshot", "--from-stop-hook", "--json"],
       parent,
       JSON.stringify({ session_id: "s", transcript_path: transcript2, cwd: told }),
@@ -495,12 +495,12 @@ async function main() {
   const saidLabel = "fix: put the manifest clauses back";
   const said = "Why: the hook caught a sentence from the middle of the work.";
   assert.strictEqual(
-    octoview(["snapshot", "describe", String(cut.snapshot.n), "-m", said], told).status,
+    debrief(["snapshot", "describe", String(cut.snapshot.n), "-m", said], told).status,
     2,
     "describe needs a label too — it is the way back from a scraped one",
   );
   const fixed = JSON.parse(
-    octoview(
+    debrief(
       ["snapshot", "describe", String(cut.snapshot.n), "--label", saidLabel, "-m", said, "--json"],
       told,
     ).stdout,
@@ -509,9 +509,9 @@ async function main() {
   assert.strictEqual(fixed.snapshot.message, said);
   assert.strictEqual(fixed.snapshot.sha, cut.snapshot.sha, "describing a snapshot must not move its snapshot");
   assert.strictEqual(fixed.snapshot.parent, cut.snapshot.parent);
-  const absent = octoview(["snapshot", "describe", "999", "--label", "x", "-m", "x"], told);
+  const absent = debrief(["snapshot", "describe", "999", "--label", "x", "-m", "x"], told);
   assert.strictEqual(absent.status, 3, "describing a snapshot that does not exist is a resolution error");
-  const noMessage = octoview(["snapshot", "describe", "1"], told);
+  const noMessage = debrief(["snapshot", "describe", "1"], told);
   assert.strictEqual(noMessage.status, 2, "describe without a message is a usage error");
   console.log("agent describes, hook backstops       ok");
 
@@ -524,28 +524,28 @@ async function main() {
   assert.strictEqual(fixed.snapshot.described, "agent", "describing a snapshot answers for it");
   fs.writeFileSync(path.join(told, "f.txt"), "three\n");
   const scraped = JSON.parse(
-    octoview(
+    debrief(
       ["snapshot", "--from-stop-hook", "--json"],
       parent,
       JSON.stringify({ session_id: "s", transcript_path: transcript2, cwd: told }),
     ).stdout,
   );
-  const blocked = octoview(["snapshot", "commit", String(scraped.snapshot.n), "-m", "x"], told);
+  const blocked = debrief(["snapshot", "commit", String(scraped.snapshot.n), "-m", "x"], told);
   assert.strictEqual(blocked.status, 3, "committing an undescribed snapshot must be refused");
   assert.strictEqual(blocked.stderr.includes("cut off mid-change"), true, blocked.stderr);
   const commit = ["snapshot", "commit", String(scraped.snapshot.n), "-m", "x"];
-  const forced = octoview([...commit, "--force", "--json"], told);
+  const forced = debrief([...commit, "--force", "--json"], told);
   assert.strictEqual(forced.status, 0, forced.stderr);
   // And the same snapshot, once described, needs no override at all.
   fs.writeFileSync(path.join(told, "f.txt"), "four\n");
   const nextCut = JSON.parse(
-    octoview(
+    debrief(
       ["snapshot", "--from-stop-hook", "--json"],
       parent,
       JSON.stringify({ session_id: "s", transcript_path: transcript2, cwd: told }),
     ).stdout,
   );
-  octoview(
+  debrief(
     [
       "snapshot",
       "describe",
@@ -557,7 +557,7 @@ async function main() {
     ],
     told,
   );
-  const allowed = octoview(["snapshot", "commit", String(nextCut.snapshot.n), "-m", "y", "--json"], told);
+  const allowed = debrief(["snapshot", "commit", String(nextCut.snapshot.n), "-m", "y", "--json"], told);
   assert.strictEqual(allowed.status, 0, allowed.stderr);
   console.log("a cut-off snapshot cannot land unseen ok");
 

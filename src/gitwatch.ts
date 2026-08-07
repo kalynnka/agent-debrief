@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 
 /** The slice of the built-in git extension's API (`vscode.git`, version 1) this
  * needs: its live model of the repository, which is the only cheap way to learn
- * that the working tree, the index or the checkout moved. Octoview does its own
+ * that the working tree, the index or the checkout moved. Debrief does its own
  * git plumbing — this is a signal, not a client. The full contract lives in
  * microsoft/vscode, `extensions/git/src/api/git.d.ts`; `extensionDependencies`
  * in package.json is what guarantees it is present and activated before us. */
@@ -56,7 +56,7 @@ interface GitExtension {
 export async function gitApi(): Promise<GitAPI> {
   const extension = vscode.extensions.getExtension<GitExtension>("vscode.git");
   if (extension === undefined) {
-    throw new Error("octoview: the built-in git extension (vscode.git) is not available");
+    throw new Error("debrief: the built-in git extension (vscode.git) is not available");
   }
   return (await extension.activate()).getAPI(1);
 }

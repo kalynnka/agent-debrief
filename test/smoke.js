@@ -27,7 +27,7 @@ const {
 const { Store } = require("../out/state");
 const { codeReferences, labelOf, noteBody } = require("../out/transcript");
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-"));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-"));
 const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
 
 async function main() {
@@ -142,13 +142,13 @@ async function main() {
   console.log("state round-trips through disk        ok");
 
   // 7. Nothing leaked into the working tree, and the lock is not left behind.
-  assert.strictEqual(git(["status", "--porcelain"]).includes("octoview"), false, "state leaked into git status");
+  assert.strictEqual(git(["status", "--porcelain"]).includes("debrief"), false, "state leaked into git status");
   assert.strictEqual(fs.existsSync(store.lockFile), false, "lock file left behind");
   console.log("no working-tree pollution             ok");
 
   // 8. A workspace of several clones: every repo is its own review unit, and a
   //    folder that is not a repo root still resolves to the repo containing it.
-  const other = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-other-"));
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-other-"));
   const og = (args) => execFileSync("git", args, { cwd: other, encoding: "utf8" });
   og(["init", "-q", "-b", "main", "."]);
   og(["config", "user.email", "t@t"]);
@@ -361,7 +361,7 @@ async function main() {
   //     recording it: a file is committed when disk matches HEAD, and a snapshot is
   //     landed when every file it still *owns* is. Owns, not touched — otherwise
   //     a later snapshot editing the same file again would un-land a committed snapshot.
-  const landedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-landed-"));
+  const landedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-landed-"));
   const lg = (args) => execFileSync("git", args, { cwd: landedRoot, encoding: "utf8" });
   lg(["init", "-q", "-b", "main", "."]);
   lg(["config", "user.email", "t@t"]);
@@ -421,7 +421,7 @@ async function main() {
   // 17. The regression the screenshot caught: a snapshot whose files a later snapshot
   //     rewrote owns nothing, and "every file it owns matches HEAD" is vacuously
   //     true — which read as committed in a repo with no commits of its own.
-  const neverRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-never-"));
+  const neverRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-never-"));
   const ng = (args) => execFileSync("git", args, { cwd: neverRoot, encoding: "utf8" });
   ng(["init", "-q", "-b", "main", "."]);
   ng(["config", "user.email", "t@t"]);
@@ -447,7 +447,7 @@ async function main() {
   //     snapshot has that snapshot's tree, so which snapshots it took is recognised
   //     rather than recorded — and committing through 2 then through 4 must not
   //     collapse into one run of four.
-  const twoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-two-"));
+  const twoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-two-"));
   const tg = (args) => execFileSync("git", args, { cwd: twoRoot, encoding: "utf8" });
   tg(["init", "-q", "-b", "main", "."]);
   tg(["config", "user.email", "t@t"]);
@@ -476,7 +476,7 @@ async function main() {
   //     going. Such a commit holds no snapshot's tree, so tree equality saw none
   //     of them — a lane could be committed to the last file and still read as
   //     entirely uncommitted (docs/GIT.md D1).
-  const handRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-hand-"));
+  const handRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-hand-"));
   const hg = (args) => execFileSync("git", args, { cwd: handRoot, encoding: "utf8" });
   hg(["init", "-q", "-b", "main", "."]);
   hg(["config", "user.email", "t@t"]);
@@ -521,7 +521,7 @@ async function main() {
   //     moved since it was created is its own line of work and must inherit
   //     nothing; a rename moves the lane rather than abandoning it; and a detached
   //     HEAD gets a lane of its own instead of borrowing the directory's name.
-  const cutRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-cut-"));
+  const cutRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-cut-"));
   const cg = (args) => execFileSync("git", args, { cwd: cutRoot, encoding: "utf8" });
   cg(["init", "-q", "-b", "main", "."]);
   cg(["config", "user.email", "t@t"]);
@@ -574,11 +574,11 @@ async function main() {
   await rstore.load();
   assert.strictEqual(rstore.data.snapshots.length, 2, "a rename moves the lane");
   assert.ok(
-    !fs.existsSync(path.join(cutRoot, ".git", "octoview", "feat", "carry")),
+    !fs.existsSync(path.join(cutRoot, ".git", "debrief", "feat", "carry")),
     "and leaves no state behind under the old name",
   );
   assert.strictEqual(
-    cg(["for-each-ref", "--format=%(refname)", "refs/octoview/snapshots/feat/carry"]).trim(),
+    cg(["for-each-ref", "--format=%(refname)", "refs/debrief/snapshots/feat/carry"]).trim(),
     "",
     "nor any refs",
   );
@@ -596,7 +596,7 @@ async function main() {
   //     root, so a lane left behind by a deleted branch pins its objects against
   //     even `gc --prune=now`. Letting go of the ref is the whole act; from there
   //     git decides, and a real cleanup takes branch and snapshots together.
-  const gcRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-gc-"));
+  const gcRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-gc-"));
   const gg = (args) => execFileSync("git", args, { cwd: gcRoot, encoding: "utf8" });
   gg(["init", "-q", "-b", "main", "."]);
   gg(["config", "user.email", "t@t"]);
@@ -665,7 +665,7 @@ async function main() {
   //     in the diff — which is how a `git pull` ends up recorded as the agent's
   //     work. HEAD is on the record now, and a worktree part-way through a merge
   //     is not anybody's work yet, so it is refused rather than captured.
-  const midRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-mid-"));
+  const midRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-mid-"));
   const mg = (args) => execFileSync("git", args, { cwd: midRoot, encoding: "utf8" });
   mg(["init", "-q", "-b", "main", "."]);
   mg(["config", "user.email", "t@t"]);
@@ -739,10 +739,10 @@ async function main() {
   console.log("mid-merge is nobody's work            ok");
 
   // 24. `git stash` is the one thing that makes every snapshot look reverted
-  //     without anything being reverted (docs/GIT.md D5's residue). Octoview cannot
+  //     without anything being reverted (docs/GIT.md D5's residue). Debrief cannot
   //     tell it from a real revert by looking at the tree, so it asks the one
   //     question it can answer: has the stash moved since the last snapshot?
-  const stashRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-stash-"));
+  const stashRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-stash-"));
   const sg = (args) => execFileSync("git", args, { cwd: stashRoot, encoding: "utf8" });
   sg(["init", "-q", "-b", "main", "."]);
   sg(["config", "user.email", "t@t"]);
@@ -792,7 +792,7 @@ async function main() {
   //     to die; this is the same act asked for outright, and it goes further —
   //     the record is emptied too, so nothing anywhere remembers the shas. What it
   //     still does not do is delete an object: git decides that, as always.
-  const clearRoot = fs.mkdtempSync(path.join(os.tmpdir(), "octoview-clear-"));
+  const clearRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-clear-"));
   const clg = (args) => execFileSync("git", args, { cwd: clearRoot, encoding: "utf8" });
   clg(["init", "-q", "-b", "main", "."]);
   clg(["config", "user.email", "t@t"]);
@@ -835,7 +835,7 @@ async function main() {
   assert.strictEqual(
     await clgit.has(c2.snapshot.sha),
     true,
-    "octoview deleted no object — the commits are unreachable, not gone",
+    "debrief deleted no object — the commits are unreachable, not gone",
   );
   clg(["gc", "--prune=now", "-q"]);
   assert.strictEqual(await clgit.has(c1.snapshot.sha), false, "git is what collects them");

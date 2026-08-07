@@ -5,7 +5,7 @@ import * as vscode from "vscode";
  * right now. The path is the file's absolute path — which is what the icon theme
  * reads and what diagnostics are keyed by — and the query is the status letter,
  * so the decoration provider needs no lookup table to answer. */
-export const SNAPSHOT_SCHEME = "octoview-snapshot";
+export const SNAPSHOT_SCHEME = "debrief-snapshot";
 
 export function snapshotFileUri(absPath: string, status: string): vscode.Uri {
   return vscode.Uri.from({ scheme: SNAPSHOT_SCHEME, path: absPath, query: status });

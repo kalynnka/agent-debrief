@@ -1,24 +1,24 @@
-# Octoview — Git Operations
+# Debrief — Git Operations
 
-Octoview is attached to git, not in front of it. Every fact it shows is derived
+Debrief is attached to git, not in front of it. Every fact it shows is derived
 from refs, trees and blobs, and every one of them can be moved by a git command
-run in a terminal with no idea octoview exists. That is the normal case, not the
+run in a terminal with no idea debrief exists. That is the normal case, not the
 edge case: the reviewer stages what they have read and commits it by hand, cuts a
 branch mid-review, pulls, stashes, amends.
 
 So the rule this document exists to hold: **a git command the reviewer runs is
-never wrong.** If octoview's view disagrees with git afterwards, octoview is
+never wrong.** If debrief's view disagrees with git afterwards, debrief is
 what has to change. We never ask the reviewer to work through us to keep our
 bookkeeping true, and we never record anything we could derive instead.
 
 ## 1. The three keys, and how each one goes stale
 
-Everything octoview stores hangs off one of three keys. Every defect in §3 is one
+Everything debrief stores hangs off one of three keys. Every defect in §3 is one
 of them going stale.
 
 | Key | Where it is used | What moves it |
 |---|---|---|
-| **Lane name** — the checked-out branch | `refs/octoview/snapshots/<lane>/<n>`, `<common-dir>/octoview/<lane>/` | `switch`, `checkout -b`, `branch -m`, `branch -d`, detaching HEAD, `worktree` |
+| **Lane name** — the checked-out branch | `refs/debrief/snapshots/<lane>/<n>`, `<common-dir>/debrief/<lane>/` | `switch`, `checkout -b`, `branch -m`, `branch -d`, detaching HEAD, `worktree` |
 | **Content identity** — trees and blobs | Which snapshot a commit landed, whether a file is still the snapshot's doing, whether a thread's anchor still exists | Anything that writes the worktree or makes a commit |
 | **HEAD** | The base of snapshot 1, "landed", the file rows' `committed` marks | `commit`, `amend`, `rebase`, `reset`, `revert`, `merge`, `pull`, `switch` |
 
@@ -28,7 +28,7 @@ way.
 
 ## 2. The catalogue
 
-Every git command that can reach one of those keys, what octoview does about it
+Every git command that can reach one of those keys, what debrief does about it
 today, and what it should do. "Today" is what the code does as of this document,
 verified against the working repos rather than read off the PRD.
 
@@ -39,10 +39,10 @@ verified against the working repos rather than read off the PRD.
 | `git switch <branch>`, `git checkout <branch>`, `gh pr checkout` | Works. `GitWatch` reports the branch change, repos re-resolve, the new lane's state loads (or an empty one). | Unchanged. |
 | `git switch -c <new>`, `git checkout -b <new>` | The new lane inherits the one it was cut from — state copied, refs re-pointed at the same commits — while the branch still stands where it was created. | Unchanged. |
 | `git branch -m <old> <new>` | The lane moves with the branch; nothing is left under the old name. | Unchanged. |
-| `git branch -d`, `git branch -D` | `octoview gc` lets go of the lane's refs, so git can collect the snapshots on its own schedule; a lane git has already collected is forgotten. | Unchanged. |
+| `git branch -d`, `git branch -D` | `debrief gc` lets go of the lane's refs, so git can collect the snapshots on its own schedule; a lane git has already collected is forgotten. | Unchanged. |
 | `git checkout <sha>`, `git switch --detach`, `git bisect` | A lane of its own, `detached/<sha7>`. | Unchanged. |
 | `git worktree add` | Works. The common dir is shared, so lanes are shared and branch-per-worktree keeps them apart. | Unchanged. |
-| `git worktree remove` | Its `detached/<sha>` lane has no branch, so `octoview gc` sweeps it like any other. | Unchanged. |
+| `git worktree remove` | Its `detached/<sha>` lane has no branch, so `debrief gc` sweeps it like any other. | Unchanged. |
 
 ### B. Commands that move history under the lane
 
@@ -73,14 +73,14 @@ verified against the working repos rather than read off the PRD.
 
 | Command | Today | Should |
 |---|---|---|
-| `git add`, `git restore --staged`, `git reset <path>`, `git rm --cached` | Works. `GitWatch.stagedPaths` marks the file row `staged`. Octoview's own snapshotting uses a private `GIT_INDEX_FILE` and never touches this index. | Unchanged. This is the one part of the contract that is already exactly right. |
+| `git add`, `git restore --staged`, `git reset <path>`, `git rm --cached` | Works. `GitWatch.stagedPaths` marks the file row `staged`. Debrief's own snapshotting uses a private `GIT_INDEX_FILE` and never touches this index. | Unchanged. This is the one part of the contract that is already exactly right. |
 
 ### E. Object lifetime and transport
 
 | Command | Today | Should |
 |---|---|---|
-| `git gc`, `git prune`, `git reflog expire` | Our refs are GC roots, so a live lane's snapshots are pinned — correctly. `octoview gc` lets go of dead lanes, and from there git's own retention applies: `gc.pruneExpire` for the objects, `gc.reflogExpireUnreachable` for what a reflog still names. | Unchanged. Octoview never runs `git gc` for you. |
-| `git push`, `git fetch` | `refs/octoview/**` is outside the default refspecs, so snapshots stay local. Correct and worth keeping. | Unchanged; document that `push --mirror` would send them. |
+| `git gc`, `git prune`, `git reflog expire` | Our refs are GC roots, so a live lane's snapshots are pinned — correctly. `debrief gc` lets go of dead lanes, and from there git's own retention applies: `gc.pruneExpire` for the objects, `gc.reflogExpireUnreachable` for what a reflog still names. | Unchanged. Debrief never runs `git gc` for you. |
+| `git push`, `git fetch` | `refs/debrief/**` is outside the default refspecs, so snapshots stay local. Correct and worth keeping. | Unchanged; document that `push --mirror` would send them. |
 | `git clone` | A clone carries no review history. Intended — PRD §4.3. | Unchanged. |
 
 ### F. Reaches nothing
@@ -94,10 +94,10 @@ Five defects, worst first.
 
 **D1 — Landing was whole-tree, so hand-made commits never landed.** *(fixed)*
 `landedCommits` recognised a commit only when its tree *was* a snapshot's tree —
-true by construction for commits octoview makes and for nothing else. Measured on
+true by construction for commits debrief makes and for nothing else. Measured on
 inky's lane before the fix: two snapshots, HEAD `165b9ec`, `landedCommits` and
 `landedSnapshots` both empty, while all three of snapshot 2's files were already
-byte-identical to HEAD. Every file row said `committed` under a snapshot octoview
+byte-identical to HEAD. Every file row said `committed` under a snapshot debrief
 called uncommitted, and the Commits group was hidden because it held nothing.
 
 *The rule now.* A snapshot has landed at a revision when, for every path it
@@ -120,7 +120,7 @@ untouched: it governs what *we* may commit, which is a different question.
 
 *Attribution.* The earliest commit at which the condition first holds, walking
 from where the lane started. No fast path was needed — the content rule reproduces
-octoview's own history exactly (5–13, 14–47, 48–50).
+debrief's own history exactly (5–13, 14–47, 48–50).
 
 **D2 — Lanes do not follow branches.** *(fixed)*
 Cutting a branch abandoned the review; deleting one still leaks it. PRD §4.2
@@ -137,23 +137,23 @@ never saw. `adoptLane` runs from every entry point, extension and CLI alike, so
 whichever one the reviewer or the hook reaches first is the one that heals it.
 
 *Delete, done — and the owner's answer was better than the recommendation that
-stood here.* I had proposed octoview decide, with a "nothing unreviewed, no open
-thread" guard. The right answer is that octoview decides nothing: **follow git.**
+stood here.* I had proposed debrief decide, with a "nothing unreviewed, no open
+thread" guard. The right answer is that debrief decides nothing: **follow git.**
 
-A snapshot ref is a GC root, so while octoview holds one, `git gc --prune=now`
+A snapshot ref is a GC root, so while debrief holds one, `git gc --prune=now`
 cannot touch that snapshot — verified. That is the actual leak: a lane left by
-`git branch -d` pins its objects forever. So `octoview gc` lets go of the refs and
+`git branch -d` pins its objects forever. So `debrief gc` lets go of the refs and
 stops. From that moment the snapshot is an ordinary unreachable object on git's
 own schedule, and the reviewer's real cleanup takes branch and snapshots together.
 A lane whose objects git has since collected is forgotten, because there is
-nothing left to review — git made that call, octoview only noticed.
+nothing left to review — git made that call, debrief only noticed.
 
 The asymmetry to know: a deleted branch's commits stay named in HEAD's reflog for
 `gc.reflogExpireUnreachable`, but a snapshot commit is in **no reflog at all** —
-`core.logAllRefUpdates` does not cover `refs/octoview/`, and it was never on a
+`core.logAllRefUpdates` does not cover `refs/debrief/`, and it was never on a
 branch. `state.json` stands in, holding every sha, so a lane can be put back with
 `git update-ref` while the objects last. The window is `gc.pruneExpire`: git's
-knob, not one octoview invents.
+knob, not one debrief invents.
 
 **D3 — Foreign changes are attributed to the agent.** *(fixed)*
 `git pull` between two snapshots puts everyone else's work in the agent's next
@@ -182,7 +182,7 @@ Stop one:
 
 ```json
 "UserPromptSubmit": [{ "hooks": [{ "type": "command",
-  "command": "node <octoview>/out/cli.js snapshot --agent manual --label 'before the turn'" }]}]
+  "command": "node <debrief>/out/cli.js snapshot --agent manual --label 'before the turn'" }]}]
 ```
 
 Verified end to end: patch `f.txt` by hand with `git apply`, prompt, and snapshot
@@ -206,7 +206,7 @@ work that is perfectly alive. Revert and Drop now refuse while
 *And `git stash`, which git does not consider itself inside.* Verified —
 `operationInProgress` returns undefined after a stash, so that gate cannot catch
 it. A stash leaves the worktree exactly where a reviewer undoing the snapshot
-would: octoview cannot tell them apart by looking.
+would: debrief cannot tell them apart by looking.
 
 So the snapshot records `refs/stash` alongside HEAD (schema 4), and `stashedSince`
 asks the one question it can answer: has the stash moved? When it has, the frozen
@@ -230,7 +230,7 @@ reads: rule first, then lifecycle, then attribution, then the docs.
 the two cannot drift; the commit row renders a range list rather than a span. No
 schema change — landing stays derived.
 *Verified:* inky's lane now shows snapshot 2 under `165b9ec` and snapshot 1, which
-is half committed, correctly does not land. octoview's own history still groups as
+is half committed, correctly does not land. debrief's own history still groups as
 5–13, 14–47, 48–50, plus one group per commit since. 40 checks pass (19 smoke +
 21 cli), including a new one that stages half a snapshot, commits it, and asserts
 nothing lands until the rest goes in.
@@ -245,27 +245,27 @@ asserts the old directory and refs are gone; and detaches to assert the lane is
 named by the commit.
 
 **Phase 2b — Lanes end with their branches (D2's second half).** ✅ **Done.**
-`sweepLanes` and `octoview gc [--dry-run]`. No age window, no cap, no staleness
-octoview judges for itself — a lane is closed because its branch is, and forgotten
+`sweepLanes` and `debrief gc [--dry-run]`. No age window, no cap, no staleness
+debrief judges for itself — a lane is closed because its branch is, and forgotten
 because git already collected it.
 *Verified:* 42 checks pass (21 smoke + 21 cli). The new smoke check proves the
 whole chain end to end: a live lane is never swept; after `branch -D`, `gc
 --prune=now` **cannot** collect the snapshot because our ref pins it; a dry run
 reports and changes nothing; applying drops the ref but deletes nothing, leaving
 `state.json` holding the sha; the next `gc --prune=now` collects; and only then is
-the lane forgotten. On inky, `octoview gc --dry-run` finds the one orphaned lane.
+the lane forgotten. On inky, `debrief gc --dry-run` finds the one orphaned lane.
 
 **Phase 2c — the button.** ✅ **Done.** A repo row with abandoned lanes goes
 warning-coloured with a count badge (`list.warningForeground`, via the decoration
 provider — a `TreeItem` carries no colour of its own) and grows a bin. Pressing it
 opens a modal listing the lanes and saying plainly which part cannot be undone:
-octoview deletes no commits, but a snapshot commit is in no reflog, so once git
+debrief deletes no commits, but a snapshot commit is in no reflog, so once git
 collects them nothing will name them again. The sweep re-runs on press rather than
 trusting the row, since a branch can appear or vanish in a terminal in between.
 
 **Phase 2d — stray refs.** ✅ **Done.** The sweep also reports refs under
-`refs/octoview/` that no lane claims — the pre-lane POC scheme's unscoped
-`refs/octoview/turns/<n>`, and anything a half-finished operation left behind.
+`refs/debrief/` that no lane claims — the pre-lane POC scheme's unscoped
+`refs/debrief/turns/<n>`, and anything a half-finished operation left behind.
 Nothing can read them and they pin their objects exactly as a live snapshot's ref
 does. Live dry runs find one in inky and two in kraken.
 
@@ -290,14 +290,14 @@ falls back to HEAD, so on a tree with uncommitted work in it the next snapshot
 opens by claiming all of it. Observed rather than theorised: inky's lane was
 cleared mid-branch, the Stop hook fired at the end of a turn spent entirely in
 another repo, and snapshot 1 arrived holding twelve of the reviewer's own
-in-progress files with `parent == HEAD` and a message about octoview. Before the
+in-progress files with `parent == HEAD` and a message about debrief. Before the
 clear those files sat inside a snapshot, so every hook run found the tree
 unchanged and took nothing — which is why the hole had never shown.
 
 So clearing writes the working tree as a commit, keeps it at
-`refs/octoview/base/<lane>`, and records its sha as the lane's `base` (schema 5);
+`refs/debrief/base/<lane>`, and records its sha as the lane's `base` (schema 5);
 `takeSnapshot` reads `previous?.sha ?? state.base ?? head`. Clearing is the one
-moment octoview can be sure the tree is not the agent's, because a human is
+moment debrief can be sure the tree is not the agent's, because a human is
 standing there pressing the button, and this is that knowledge kept. A clean tree
 records nothing — HEAD already says where the lane starts. The sweep claims the
 base ref like any other, and lets go of it with the rest when the branch dies.
@@ -319,7 +319,7 @@ baseline and drops the ref the first one left.
 
 This reverses HANDOFF §4's "leave the specimens be": those refs were kept as a
 before-and-after specimen of the virgin-index bug, which is now pinned by a
-regression test instead. `octoview gc` does not delete their objects either — the
+regression test instead. `debrief gc` does not delete their objects either — the
 same hand-to-git rule applies.
 
 **Phase 3a — Attribute honestly (fixes D5, half of D3).** ✅ **Done.**
@@ -398,10 +398,10 @@ anyway.
 ## 5. Deliberately not followed
 
 - **Pushing snapshots.** They stay in the clone that made them. A review is a
-  local artefact and a shared `refs/octoview/**` would be a synchronisation
+  local artefact and a shared `refs/debrief/**` would be a synchronisation
   problem with no owner.
 - **History rewrites.** `filter-repo` and friends invalidate every recorded sha.
   We detect nothing and claim nothing.
 - **Anything that writes the reviewer's index or HEAD.** The private index file
   is the whole reason snapshotting is invisible, and the only destructive git
-  command octoview may run is deleting a ref it created itself.
+  command debrief may run is deleting a ref it created itself.
