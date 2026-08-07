@@ -26,14 +26,13 @@ It takes the repo, the session id and a label from the transcript, so the snapsh
 arrives already named. The Snapshots view notices — a file watch on the lane's
 state directory, not a service — and the new snapshot appears at the bottom, expanded.
 
-You open a file, read **snapshot N-1 → snapshot N**, and mark what you have cleared.
-The agent is free to keep working the whole time; nothing you do blocks it.
+You open a file and read **snapshot N-1 → snapshot N**. The agent is free to keep
+working the whole time; nothing you do blocks it.
 
 ### 1.2 You stepped away and it took six snapshots
 
-Read the delta, not the branch. A file you cleared at snapshot 2 that nobody has
-touched since stays cleared; a file snapshot 5 touched is open again. The whole rule
-is `reviewed[file] >= snapshot`, so nothing has to be recomputed or invalidated.
+Read the delta, not the branch: each snapshot's diff is its own change, so six of
+them are six changes rather than one pile.
 
 Select snapshots 3–6 and press **Open Net Diff of Selected Snapshots** on the
 repo's row to read them as one change, or walk them one at a time. A
@@ -64,7 +63,7 @@ Drop refuse for the same reason — mid-merge, the rows describe git's work.
 | one file, one snapshot | click the file row under the snapshot |
 | everything one snapshot did | click the snapshot row |
 | several snapshots as one change | select them, then **Open Net Diff of Selected Snapshots** on the repo row |
-| everything you have approved | click the **Reviewed** area row |
+| everything not yet committed | click the **Open** area row |
 | one file's evolution across snapshots | **Open Step History** on the file row |
 | the whole lane | click the repo row |
 
@@ -103,16 +102,8 @@ freeze waits for you to look, because a multi-diff cannot be rebuilt without bei
 focused and an agent finishing a turn must not pull your cursor away. The cost is
 that the frozen tab loses its live language server — it is history now.
 
-Tick a file as you read it three ways: the **✓ on the row's own header**, beside
-Open File; `⌘⌥V` (`ctrl+alt+v` elsewhere), which marks the row your cursor is in;
-or the tick in the tab's title bar, which follows the focused row and says
-whether *this* file has been read. The row button is a plain toggle — the row
-already says which state it is in.
-
-That row button rides on a proposed VS Code API, which is affordable only
-because Octoview runs from source rather than from the marketplace. If a VS Code
-update withdraws it the button disappears; nothing else changes, and the
-keystroke still works.
+Marking a file as read is **switched off** — §5.2 says why, and what came off
+with it. Reviews open whole.
 
 A row marked `⇣` is **not the agent's change**. It arrived when HEAD moved under
 that snapshot — a pull, a merge, a reset — and the snapshot holds it exactly as
@@ -135,24 +126,6 @@ snapshot and the agent's turn starts after them:
 Snapshotting is idempotent, so a turn where you changed nothing costs nothing. An
 edit made *while* the agent is running still lands in its snapshot — no hook can
 separate that.
-
-**A review opens with the files you have already read left out.** The title says
-how many — `octoview: snapshots 60→66 net · +1200 −300 · 5 read` — and the **eye**
-in the tab's title bar puts them back, or takes them out again. A review where
-everything has been read opens whole, because a tab with nothing in it says less
-than one that is entirely ticked.
-
-Left out rather than folded, and that is a limit rather than a preference: the
-multi-diff editor takes a title and a list of resources and nothing else, and the
-only collapse commands VS Code has are `collapseAll` and `expandAll` — all or
-nothing. There is no way for an extension to fold one row.
-
-**Ticking a file inside a review reopens the tab**, which is how the row goes
-away: a multi-diff's resource list and every row's `✓` are fixed when the tab
-opens, so nothing about it can change in place. The row you ticked is the one you
-have just finished with, which is why that is worth the scroll position it costs.
-Outside a review — a single-file diff — nothing reopens and the status bar
-acknowledges the tick instead.
 
 ---
 
@@ -274,49 +247,66 @@ their order. Drop it when you want it gone.
 
 ## 5. Landing what you have reviewed
 
-### 5.1 The three areas
+### 5.1 The two areas
 
-The Snapshots view splits each repo the way Source Control splits changes, with a
-third area for the work that has left the review entirely:
+The Snapshots view splits each repo into what has landed and what has not:
 
 ```
 octoview                     main · 34 snapshots
-  › Commits      2 commits
+  › Commits      2 commits · 9 snapshots
       › c6dfa54  feat(review): net and step diffs…   snapshots 5–13
-  ⌄ Reviewed     3 snapshots · through 12 · 1 blocked   [commit]
-  ⌄ Unreviewed   2 snapshots
+  ⌄ Open         5 snapshots
 ```
 
-Marking a snapshot reviewed moves it up. A snapshot only counts as reviewed when
-every file it still changes is marked — until then it sits in **both** areas, showing
-the files you have read in one and the files you have not in the other, the way
-a half-staged file appears twice in Source Control. Marking the row in
-Unreviewed takes the rest of it across.
+It used to be three, with **Reviewed** in the middle and marking a snapshot read
+as the way across. That is **off** — see §5.2 — so everything a commit has not
+taken sits in **Open**, oldest first.
 
 Commits are read back out of git rather than recorded, so amending or rebasing moves
 which snapshots one holds. A commit takes every snapshot whose changes it completes —
 including one you staged and committed by hand, which is why the area fills up whether
-or not you ever press the commit button. The hover carries the whole commit message.
+or not you ever run the commit command. The hover carries the whole commit message.
 
-### 5.2 Commit the reviewed prefix
+### 5.2 Marking a file read is switched off
 
-The **commit** button on the Reviewed area takes snapshots 1..N as one commit.
+Ticking a file as you read it, and the **Reviewed** area it fed, are gone from
+the UI for now. The rule was `reviewed[file] >= snapshot`: a file you cleared at
+snapshot 2 was open again the moment snapshot 5 touched it. That is cheap to
+compute and, across a lane of thirty, more than a reader can hold — which is the
+whole reason it is off rather than being refined.
+
+Nothing was deleted. Marks already recorded stay in `state.json`, and one
+constant — `MARKING` in `src/state.ts` — is what ignores them, so the feature
+comes back with that line and the menu entries in `package.json`. It is switched
+off at the source rather than only in the manifest, because marks still on disk
+would otherwise go on hiding files from reviews with nothing left to clear them by.
+
+Gone with it: the ✓ on a diff row's header, `⌘⌥V`, **Mark All Files Viewed**, the
+**eye** that put read files back into a review, and the commit button, which was
+gated entirely on marks. Reviews now open whole, every time.
+
+### 5.3 Commit a prefix
+
+Committing is the CLI's:
+
+```bash
+octoview snapshot commit <n> -m "<subject>"
+```
 
 A commit is a **prefix** of the lane — snapshot 12's content sits on top of snapshot
-11's — so only an unbroken run from the earliest one can be landed. Review out of order
-and the area says so (`through 12 · 1 blocked`); press commit and a modal names
-the snapshot in the way and offers to commit through the last one it can reach.
+11's — so only an unbroken run from the earliest one can be landed. `n` is where you
+stop, which used to be worked out from the marks and is now yours to say.
 
 Adjacency is in the snapshot list, not the numbering: dropping snapshot 30 leaves a hole
 in the numbers, and snapshots 29 and 31 still commit together.
 
-One more thing gets in the way, deliberately. A snapshot whose message the **hook**
+One thing gets in the way, deliberately. A snapshot whose message the **hook**
 wrote — rather than the agent describing its own work — is the shape an interrupted
 turn leaves behind, and a commit takes that snapshot exactly as it stands, half-done
-work included. Both the button and `octoview snapshot commit` stop and say so; the
-snapshot row's hover says it earlier, before you get there.
+work included. `octoview snapshot commit` stops and says so; the snapshot row's
+hover says it earlier, before you get there.
 
-### 5.3 Commit 1–10 now, 11–20 later
+### 5.4 Commit 1–10 now, 11–20 later
 
 This is the case the whole design bends around, and there is **no restore step**.
 The content comes from snapshot 10 itself, so the working tree never moves:
@@ -329,21 +319,21 @@ Snapshots 11+ stay uncommitted on disk exactly as they were. A file snapshot 12
 edited again still commits at its **snapshot 10** value, and a file snapshot 4 deleted
 is recorded as a deletion. Carry on; commit through snapshot 20 when you get there.
 
-### 5.4 What it costs
+### 5.5 What it costs
 
 Loading a snapshot into the index **replaces whatever was staged**, and your
 staged set is your review progress marker. Both the button and the CLI refuse
 while anything is staged; only the CLI offers `--force`. Do it between batches,
 not mid-review.
 
-### 5.5 After a commit
+### 5.6 After a commit
 
 Committing is invisible to snapshotting — verified, not assumed. The next
 snapshot finds an identical working tree and records nothing, so no phantom entry
 appears. The lane does not change, the snapshot refs survive, and the numbering
 carries on.
 
-What does change: the snapshots the commit covered go dim with a `✓`, and the
+What does change: the snapshots the commit covered move into **Commits**, and the
 "staged" markers clear.
 
 **Landed is derived from content, not from a matching tree.** A snapshot has landed
@@ -363,7 +353,7 @@ about what octoview may commit for you, not about what git has already done.
 
 Nothing is recorded, so amend, reset and rebase all just move the answer.
 
-### 5.6 Letting go of a dead branch
+### 5.7 Letting go of a dead branch
 
 Delete a branch and its lane is left holding refs nobody can reach. Those refs are
 **GC roots** — while octoview holds one, `git gc --prune=now` cannot collect the
@@ -385,7 +375,7 @@ branch, whose commits `git reflog` can still find for 90 days. Until git collect
 them, `state.json` holds every sha and a lane can be put back with `git
 update-ref`. Widen that window with `gc.pruneExpire` if you want longer.
 
-### 5.7 Letting go of the branch you are on
+### 5.8 Letting go of the branch you are on
 
 The sweep waits for a branch to die. When a review on a *live* branch has served
 its purpose — the work is committed, or you simply want to start the branch's
@@ -408,7 +398,7 @@ did and nothing else. Nothing to read, nothing to review — one ref, which the
 sweep lets go of with the rest when the branch dies. A clean tree records
 nothing, because HEAD already says the same thing.
 
-### 5.8 Reverting after a commit
+### 5.9 Reverting after a commit
 
 Revert does not know the work is committed. It will put files back, creating an
 uncommitted diff against your own commit — recoverable with `git restore`, but
@@ -532,7 +522,8 @@ may have reverted a file or dropped a snapshot since.
 ### 7.3 What an agent must never do
 
 - Touch the index. The staged set is the human's review progress marker.
-- Mark anything reviewed, approved or waived. That boundary is the product.
+- Approve or waive anything. That boundary is the product, and it is the human's
+  side of it.
 - Commit uninvited. `octoview snapshot commit` exists so the human's instruction can
   be carried out, not so an agent can decide to land work — and the instruction
   is scoped to the message it was given in.

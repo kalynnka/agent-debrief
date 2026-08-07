@@ -59,6 +59,16 @@ export interface State {
 
 const emptyState = (): State => ({ schemaVersion: 5, snapshots: [], reviewed: {}, threads: [] });
 
+/** Whether marking a file read does anything.
+ *
+ * Off. The rule is `reviewed[file] >= snapshot`, which means a file cleared at
+ * snapshot 2 is open again the moment snapshot 5 touches it — cheap to compute
+ * and, across a lane of thirty, more than a reader can carry in their head. So
+ * the feature is switched off rather than taken out: the rule below still stands,
+ * the marks already recorded are left where they are, and the buttons are gone
+ * from the manifest. Turning it back on is this line and those menu entries. */
+const MARKING = false;
+
 /** Per-lane persistence under the clone's common dir, so every worktree of a
  * clone agrees on where state lives and nothing ever appears in `git status`.
  *
@@ -179,7 +189,14 @@ export class Store {
     return this.state.snapshots[this.state.snapshots.length - 1];
   }
 
+  /** Whether a file has been marked read at a snapshot — and, while `MARKING` is
+   * off, never. This is the switch, and taking the buttons out of the manifest is
+   * not: marks already on disk would go on hiding files from reviews and ticking
+   * rows, with nothing left to clear them by. */
   isReviewed(file: string, snapshot: number): boolean {
+    if (!MARKING) {
+      return false;
+    }
     const at = this.state.reviewed[file];
     return at !== undefined && at >= snapshot;
   }

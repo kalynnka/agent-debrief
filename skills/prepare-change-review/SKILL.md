@@ -23,8 +23,8 @@ skill `recover-change-context` is the one you want.
 - **Every git fact comes from the `octoview` CLI.** Never read or write
   `.git/octoview/` directly and never create or delete refs yourself — the CLI
   owns that state and its locking.
-- **Do not mark anything reviewed, approved or waived.** Those actions belong to
-  the human; the boundary is advisory and your side of it is to stay on it.
+- **Do not approve or waive anything.** Those judgements belong to the human; the
+  boundary is advisory and your side of it is to stay on it.
 
 ## Workflow
 

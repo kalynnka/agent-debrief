@@ -20,10 +20,6 @@
   "activationEvents": [
     "onStartupFinished"
   ],
-  "//enabledApiProposals": "The tick on a multi-diff row's own toolbar. Development-only: VS Code allows a proposed API for an extension run from source, so this build cannot be published as-is, and a VS Code update can withdraw the proposal \u2014 the button disappears, everything else keeps working.",
-  "enabledApiProposals": [
-    "contribMultiDiffEditorMenus"
-  ],
   "extensionDependencies": [
     "vscode.git"
   ],
@@ -96,18 +92,6 @@
         "icon": "$(terminal)"
       },
       {
-        "command": "octoview.markReviewed",
-        "title": "Mark Reviewed",
-        "category": "Octoview",
-        "icon": "$(check)"
-      },
-      {
-        "command": "octoview.markUnreviewed",
-        "title": "Mark Unreviewed",
-        "category": "Octoview",
-        "icon": "$(remove)"
-      },
-      {
         "command": "octoview.createThread",
         "title": "Add Review Comment",
         "category": "Octoview"
@@ -147,42 +131,6 @@
         "category": "Octoview"
       },
       {
-        "command": "octoview.markViewedHere",
-        "title": "Mark Viewed",
-        "category": "Octoview",
-        "icon": "$(check)"
-      },
-      {
-        "command": "octoview.markUnviewedHere",
-        "title": "Mark Not Viewed",
-        "category": "Octoview",
-        "icon": "$(remove)"
-      },
-      {
-        "command": "octoview.markAllReviewed",
-        "title": "Mark All Files Viewed",
-        "category": "Octoview",
-        "icon": "$(checklist)"
-      },
-      {
-        "command": "octoview.markAllUnreviewed",
-        "title": "Mark All Files Not Viewed",
-        "category": "Octoview",
-        "icon": "$(clear-all)"
-      },
-      {
-        "command": "octoview.commitReviewed",
-        "title": "Commit Reviewed Snapshots",
-        "category": "Octoview",
-        "icon": "$(git-commit)"
-      },
-      {
-        "command": "octoview.toggleRowViewed",
-        "title": "Mark Viewed / Not Viewed",
-        "category": "Octoview",
-        "icon": "$(check)"
-      },
-      {
         "command": "octoview.openNote",
         "title": "Read the Whole Note",
         "category": "Octoview"
@@ -200,18 +148,6 @@
         "icon": "$(trash)"
       },
       {
-        "command": "octoview.showReadFiles",
-        "title": "Show Files You Have Read",
-        "category": "Octoview",
-        "icon": "$(eye)"
-      },
-      {
-        "command": "octoview.hideReadFiles",
-        "title": "Hide Files You Have Read",
-        "category": "Octoview",
-        "icon": "$(eye-closed)"
-      },
-      {
         "command": "octoview.showMore",
         "title": "Show Earlier Commits",
         "category": "Octoview",
@@ -220,36 +156,6 @@
     ],
     "menus": {
       "editor/title": [
-        {
-          "command": "octoview.showReadFiles",
-          "when": "octoview.inReview && octoview.reviewHasRead && !octoview.reviewShowingRead",
-          "group": "navigation@0"
-        },
-        {
-          "command": "octoview.hideReadFiles",
-          "when": "octoview.inReview && octoview.reviewHasRead && octoview.reviewShowingRead",
-          "group": "navigation@0"
-        },
-        {
-          "command": "octoview.markViewedHere",
-          "when": "octoview.inDiff && !octoview.diffViewed",
-          "group": "navigation@1"
-        },
-        {
-          "command": "octoview.markUnviewedHere",
-          "when": "octoview.inDiff && octoview.diffViewed",
-          "group": "navigation@1"
-        },
-        {
-          "command": "octoview.markAllReviewed",
-          "when": "octoview.inReview && !octoview.reviewAllViewed",
-          "group": "navigation@1"
-        },
-        {
-          "command": "octoview.markAllUnreviewed",
-          "when": "octoview.inReview && octoview.reviewAllViewed",
-          "group": "navigation@1"
-        },
         {
           "command": "octoview.submit",
           "when": "octoview.inReview",
@@ -290,11 +196,6 @@
           "group": "inline@5"
         },
         {
-          "command": "octoview.commitReviewed",
-          "when": "view == octoview.snapshots && viewItem == group-reviewed",
-          "group": "inline@1"
-        },
-        {
           "command": "octoview.openFile",
           "when": "view == octoview.snapshots && viewItem =~ /^file-/",
           "group": "inline@1"
@@ -308,16 +209,6 @@
           "command": "octoview.dropSnapshot",
           "when": "view == octoview.snapshots && viewItem == snapshot-frozen-droppable",
           "group": "inline@2"
-        },
-        {
-          "command": "octoview.markReviewed",
-          "when": "view == octoview.snapshots && (viewItem =~ /^file-unreviewed/ || viewItem =~ /^snapshot-unreviewed/)",
-          "group": "inline@3"
-        },
-        {
-          "command": "octoview.markUnreviewed",
-          "when": "view == octoview.snapshots && (viewItem =~ /^file-reviewed/ || viewItem =~ /^snapshot-reviewed/)",
-          "group": "inline@4"
         },
         {
           "command": "octoview.stepHistory",
@@ -335,20 +226,9 @@
           "group": "octoview@2"
         }
       ],
-      "multiDiffEditor/resource/title": [
-        {
-          "command": "octoview.toggleRowViewed",
-          "when": "octoview.inReview && resourceScheme != octoview-note",
-          "group": "navigation@1"
-        }
-      ],
       "commandPalette": [
         {
           "command": "octoview.openFile",
-          "when": "false"
-        },
-        {
-          "command": "octoview.toggleRowViewed",
           "when": "false"
         },
         {
@@ -368,40 +248,12 @@
           "when": "false"
         },
         {
-          "command": "octoview.markViewedHere",
-          "when": "octoview.inDiff && !octoview.diffViewed"
-        },
-        {
-          "command": "octoview.markUnviewedHere",
-          "when": "octoview.inDiff && octoview.diffViewed"
-        },
-        {
-          "command": "octoview.markAllReviewed",
-          "when": "octoview.inReview"
-        },
-        {
-          "command": "octoview.markAllUnreviewed",
-          "when": "octoview.inReview"
-        },
-        {
-          "command": "octoview.commitReviewed",
-          "when": "false"
-        },
-        {
           "command": "octoview.gc",
           "when": "false"
         },
         {
           "command": "octoview.clearLane",
           "when": "false"
-        },
-        {
-          "command": "octoview.showReadFiles",
-          "when": "octoview.inReview"
-        },
-        {
-          "command": "octoview.hideReadFiles",
-          "when": "octoview.inReview"
         },
         {
           "command": "octoview.showMore",
@@ -428,20 +280,6 @@
         }
       ]
     },
-    "keybindings": [
-      {
-        "command": "octoview.markViewedHere",
-        "key": "ctrl+alt+v",
-        "mac": "cmd+alt+v",
-        "when": "octoview.inDiff && !octoview.diffViewed"
-      },
-      {
-        "command": "octoview.markUnviewedHere",
-        "key": "ctrl+alt+v",
-        "mac": "cmd+alt+v",
-        "when": "octoview.inDiff && octoview.diffViewed"
-      }
-    ],
     "configuration": {
       "title": "Octoview",
       "properties": {

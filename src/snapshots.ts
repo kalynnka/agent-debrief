@@ -6,7 +6,6 @@ import { ChangedFile, Snapshot } from "./git";
 import { GitWatch } from "./gitwatch";
 import { Repo, Repos } from "./repos";
 import {
-  committableRun,
   foreignPaths,
   LandedCommit,
   landedCommits,
@@ -112,12 +111,15 @@ export class FileNode {
   ) {}
 }
 
-export type Area = "committed" | "reviewed" | "unreviewed";
+export type Area = "committed" | "open";
 
-/** One of a repository's areas, after Source Control's staged/unstaged pair —
- * with a third for work that has left the review entirely. Marking a snapshot
- * reviewed moves it between the first two; committing moves it out of both, so
- * the state is a position rather than an icon.
+/** One of a repository's areas: what has landed, and what has not.
+ *
+ * It was three, after Source Control's staged/unstaged pair, with marking a
+ * snapshot read moving it between them. That is off — a file marked at snapshot 2
+ * goes unread again the moment snapshot 5 touches it, and following that across a
+ * lane turned out to be more bookkeeping than it was worth — so there is nothing
+ * left to divide the uncommitted work on.
  *
  * The committed area holds commits rather than snapshots: a snapshot that has
  * landed is a fact about a commit, and reading it back that way is how a lane
@@ -129,11 +131,6 @@ export class GroupNode {
     readonly area: Area,
     readonly snapshots: SnapshotNode[],
     readonly commits: CommitNode[],
-    /** The last snapshot a commit could run through, and the reviewed snapshots
-     * stranded after a gap. Both are meaningless outside the reviewed area, which
-     * is the only one that can be committed from. */
-    readonly through: number | undefined,
-    readonly blocked: Set<number>,
   ) {}
 }
 
@@ -417,14 +414,13 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       const committed = node.area === "committed";
       const count = committed ? node.commits.length : node.snapshots.length;
       const item = new vscode.TreeItem(
-        committed ? "Commits" : node.area === "reviewed" ? "Reviewed" : "Unreviewed",
-        // Committed work is history: it folds away, and the two areas that still
-        // want reading stay open.
+        committed ? "Commits" : "Open",
+        // Committed work is history: it folds away, and the work still wanting a
+        // read stays open.
         committed
           ? vscode.TreeItemCollapsibleState.Collapsed
           : vscode.TreeItemCollapsibleState.Expanded,
       );
-      const stranded = node.blocked.size;
       const unit = committed ? "commit" : "snapshot";
       // The committed area also says how many snapshots those commits took: it is
       // the number that grows without bound on a long-lived branch, and the reason
@@ -434,30 +430,20 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
         : 0;
       item.description =
         `${count} ${unit}${count === 1 ? "" : "s"}` +
-        (committed && took > 0 ? ` · ${took} snapshot${took === 1 ? "" : "s"}` : "") +
-        (node.through !== undefined ? ` · through ${node.through}` : "") +
-        (stranded > 0 ? ` · ${stranded} blocked` : "");
-      item.iconPath = new vscode.ThemeIcon(
-        committed ? "git-commit" : node.area === "reviewed" ? "code-review" : "git-pull-request",
-      );
+        (committed && took > 0 ? ` · ${took} snapshot${took === 1 ? "" : "s"}` : "");
+      item.iconPath = new vscode.ThemeIcon(committed ? "git-commit" : "git-pull-request");
       item.contextValue = `group-${node.area}`;
       item.tooltip = new vscode.MarkdownString(
         committed
           ? `**Commits**\n\nThe snapshots each commit took. Read back from git rather ` +
             `than recorded, so amending or rebasing moves them.`
-          : node.area === "reviewed"
-            ? `**Reviewed**\n\nSnapshots you have read. A commit takes them from the ` +
-              `earliest one onwards, so only an unbroken run can be landed` +
-              (stranded > 0
-                ? ` — ${stranded} of these sit after a snapshot you have not read yet.`
-                : `.`)
-            : `**Unreviewed**\n\nMark a snapshot reviewed to move it up. Marking only some ` +
-              `of its files moves those, and the rest stay here.`,
+          : `**Open**\n\nEverything no commit has taken yet, oldest first. Land a run of ` +
+            `it with \`octoview snapshot commit <n>\`, which commits 1..n and leaves ` +
+            `the rest in the working tree.`,
       );
       if (!committed) {
-        // The area's own net diff: everything you have approved, or everything
-        // left to read, in one tab. The committed area spans commits, which have
-        // no single diff between them.
+        // The area's own net diff: everything still open, in one tab. The
+        // committed area spans commits, which have no single diff between them.
         item.command = {
           command: "octoview.openSnapshot",
           title: "Open Snapshot Diff",
@@ -698,13 +684,6 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       const nodes = await this.shapeOf(node.repo, commits);
       const at = new Map(nodes.map((snapshot) => [snapshot.snapshot.n, snapshot]));
       const taken = new Set(commits.flatMap((commit) => commit.snapshots));
-      // Only what a commit has not already taken can be committed: a landed snapshot
-      // is out of the running, and the run starts again after it.
-      const open = nodes.filter((snapshot) => !taken.has(snapshot.snapshot.n));
-      const { through, blocked } = committableRun(
-        open.map((snapshot) => ({ n: snapshot.snapshot.n, reviewed: snapshot.reviewed })),
-      );
-      const stranded = new Set(blocked);
       const areas: GroupNode[] = [
         new GroupNode(
           node.repo,
@@ -719,32 +698,14 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
                 commit.snapshots.flatMap((n) => at.get(n) ?? []),
               ),
           ),
-          undefined,
-          new Set(),
         ),
-        // A snapshot read only in part sits in both areas at once, as one half each.
-        // Marking a file is a move rather than a state, the way staging one is:
-        // what you have read is in Reviewed, and what is left is where you left
-        // it.
+        // Everything a commit has not taken, in order. There is nothing to split
+        // it on: marking a file read is off, so no snapshot is half anything.
         new GroupNode(
           node.repo,
-          "reviewed",
-          open
-            .filter((snapshot) => snapshot.viewed > 0 || snapshot.reviewed)
-            .map((snapshot) => (snapshot.reviewed ? snapshot : snapshot.showing("reviewed"))),
+          "open",
+          nodes.filter((snapshot) => !taken.has(snapshot.snapshot.n)),
           [],
-          through,
-          stranded,
-        ),
-        new GroupNode(
-          node.repo,
-          "unreviewed",
-          open
-            .filter((snapshot) => !snapshot.reviewed)
-            .map((snapshot) => (snapshot.viewed === 0 ? snapshot : snapshot.showing("unreviewed"))),
-          [],
-          undefined,
-          new Set(),
         ),
       ];
       return areas.filter((area) => area.snapshots.length + area.commits.length > 0);

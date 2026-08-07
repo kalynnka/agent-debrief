@@ -89,18 +89,16 @@ async function main() {
   assert.strictEqual(await g.fileAt(headBefore, "d.py"), "", "missing file should read empty");
   console.log("revision content + missing-file       ok");
 
-  // 4. The Reviewable rule: reviewing at snapshot 1 does not carry into snapshot 2.
-  await store.withLock((state) => {
-    state.reviewed["a.py"] = 1;
-  });
-  assert.strictEqual(store.isReviewed("a.py", 1), true, "should be reviewed at snapshot 1");
-  assert.strictEqual(store.isReviewed("a.py", 2), false, "snapshot 2 must reopen a.py");
-  assert.strictEqual(store.isReviewed("d.py", 2), false);
+  // 4. Marking a file read is off (MARKING, in state.ts). The marks already on
+  //    disk are left exactly where they are — nothing is thrown away — and nothing
+  //    reads them, so no file is hidden from a review or ticked in a tree row.
   await store.withLock((state) => {
     state.reviewed["a.py"] = 2;
   });
-  assert.strictEqual(store.isReviewed("a.py", 2), true);
-  console.log("review state resets on later snapshot ok");
+  assert.strictEqual(store.data.reviewed["a.py"], 2, "a mark is still recorded");
+  assert.strictEqual(store.isReviewed("a.py", 2), false, "and is not read while marking is off");
+  assert.strictEqual(store.isReviewed("a.py", 1), false);
+  console.log("marking is off, marks are kept        ok");
 
   // 5. Submitting writes one batch and flips the drafts.
   const aLines = fs.readFileSync(path.join(root, "a.py"), "utf8").split("\n");
@@ -139,7 +137,7 @@ async function main() {
   const reloaded = new Store(lane);
   await reloaded.load();
   assert.strictEqual(reloaded.data.snapshots.length, 2);
-  assert.strictEqual(reloaded.isReviewed("a.py", 2), true);
+  assert.strictEqual(reloaded.data.reviewed["a.py"], 2);
   assert.strictEqual(reloaded.data.threads.length, 2);
   console.log("state round-trips through disk        ok");
 
@@ -258,14 +256,14 @@ async function main() {
   // 11. Undoing a snapshot takes the snapshot itself off the stack, not just its files:
   //     ref, record, and the review marks it made. Its number comes back.
   assert.strictEqual(git(["rev-parse", "--verify", "-q", snapshotRef("main", 2)]).trim(), r2.snapshot.sha);
-  assert.strictEqual(store.isReviewed("a.py", 2), true, "a.py was marked reviewed at snapshot 2");
+  assert.strictEqual(store.data.reviewed["a.py"], 2, "a.py was marked reviewed at snapshot 2");
   await dropSnapshot(g, store, 2);
   assert.deepStrictEqual(store.data.snapshots.map((t) => t.n), [1], "snapshot 2 still recorded");
   assert.throws(
     () => git(["rev-parse", "--verify", "-q", snapshotRef("main", 2)]),
     "snapshot 2's ref survived",
   );
-  assert.strictEqual(store.isReviewed("a.py", 1), false, "a review mark made at snapshot 2 outlived it");
+  assert.strictEqual(store.data.reviewed["a.py"], undefined, "a review mark made at snapshot 2 outlived it");
   // Both threads were opened at snapshot 2 and submitted; the snapshot going takes them
   // with it, because a comment on a change that no longer exists is about nothing.
   assert.strictEqual(store.data.threads.length, 0, "threads outlived the snapshot they were about");
@@ -310,7 +308,7 @@ async function main() {
     ["e.py"],
     "snapshot 3 lost its diff when the snapshot before it went",
   );
-  assert.strictEqual(store.isReviewed("e.py", 3), true, "a later snapshot's review mark was cleared");
+  assert.strictEqual(store.data.reviewed["e.py"], 3, "a later snapshot's review mark was cleared");
   console.log("a middle snapshot drops cleanly       ok");
 
   // 13. A revert must leave the newest snapshot agreeing with disk, or the next

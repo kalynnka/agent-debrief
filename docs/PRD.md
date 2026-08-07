@@ -245,6 +245,14 @@ maintain, and it directly attacks UC-3.
 Borrowed from Reviewable's per-file/per-revision model — **agent turns are
 revisions** — with none of its product around it.
 
+**Switched off in the current build (2026-08-07).** Built, used, and turned off
+after use: the rule is cheap to compute and expensive to *follow* — a file
+cleared at snapshot 2 reopening at snapshot 5, thirty snapshots deep, is more
+state than a reader carries. The implementation and the recorded marks are kept;
+one constant (`MARKING`, `src/state.ts`) ignores them. This is a finding about the
+requirement, not a bug in it — see WORKFLOWS §5.2 for what came off with it, and
+treat the design above as unproven rather than as shipped.
+
 ### 4.5 Comments
 
 A thread anchors to `(file, line range, blob sha, content hash of the anchored
