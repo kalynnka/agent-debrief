@@ -158,6 +158,22 @@ export class Git {
     return stdout;
   }
 
+  /** Who git thinks you are here, or undefined when nothing says. Resolved by git
+   * itself, so a repository with its own `user.name` beats the global one exactly
+   * as it does for a commit. */
+  async userName(): Promise<string | undefined> {
+    try {
+      const name = (await this.run(["config", "user.name"])).trim();
+      return name === "" ? undefined : name;
+    } catch (error) {
+      // `git config` exits 1 for a key that is not set anywhere.
+      if ((error as { code?: number }).code === 1) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
   static async discoverRoot(cwd: string): Promise<string | undefined> {
     try {
       const { stdout } = await exec("git", ["rev-parse", "--show-toplevel"], { cwd });

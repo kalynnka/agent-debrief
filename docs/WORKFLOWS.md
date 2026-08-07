@@ -73,9 +73,9 @@ label, and the few lines the agent left under it. The tree row has room for the
 label alone; this is the rest, and it is meant to be read before the diff. It is
 a diff row like any other, so it shows the text as text. The
 `prepare-change-review` skill is what keeps it worth reading: one sentence as the
-label, then at most three sections — Purpose, Verification, Risks — in plain
-text, because nothing renders that row. Everything longer belongs in the agent's
-reply, where you can see it beside the rest of the conversation.
+label, then Purpose and Verification, and a Risks line only when there is a real
+one — in plain text, because nothing renders that row. Everything longer belongs
+in the agent's reply, where you can see it beside the rest of the conversation.
 
 Hovering a snapshot's row in the sidebar shows its state and the message's
 opening section, rendered. A hover clips rather than scrolls, so the rest is a
@@ -495,8 +495,8 @@ not checked.
 
 The snapshot's own record is the summary of that report, not the report, and it
 is two separate fields. The **label** is one sentence and becomes the sidebar
-row; the **message** is at most three short sections — Purpose, Verification,
-Risks — and opens the review above the diff. Neither is the other cut in half, and
+row; the **message** is Purpose and Verification, plus Risks on the snapshots
+that have one, and opens the review above the diff. Neither is the other cut in half, and
 the CLI refuses a message with no label, because a label sliced off the front of
 something else is how a row ends up reading like the middle of a turn. Everything
 that does not fit stays in the reply, where you can see it beside the rest of the

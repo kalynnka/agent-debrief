@@ -144,14 +144,19 @@ stacked without air is one paragraph wearing three labels:
     Verification: 47 checks pass (25 smoke + 22 cli); the two buttons are unclicked.
 
     Risks: the tick is a proposed API and goes with any VS Code update — src/extension.ts:52
-    is where it is worked around. Nothing else here is load-bearing.
+    is where it is worked around.
 
-**Risks is about the whole snapshot, not one file.** What could be wrong, what
-you did not verify, what assumption the reviewer may want to reject — naming a
-file is how you point at it, not what the section is for.
+**Most snapshots have no Risks line, and that is the normal case.** Leave it out.
+It is for a real one — something that could be wrong, something you did not
+verify, an assumption the reviewer may want to reject — and for nothing else.
+Writing it to reassure ("nothing else is load-bearing"), or to describe the change
+again in different words, is the failure this section keeps walking into: a line
+that appears on every snapshot stops being read on any of them. When there is one,
+it is about the whole snapshot rather than one file; naming a file is how you
+point at it, not what the section is for.
 
-Drop any section you have nothing real to put in. Two is common, one is fine, and
-**under 300 characters all told** is the target — a note the reader has to scroll
+Purpose and Verification are the two that usually earn their place. One is fine.
+**Under 300 characters all told** is the target — a note the reader has to scroll
 is one they skip, and then the line that mattered went unread with it.
 
 **A `path:line` reference becomes a clickable link.** Write it plainly —
@@ -171,8 +176,6 @@ reading like the middle of a turn.
       Purpose: …
 
       Verification: …
-
-      Risks: …
       EOF
       )"
 
@@ -205,6 +208,9 @@ is right there underneath it.
   costs the reader the one line that was going to tell them something new.
 - **Length.** Paragraphs where a line would do. If a line has run to three
   sentences it is a paragraph wearing a label, and it belongs in your reply.
+- **A section filled in because it is in the template.** A Risks line on a change
+  with no risk is noise on every snapshot that has one, because the reader stops
+  believing the label. Two real sections beat three with a passenger.
 - **Markup nobody renders.** `Read [cli.ts:220](src/cli.ts#L220) first` is read
   exactly like that, brackets and all, by the one reader it was written for —
   and it costs the link the plain reference would have got for free.

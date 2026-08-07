@@ -68,10 +68,15 @@ export class Comments {
     this.controller.dispose();
   }
 
-  private author(): vscode.CommentAuthorInformation {
-    return {
-      name: vscode.workspace.getConfiguration("octoview").get<string>("author", "reviewer"),
-    };
+  /** Who a comment is from.
+   *
+   * Git already knows, and it is the name every other record of this work carries,
+   * so it is the default rather than something to configure. `octoview.author` is
+   * there for the case git's answer is wrong for a review — a shared machine, a
+   * work identity on a personal clone — and only then. */
+  private async author(repo: Repo): Promise<vscode.CommentAuthorInformation> {
+    const configured = vscode.workspace.getConfiguration("octoview").get<string>("author", "");
+    return { name: configured !== "" ? configured : ((await repo.git.userName()) ?? "reviewer") };
   }
 
   private render(thread: Thread): vscode.Comment[] {
@@ -135,7 +140,7 @@ export class Comments {
     const { repo, rel } = located;
     const note = {
       body: text,
-      author: this.author().name ?? "reviewer",
+      author: (await this.author(repo)).name ?? "reviewer",
       at: new Date().toISOString(),
     };
     const existingId = reply.thread.contextValue;

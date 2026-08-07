@@ -447,8 +447,8 @@
       "properties": {
         "octoview.author": {
           "type": "string",
-          "default": "reviewer",
-          "description": "Name recorded on review comments."
+          "default": "",
+          "description": "Name recorded on review comments. Empty uses the repository's git user.name, which is what every other record of this work carries."
         }
       }
     }
