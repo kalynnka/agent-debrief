@@ -1,8 +1,7 @@
 # Playground
 
 A scratch file for exercising the review loop end to end: leave a line comment,
-message the agent, watch the agent answer it. There is no submit step any more —
-a comment is open from the moment you write it.
+submit the batch, hand it to the agent, watch the agent answer it.
 
 Round two. What is being tested this time is where a comment says it came from:
 comment on **this** snapshot's diff and on an older one, and every thread should
@@ -21,7 +20,6 @@ you never re-read work you already cleared.
 3. Comment on a line **this** snapshot deleted, on the left-hand side. That one
    is the whole point: the text is the previous snapshot's, but the diff you are
    reading is this one, and this one is what the thread should say.
-4. Message the agent. Nothing to press.
 
 ## Claims worth arguing with
 
