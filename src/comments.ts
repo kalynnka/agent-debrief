@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import { Repo, Repos } from "./repos";
-import { makeAnchor } from "./review";
+import { anchorForward } from "./review";
 import { Thread } from "./state";
 
 export const SCHEME = "debrief";
@@ -52,7 +52,13 @@ export class Comments {
   private readonly controller: vscode.CommentController;
   private readonly live = new Map<string, Live>();
 
-  constructor(private readonly repos: Repos) {
+  constructor(
+    private readonly repos: Repos,
+    /** Which snapshot's diff a document is being read as. Only the extension can
+     * answer it — the question is about which tab the document is open in — so it
+     * arrives as a function rather than being worked out here. */
+    private readonly reviewedAt: (uri: vscode.Uri, repo: Repo) => number | undefined,
+  ) {
     this.controller = vscode.comments.createCommentController(SCHEME, "Debrief");
     this.controller.commentingRangeProvider = {
       provideCommentingRanges: (document) => {
@@ -148,24 +154,30 @@ export class Comments {
     };
     const existingId = reply.thread.contextValue;
 
-    // Anchor against the latest snapshot, from the document the reviewer is reading;
-    // prepared before taking the lock so the lock is held only for the write.
+    // Two questions, two answers: the *revision* is what the document holds, since
+    // those are the lines being anchored, and the *snapshot* is the diff it belongs
+    // to — not the same thing on a left-hand side. The anchor then travels to the
+    // newest snapshot, where every other anchor already is. Prepared before the
+    // lock, so the lock is held only for the write.
     const start = reply.thread.range?.start.line ?? 0;
     const end = reply.thread.range?.end.line ?? start;
     const document = await vscode.workspace.openTextDocument(uri);
+    const latest = repo.store.latestSnapshot;
+    const { anchor, outdated } = await anchorForward(
+      repo.git,
+      rel,
+      start,
+      end,
+      document.getText().split("\n"),
+      uri.scheme === SCHEME ? uri.query : latest?.sha,
+      latest?.sha,
+    );
     const fresh: Thread = {
       id: `t${Date.now().toString(36)}${Math.floor(Math.random() * 46656).toString(36)}`,
-      anchor: await makeAnchor(
-        repo.git,
-        repo.store.latestSnapshot?.sha,
-        rel,
-        start,
-        end,
-        document.getText().split("\n"),
-      ),
-      snapshot: repo.store.latestSnapshot?.n ?? 0,
+      anchor,
+      snapshot: this.reviewedAt(uri, repo) ?? latest?.n ?? 0,
       state: "draft",
-      outdated: false,
+      outdated,
       comments: [],
     };
 

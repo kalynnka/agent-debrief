@@ -212,8 +212,17 @@ When the next snapshot lands, an open thread is re-anchored to wherever its exac
 lines moved to, following renames. If those lines no longer exist, the thread is
 marked **outdated** — GitHub's semantics: still visible, still open, flagged.
 
-A thread stays stamped with the snapshot it was opened against, which is what lets
-a dropped snapshot take its comments with it.
+Comment on an **older** snapshot's diff and the thread makes that whole journey at
+once, the moment you write it: its lines are found again in the newest version of
+the file, so the comment sits on the line as it stands now and `review open` sends
+the agent to a line number that is true today. A line the later snapshots took
+away leaves the comment outdated, which is the same answer for the same reason.
+
+A thread is stamped with **the diff you were reading**, not with the newest
+snapshot and not with the revision under your cursor: comment on a line snapshot 6
+deleted — the left-hand side, which holds snapshot 5's content — and it is still
+snapshot 6 you are reviewing. That is GitHub's rule, and it is what keeps a
+dropped snapshot taking its own comments with it.
 
 ### 3.4 Ask the agent about its own change
 

@@ -106,7 +106,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.Uri.joinPath(context.extensionUri, "media"),
   );
   const repositories = new RepositoriesProvider(repos, selection);
-  const comments = new Comments(repos);
+  // Read at call time: the tab knowledge it needs is declared further down.
+  const comments = new Comments(repos, (uri, repo) => reviewedAt(uri, repo));
   const revisions = new RevisionContentProvider(repos);
   const decorations = new SnapshotDecorations();
   context.subscriptions.push(
@@ -211,6 +212,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return undefined;
   };
 
+
+  /** Which snapshot's diff a document is being read as, and so what a comment on
+   * it is about: GitHub's rule, the diff in front of you whichever side you write
+   * on. The revision cannot answer it — a left-hand side is the *previous*
+   * snapshot's commit, which would credit snapshot 5 for a line snapshot 6
+   * deleted. The tab settles it: a plain diff names both sides, and a review tab
+   * is registered under the snapshots it covers. Anything else is read as itself. */
+  const reviewedAt = (uri: vscode.Uri, repo: Repo): number | undefined => {
+    const latest = repo.store.latestSnapshot?.n;
+    if (uri.scheme !== SCHEME) {
+      return latest;
+    }
+    const bySha = (sha: string): number | undefined =>
+      repo.store.data.snapshots.find((snapshot) => snapshot.sha === sha)?.n;
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (
+          tab.input instanceof vscode.TabInputTextDiff &&
+          tab.input.original.toString() === uri.toString()
+        ) {
+          const { modified } = tab.input;
+          return modified.scheme === SCHEME ? bySha(modified.query) : latest;
+        }
+      }
+    }
+    // A review tab's rows all share one left-hand side — the parent of the first
+    // snapshot it covers — and its right-hand side is the last of them.
+    const review = activeReview();
+    if (review !== undefined && review.repo === repo && review.snapshots[0]?.parent === uri.query) {
+      return review.snapshots[review.snapshots.length - 1]?.n;
+    }
+    return bySha(uri.query);
+  };
 
   /** Open a review of some snapshots.
    *

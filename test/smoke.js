@@ -12,10 +12,12 @@ const { resolveLane } = require("../out/lanes");
 const { RepoSelection, Repos } = require("../out/repos");
 const {
   adoptLane,
+  anchorForward,
   clearLane,
   committableRun,
   dropSnapshot,
   foreignPaths,
+  hashLines,
   landedCommits,
   landedSnapshots,
   makeAnchor,
@@ -971,6 +973,69 @@ async function main() {
     "a line range underlines whole and opens at its first line",
   );
   console.log("a plain reference is still a link      ok");
+
+  // 28. A comment written on an older snapshot's diff. Its lines are that
+  //     snapshot's, and every anchor in the lane lives at the newest one, so it
+  //     has to travel the whole way at once — the trip `carryForward` would have
+  //     given it one snapshot at a time had it existed back then.
+  const fwdRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-forward-"));
+  const fg = (args) => execFileSync("git", args, { cwd: fwdRoot, encoding: "utf8" });
+  fg(["init", "-q", "-b", "main", "."]);
+  fg(["config", "user.email", "t@t"]);
+  fg(["config", "user.name", "t"]);
+  fs.writeFileSync(path.join(fwdRoot, "seed.txt"), "seed\n");
+  fg(["add", "."]);
+  fg(["commit", "-qm", "base"]);
+  const fgit = new Git(fwdRoot);
+  const fstore = new Store(await resolveLane(fwdRoot));
+  const readLines = (file) => fs.readFileSync(path.join(fwdRoot, file), "utf8").split("\n");
+  fs.writeFileSync(path.join(fwdRoot, "doc.md"), "alpha\nbeta\ngamma\n");
+  fs.writeFileSync(path.join(fwdRoot, "still.txt"), "untouched\n");
+  const f1 = await takeSnapshot(fgit, fstore, { label: "writes doc", agent: "manual" });
+  const atOne = readLines("doc.md");
+  fs.writeFileSync(path.join(fwdRoot, "doc.md"), "intro\nalpha\nbeta\ngamma\n");
+  await takeSnapshot(fgit, fstore, { label: "adds an intro", agent: "manual" });
+  fs.rmSync(path.join(fwdRoot, "doc.md"));
+  fs.writeFileSync(path.join(fwdRoot, "guide.md"), "intro\nalpha\nbeta\n");
+  const f3 = await takeSnapshot(fgit, fstore, { label: "renames it and drops gamma", agent: "manual" });
+
+  // "beta" was line 2 of snapshot 1 and is line 3 of snapshot 3, in a file that has
+  // since been renamed. The comment belongs on the line, wherever git put it.
+  const moved = await anchorForward(fgit, "doc.md", 1, 1, atOne, f1.snapshot.sha, f3.snapshot.sha);
+  assert.strictEqual(moved.outdated, false);
+  assert.strictEqual(moved.anchor.file, "guide.md", "the anchor did not follow the rename");
+  assert.strictEqual(moved.anchor.startLine, 2, "the anchor did not follow its line");
+  assert.strictEqual(
+    moved.anchor.blobSha,
+    await fgit.blobAt(f3.snapshot.sha, "guide.md"),
+    "the blob must be the newest snapshot's, or carry-forward reads the wrong file",
+  );
+  assert.strictEqual(
+    moved.anchor.contentHash,
+    hashLines(["beta"]),
+    "the hash is of what the reviewer selected, not of what is there now",
+  );
+
+  // "gamma" is gone by snapshot 3. Still a real comment, and still open — flagged,
+  // which is what outdated is for.
+  const gone = await anchorForward(fgit, "doc.md", 2, 2, atOne, f1.snapshot.sha, f3.snapshot.sha);
+  assert.strictEqual(gone.outdated, true, "a comment on a line since deleted must be outdated");
+
+  // A file no snapshot in between touched needs no journey at all.
+  const still = await anchorForward(
+    fgit,
+    "still.txt",
+    0,
+    0,
+    readLines("still.txt"),
+    f1.snapshot.sha,
+    f3.snapshot.sha,
+  );
+  assert.strictEqual(still.outdated, false);
+  assert.strictEqual(still.anchor.startLine, 0);
+  assert.strictEqual(still.anchor.file, "still.txt");
+  fs.rmSync(fwdRoot, { recursive: true, force: true });
+  console.log("a comment on an older snapshot lands   ok");
 
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });

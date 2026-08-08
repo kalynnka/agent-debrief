@@ -51,6 +51,57 @@ export async function makeAnchor(
   };
 }
 
+/** The anchor for a comment written against `from`, expressed at `to`.
+ *
+ * `carryForward` walks every other anchor to the newest snapshot as each one
+ * lands. A comment written on an older diff missed those trips, so it makes them
+ * all at once here — otherwise it keeps coordinates nothing else reads, and
+ * `review open` sends the agent to the wrong line by number. Lines that are gone
+ * by `to` come back `outdated`. */
+export async function anchorForward(
+  git: Git,
+  file: string,
+  startLine: number,
+  endLine: number,
+  documentLines: string[],
+  from: string | undefined,
+  to: string | undefined,
+): Promise<{ anchor: Anchor; outdated: boolean }> {
+  const anchor = await makeAnchor(git, from, file, startLine, endLine, documentLines);
+  if (from === undefined || to === undefined || from === to) {
+    return { anchor, outdated: false };
+  }
+  const record = (await git.changedFiles(from, to)).find(
+    (f) => f.path === file || f.oldPath === file,
+  );
+  // Nothing between the two revisions touched the file, so the coordinates still
+  // hold and the blob under them is the same object either way.
+  if (record === undefined) {
+    return { anchor, outdated: false };
+  }
+  if (record.status === "D") {
+    return { anchor, outdated: true };
+  }
+  const block = documentLines.slice(startLine, endLine + 1);
+  const found =
+    block.length === 0
+      ? undefined
+      : locate((await git.fileAt(to, record.path)).split("\n"), block, startLine);
+  if (found === undefined) {
+    return { anchor, outdated: true };
+  }
+  return {
+    anchor: {
+      ...anchor,
+      file: record.path,
+      startLine: found,
+      endLine: found + block.length - 1,
+      blobSha: (await git.blobAt(to, record.path)) ?? "",
+    },
+    outdated: false,
+  };
+}
+
 /** Capture one snapshot: allocate the lane's next number, write the working tree
  * through the lane's private index, record it, and carry open comment
  * threads forward into it. The whole read-modify-write runs under the lane's
