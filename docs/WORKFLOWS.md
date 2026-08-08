@@ -224,6 +224,12 @@ deleted — the left-hand side, which holds snapshot 5's content — and it is s
 snapshot 6 you are reviewing. That is GitHub's rule, and it is what keeps a
 dropped snapshot taking its own comments with it.
 
+A thread therefore has **two homes and one set of words**. On the file it sits at
+the relocated line, which is where you go to act on it. On the revision it was
+written against it sits where you put it, forever, because that diff never
+changes. Those are the only two places it is drawn — the Comments panel lists it
+once per open home, and a thread written on the file has only the one.
+
 ### 3.4 Ask the agent about its own change
 
 **Not built yet.** PRD UC-4. Today, quote the hunk into your reply.

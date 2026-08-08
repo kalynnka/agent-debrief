@@ -28,7 +28,17 @@ export type ThreadState = "draft" | "submitted" | "resolved";
 
 export interface Thread {
   id: string;
+  /** Where the lines are now. `carryForward` moves this onto each new snapshot,
+   * so it is always expressed at the newest one. */
   anchor: Anchor;
+  /** Where the comment was written: the revision the reviewer had open, and the
+   * lines they picked in it. Never moves — which is what lets the thread be drawn
+   * on its own diff at its own coordinates while `anchor` says where those lines
+   * ended up. GitHub keeps the same pair, as `original_line` beside `line`.
+   *
+   * Absent on threads written before it was recorded; those are drawn on the file
+   * and nowhere else. */
+  origin?: { rev: string; startLine: number; endLine: number };
   /** The snapshot under review when the thread was opened. */
   snapshot: number;
   state: ThreadState;
@@ -57,7 +67,7 @@ export interface State {
   base?: string;
 }
 
-const emptyState = (): State => ({ schemaVersion: 5, snapshots: [], reviewed: {}, threads: [] });
+const emptyState = (): State => ({ schemaVersion: 6, snapshots: [], reviewed: {}, threads: [] });
 
 /** Whether marking a file read does anything.
  *

@@ -28,8 +28,9 @@ import { labelOf, summaryFromTranscript, summaryOf } from "./transcript";
 /** Bumped when a payload's shape changes; clients refuse a version they do not
  * know. 2 renamed every `turn` field and `turns` array to `snapshot`; 3 records
  * the HEAD a snapshot was taken at; 4 adds the stash tip beside it; 5 gives a
- * lane a `base`, the commit a cleared lane starts from. */
-const SCHEMA_VERSION = 5;
+ * lane a `base`, the commit a cleared lane starts from; 6 gives a thread an
+ * `origin`, the revision and lines the comment was written against. */
+const SCHEMA_VERSION = 6;
 
 const USAGE = `usage: debrief <command> [options]
 

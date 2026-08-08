@@ -123,35 +123,41 @@ export class Comments {
     return `${repo.root}\0${id}\0${uri.toString()}`;
   }
 
-  /** Draw stored threads onto the file on disk.
+  /** Where a thread belongs on this document, if it belongs on it at all.
    *
-   * The working tree and nowhere else. An anchor is kept at the newest snapshot,
-   * so those are the only coordinates that are true — the same line number on an
-   * older revision is a different line. Drawing on every document that showed the
-   * path also gave one thread a widget per revision opened, which the Comments
-   * panel lists as one comment written three times.
+   * Two places, and the coordinates differ between them. The file on disk gets
+   * `anchor`, which `carryForward` keeps at the newest snapshot — the line as it
+   * stands now. The revision the comment was written against gets `origin`, the
+   * lines the reviewer actually picked, which no relocation may move.
    *
-   * A widget the reviewer types into an older diff is not made here and is left
-   * alone: it is on the lines they chose, in the tab they chose them in. `forget`
-   * takes it when that tab closes. */
-  rehydrate(uri: vscode.Uri): void {
-    if (uri.scheme !== "file") {
-      return;
+   * Every other document gets nothing. That is what stopped one thread appearing
+   * once per revision opened: an anchor that is true at the newest snapshot names
+   * a different line on an older one, so those widgets were not just noise in the
+   * Comments panel, they were pointing at the wrong text. A thread written before
+   * `origin` was recorded has only the first of the two homes. */
+  private placement(thread: Thread, uri: vscode.Uri): vscode.Range | undefined {
+    if (uri.scheme === "file") {
+      return new vscode.Range(thread.anchor.startLine, 0, thread.anchor.endLine, 0);
     }
+    if (uri.scheme === SCHEME && thread.origin !== undefined && uri.query === thread.origin.rev) {
+      return new vscode.Range(thread.origin.startLine, 0, thread.origin.endLine, 0);
+    }
+    return undefined;
+  }
+
+  /** Draw stored threads onto a document that has a home for them. */
+  rehydrate(uri: vscode.Uri): void {
     const located = this.repos.locate(pathOf(uri));
     if (located === undefined) {
       return;
     }
     for (const thread of located.repo.store.threadsFor(located.rel)) {
       const key = this.key(located.repo, thread.id, uri);
-      if (this.live.has(key)) {
+      const range = this.placement(thread, uri);
+      if (this.live.has(key) || range === undefined) {
         continue;
       }
-      const widget = this.controller.createCommentThread(
-        uri,
-        new vscode.Range(thread.anchor.startLine, 0, thread.anchor.endLine, 0),
-        [],
-      );
+      const widget = this.controller.createCommentThread(uri, range, []);
       this.decorate(widget, thread);
       this.live.set(key, { widget, repo: located.repo, id: thread.id });
     }
@@ -196,9 +202,13 @@ export class Comments {
       uri.scheme === SCHEME ? uri.query : latest?.sha,
       latest?.sha,
     );
+    const rev = uri.scheme === SCHEME ? uri.query : latest?.sha;
     const fresh: Thread = {
       id: `t${Date.now().toString(36)}${Math.floor(Math.random() * 46656).toString(36)}`,
       anchor,
+      // Kept beside the anchor, not instead of it: this is the diff row the
+      // reviewer was looking at, which no amount of relocation should move.
+      origin: rev === undefined ? undefined : { rev, startLine: start, endLine: end },
       snapshot: this.reviewedAt(uri, repo) ?? latest?.n ?? 0,
       state: "draft",
       outdated,
@@ -221,10 +231,10 @@ export class Comments {
     }
   }
 
-  /** Let go of the widgets on a revision document that has closed — the ones
-   * `reply` made, which nothing else would ever take back. The file on disk keeps
-   * its own: closing that tab is not the reviewer saying they are done, and
-   * reopening it draws them again anyway. */
+  /** Let go of the widgets on a revision document that has closed. Reopening the
+   * diff draws them again from `origin`, so nothing is lost — and without this the
+   * Comments panel keeps listing a tab that is no longer there. The file on disk
+   * keeps its own: closing that tab is not the reviewer saying they are done. */
   forget(uri: vscode.Uri): void {
     if (uri.scheme === "file") {
       return;
