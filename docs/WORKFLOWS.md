@@ -147,17 +147,26 @@ separate that.
 
 ### 3.1 Batch your comments
 
-Comment on any line while you read. Drafts accumulate — nothing is sent until you
-press **Submit Review** on the repo's row, which writes one file:
+Comment on any line while you read. Each one is **open** the moment you write it:
+there is no send step, and nothing to remember at the end of a read. Say "I have
+reviewed" and the agent picks the lot up.
+
+That still gets you the batch, because the batching was never the button. Nothing
+pushes a comment at an agent — an agent *asks*, once, when you next speak to it,
+so it gets the shape of your review in one reply rather than five interruptions.
+The button only ever added a way to lose a comment you forgot to press it for.
+
+**Submit Review** on the repo's row remains, for the other half of its old job:
+it writes what is open to one file —
 
 ```
 .git/debrief/<lane>/batches/<timestamp>.json
 ```
 
-and flips those threads to submitted. This is the whole point of the tool: the
-agent gets the shape of your review in one reply, not five interruptions.
+— which is the record, and the thing that leaves this repository. Threads in a
+batch stop taking replies; open a new one to say more.
 
-The agent reads it back with:
+The agent reads your comments with:
 
 ```bash
 debrief review open           # every comment still waiting on it, across submits
@@ -172,14 +181,16 @@ with open for you.
 
 ### 3.2 Handing the review over
 
-Submitting writes the file. Getting it in front of an agent is a separate step,
-and there are three ways because no two people run their agent the same way.
+Your comments are open as soon as they are written; getting them in front of an
+agent is a separate step, and there are three ways because no two people run
+their agent the same way.
 
-**The agent asks.** Nothing to press: it runs `debrief review open` at the start
-of a turn. This is the one that costs you nothing and the one to prefer.
+**The agent asks.** Nothing to press at all: it runs `debrief review open` at the
+start of a turn, and everything you wrote is there. This is the one that costs you
+nothing and the one to prefer.
 
-**Copy Review for the Agent** (the clipboard on the repo's row) submits any
-drafts, renders everything open as plain text, puts it on the clipboard, and
+**Copy Review for the Agent** (the clipboard on the repo's row) submits what is
+open, renders it as plain text, puts it on the clipboard, and
 focuses the agent's input if the Claude Code extension is installed. You press
 ⌘V. That last step stays yours: an extension cannot paste into another
 extension's webview, and focusing the input is the whole of what Claude Code
@@ -402,7 +413,7 @@ Same rule as the sweep: debrief lets go of the refs and deletes no commit. The
 difference is the record. A dead lane keeps its `state.json`, so `git update-ref`
 can put it back while the objects last; this **empties** it, so nothing anywhere
 remembers the shas. The modal counts what is already in a commit against what is
-not, says how many draft comments go with them, and tells you the next snapshot
+not, says how many unanswered comments go with them, and tells you the next snapshot
 here will be number 1 again.
 
 One thing is kept and it is not a snapshot: **where the lane now starts.** An
@@ -457,7 +468,7 @@ only be switched off is a worse offer than no list.
 
 It is a filter on the *view* and on nothing else. Snapshots are still taken in
 every repo the work touched, and an unchecked repo keeps its numbering, its state
-and its draft comments — hiding one is not dropping it, and checking it back on
+and its open comments — hiding one is not dropping it, and checking it back on
 brings the review back exactly as it was. The choice is remembered per workspace,
 and it remembers what you *unchecked*, so a clone added to the workspace tomorrow
 arrives visible rather than silently absent.

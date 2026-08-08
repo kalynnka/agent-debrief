@@ -869,7 +869,11 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
             node.snapshot,
             file,
             node.repo.store.isReviewed(file.path, node.snapshot.n),
-            node.repo.store.threadsFor(file.path).filter((t) => t.state === "draft").length,
+            // Every thread still waiting, not the unsent ones: a comment is open
+            // the moment it is written, so a count of drafts would empty the badge
+            // the first time a review is handed over and leave nothing to say the
+            // file still has comments on it.
+            node.repo.store.threadsFor(file.path).filter((t) => t.state !== "resolved").length,
             intact.has(file.path),
             staged.has(file.path),
             landed.has(file.path),

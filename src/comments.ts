@@ -90,8 +90,11 @@ export class Comments {
 
   private decorate(widget: vscode.CommentThread, thread: Thread): void {
     widget.comments = this.render(thread);
+    // "Draft" would say the agent cannot see this yet, and it can — a comment is
+    // open from the moment it is written. What a Submit still changes is the
+    // record it writes, and that the thread stops taking replies.
     const stage =
-      thread.state === "draft" ? "Draft" : thread.state === "submitted" ? "Submitted" : "Resolved";
+      thread.state === "draft" ? "Open" : thread.state === "submitted" ? "Submitted" : "Resolved";
     const outdated = thread.outdated ? " · outdated" : "";
     widget.label = `${stage} · snapshot ${thread.snapshot}${outdated}`;
     widget.contextValue = thread.id;

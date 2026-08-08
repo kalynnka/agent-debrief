@@ -902,7 +902,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ),
     );
     const open = all.length - all.filter((snapshot) => landed.has(snapshot.n)).length;
-    const drafts = repo.store.pending.length;
+    // Everything still waiting, not just what a Submit would have written: with
+    // no button between writing a comment and the agent reading it, "unsubmitted"
+    // is no longer the count that says what this deletes.
+    const waiting = openThreads(repo.store).length;
     const answer = await vscode.window.showWarningMessage(
       `Delete all ${all.length} snapshot${all.length === 1 ? "" : "s"} on ${repo.lane.name} in ${repo.name}?`,
       {
@@ -910,8 +913,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         detail: [
           `${all.length - open} already in a commit — git keeps that content whatever happens here.`,
           `${open} in no commit — this lane is the only place they exist.`,
-          ...(drafts > 0
-            ? [`${drafts} draft comment${drafts === 1 ? "" : "s"} you have not submitted.`]
+          ...(waiting > 0
+            ? [`${waiting} comment${waiting === 1 ? "" : "s"} the agent has not answered yet.`]
             : []),
           "",
           "Debrief deletes no commits. It stops holding the refs that keep these " +

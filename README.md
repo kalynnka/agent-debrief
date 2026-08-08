@@ -9,8 +9,9 @@ unambiguous in a registry, and the short one is what you live with.
 
 A snapshot is the unit of review — one per agent turn. Each captures the working tree
 as a real git commit; the diff you read is **snapshot N-1 → snapshot N**, not
-N-vs-base, so you never re-read work you already cleared. Comments batch as drafts and
-submit as one file.
+N-vs-base, so you never re-read work you already cleared. Comments batch by being
+read all at once — the agent asks for them when you send it a message — and a
+submit writes them out as one file.
 
 ## Why not per-edit approval
 
@@ -55,10 +56,12 @@ drifts from the work it describes.
 4. Click a file to open its snapshot-over-snapshot diff. For the newest snapshot the
    right-hand side is the real file on disk, so Pylance/pyright attaches — hover,
    types and go-to-definition all work while you read.
-5. Comment on any line. Drafts accumulate.
-6. **Debrief: Submit Review** writes the batch to
-   `.git/debrief/<lane>/batches/<timestamp>.json` in the reviewed repo and
-   marks the drafts submitted. Agents read it back with `debrief review batch`.
+5. Comment on any line. Each one is open the moment you write it — there is no
+   send step. Tell the agent you have reviewed and it reads them with
+   `debrief review open`, then closes what it answers with `debrief review resolve`.
+6. **Debrief: Submit Review** is for the record rather than for sending: it writes
+   the open comments to `.git/debrief/<lane>/batches/<timestamp>.json` in the
+   reviewed repo, which is the batch that leaves this machine.
 
 Marking a file reviewed records the snapshot you reviewed it at. A later snapshot
 touching that file makes it unreviewed again — the rule is just

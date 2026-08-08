@@ -338,13 +338,19 @@ export async function sweepLanes(git: Git, commonDir: string, apply: boolean): P
   return sweep;
 }
 
-/** The threads waiting on the agent: submitted, and not yet answered.
+/** The threads waiting on the agent: everything written, and not yet answered.
  *
- * Drafts are deliberately absent. A comment is the reviewer's own until they
- * press Submit, and that is the whole point of batching — the agent gets the
- * shape of a review in one reply rather than five interruptions. */
+ * A comment counts from the moment it exists, whether or not it has been through
+ * a Submit. Batching is still what keeps an agent from being interrupted five
+ * times, but it is the *pull* that does that work and never the button: nothing
+ * reaches an agent until one asks, and it asks once — when the reviewer sends it
+ * a message. On top of that, making them press Submit first bought nothing, and
+ * cost them the comment they wrote and forgot to send.
+ *
+ * Submit still writes the batch, which is the record and the thing that leaves
+ * this repository. It is no longer what makes a comment visible. */
 export function openThreads(store: Store): Thread[] {
-  return store.data.threads.filter((thread) => thread.state === "submitted");
+  return store.data.threads.filter((thread) => thread.state !== "resolved");
 }
 
 /** One repository's open review as text an agent can act on.

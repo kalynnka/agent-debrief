@@ -208,7 +208,11 @@ async function main() {
     });
   });
   const draftOpen = JSON.parse(debrief(["review", "open", "--repo", root, "--json"], parent).stdout);
-  assert.deepStrictEqual(draftOpen.threads, [], "a draft is the reviewer's own until they submit");
+  assert.deepStrictEqual(
+    draftOpen.threads.map((t) => t.id),
+    ["cli-t1"],
+    "a comment waits on the agent from the moment it is written, submitted or not",
+  );
   const sub = JSON.parse(debrief(["review", "submit", "--repo", root, "--json"], parent).stdout);
   assert.strictEqual(sub.submitted, 1);
   const batch = JSON.parse(debrief(["review", "batch", "--repo", root, "--json"], parent).stdout);

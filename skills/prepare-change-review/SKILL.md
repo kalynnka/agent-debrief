@@ -217,10 +217,11 @@ is right there underneath it.
 
 ## Picking the review up
 
-The human's comments never interrupt you. They pile up as drafts while they read
-and arrive all at once when they press Submit — so the first thing to do when
-they mention a review, or when a message arrives with comments pasted into it, is
-to ask what is actually waiting:
+The human's comments never interrupt you. They pile up while the human reads and
+arrive all at once because you are the one who asks — a comment is waiting from
+the moment it is written, and nothing tells you until you look. So the first thing
+to do when they mention a review, or say they have finished reading, or send a
+message with comments pasted into it, is to ask what is actually waiting:
 
     debrief review open           # every comment still waiting on you
     debrief review open --json    # the same, with anchors, ids and state
