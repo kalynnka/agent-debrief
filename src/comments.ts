@@ -105,7 +105,18 @@ export class Comments {
     widget.label = `${stage} · snapshot ${thread.snapshot}${outdated}`;
     widget.contextValue = thread.id;
     widget.canReply = thread.state === "draft";
-    widget.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
+    // An answered thread folds. It stays on the file — the agent's answer is worth
+    // finding again, and the lines under it are usually what you read next — but
+    // expanded it stands in front of them. `state` is VS Code's own resolved mark,
+    // which the Comments panel filters on and this extension has no command for:
+    // resolving is the agent saying it has dealt with something.
+    const resolved = thread.state === "resolved";
+    widget.state = resolved
+      ? vscode.CommentThreadState.Resolved
+      : vscode.CommentThreadState.Unresolved;
+    widget.collapsibleState = resolved
+      ? vscode.CommentThreadCollapsibleState.Collapsed
+      : vscode.CommentThreadCollapsibleState.Expanded;
   }
 
   private key(repo: Repo, id: string, uri: vscode.Uri): string {
