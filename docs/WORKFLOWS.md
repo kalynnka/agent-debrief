@@ -433,6 +433,24 @@ palette has no way to hand one over.
 
 A repo appears in the view once it has snapshots and not before.
 
+**Choosing which repos to read.** A workspace of several clones is usually
+several clones you are not reviewing at once. A **Repositories** view sits above
+Snapshots with a checkbox per repo — Source Control's own section, and the same
+gesture — and unchecking one takes it out of the Snapshots view. It appears only
+when the workspace holds more than one repo, because a list whose single row can
+only be switched off is a worse offer than no list.
+
+It is a filter on the *view* and on nothing else. Snapshots are still taken in
+every repo the work touched, and an unchecked repo keeps its numbering, its state
+and its draft comments — hiding one is not dropping it, and checking it back on
+brings the review back exactly as it was. The choice is remembered per workspace,
+and it remembers what you *unchecked*, so a clone added to the workspace tomorrow
+arrives visible rather than silently absent.
+
+If you hide everything, the Snapshots view says so rather than claiming there is
+nothing to review, and offers **Show All Repositories** — also in the palette,
+which is the way back when the workspace has shrunk to the one repo you hid.
+
 ### 6.2 Branches and worktrees
 
 A **lane** is a branch of a worktree. State lives under the clone's common dir,

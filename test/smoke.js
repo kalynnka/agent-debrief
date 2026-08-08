@@ -9,7 +9,7 @@ const path = require("path");
 
 const { Git, baseRef, snapshotRef } = require("../out/git");
 const { resolveLane } = require("../out/lanes");
-const { Repos } = require("../out/repos");
+const { RepoSelection, Repos } = require("../out/repos");
 const {
   adoptLane,
   clearLane,
@@ -176,6 +176,25 @@ async function main() {
   assert.strictEqual(repos.locate(path.join(otherReal, "z.ts")).repo.root, otherReal, "z.ts resolved to the wrong repo");
   assert.strictEqual(repos.locate("/nowhere/x.py"), undefined, "a path outside every repo must not resolve");
   console.log("path → repo lookup                    ok");
+
+  // The repository selector remembers what is *hidden*, so a repo it has never
+  // been told about is shown — which is what makes a clone added tomorrow arrive
+  // visible rather than silently absent.
+  const rootRepo = repos.all.find((r) => r.root === rootReal);
+  const otherRepo = repos.all.find((r) => r.root === otherReal);
+  const showing = new RepoSelection();
+  assert.ok(showing.shows(rootRepo) && showing.shows(otherRepo), "a fresh selection must show every repo");
+  showing.set(otherReal, false);
+  assert.ok(showing.shows(rootRepo), "hiding one repo hid another with it");
+  assert.ok(!showing.shows(otherRepo), "the unchecked repo is still shown");
+  assert.deepStrictEqual(showing.hiddenRoots, [otherReal], "the unchecked root was not remembered");
+  // The workspace-state round trip: what was remembered is all it takes to restore.
+  const restored = new RepoSelection(showing.hiddenRoots);
+  assert.ok(!restored.shows(otherRepo), "the selection did not survive a reload");
+  assert.ok(restored.shows(rootRepo), "a reload hid a repo that was never unchecked");
+  restored.set(otherReal, true);
+  assert.deepStrictEqual(restored.hiddenRoots, [], "checking a repo back on left its root behind");
+  console.log("repository selector                   ok");
 
   // 9. Snapshot history is per repo: the second clone starts empty even though the
   //    first has two snapshots, which is the bug a single global store produced.

@@ -26,6 +26,46 @@ export class Repo {
   }
 }
 
+/** Which repositories the views draw.
+ *
+ * A workspace of several clones is usually several clones you are not reviewing
+ * at once, and until now the view had no way to be told so: a repo with
+ * snapshots always has something to show. This is the reviewer saying which of
+ * them they want on screen, and it is about the view and nothing else. Every
+ * repo the work touched is still snapshotted, and a hidden repo keeps its
+ * numbering, its state and its comments — hiding one is not dropping it.
+ *
+ * It remembers the roots that are **hidden** rather than the ones shown, so a
+ * clone added to the workspace tomorrow arrives visible. The reviewer has said
+ * nothing about it, and the answer to "nothing said" should be the one they
+ * never had to ask for. Roots are kept even once a folder leaves the workspace,
+ * so closing a folder and reopening it does not quietly undo the choice. */
+export class RepoSelection {
+  private hidden: Set<string>;
+
+  constructor(hidden: readonly string[] = []) {
+    this.hidden = new Set(hidden);
+  }
+
+  shows(repo: Repo): boolean {
+    return !this.hidden.has(repo.root);
+  }
+
+  set(root: string, shown: boolean): void {
+    if (shown) {
+      this.hidden.delete(root);
+    } else {
+      this.hidden.add(root);
+    }
+  }
+
+  /** The roots to remember. Sorted, so an unchanged selection serializes to the
+   * same string twice and the caller can skip a write that changes nothing. */
+  get hiddenRoots(): string[] {
+    return [...this.hidden].sort();
+  }
+}
+
 /** The repositories the workspace folders resolve to.
  *
  * A workspace routinely holds several clones — and several folders inside one

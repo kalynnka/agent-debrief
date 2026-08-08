@@ -36,6 +36,12 @@
     "views": {
       "debrief": [
         {
+          "id": "debrief.repositories",
+          "name": "Repositories",
+          "icon": "media/icon.svg",
+          "when": "debrief.manyRepos"
+        },
+        {
           "id": "debrief.snapshots",
           "name": "Snapshots",
           "icon": "media/icon.svg"
@@ -45,7 +51,13 @@
     "viewsWelcome": [
       {
         "view": "debrief.snapshots",
-        "contents": "No snapshots yet in this workspace. A snapshot is captured when an agent finishes its turn, or you can take one now.\n[Take Snapshot](command:debrief.snapshot)"
+        "contents": "No snapshots yet in this workspace. A snapshot is captured when an agent finishes its turn, or you can take one now.\n[Take Snapshot](command:debrief.snapshot)",
+        "when": "!debrief.reposHidden"
+      },
+      {
+        "view": "debrief.snapshots",
+        "contents": "Some repositories are unchecked in the Repositories view, so their snapshots are not shown here.\n[Show All Repositories](command:debrief.showAllRepos)",
+        "when": "debrief.reposHidden"
       }
     ],
     "commands": [
@@ -60,6 +72,12 @@
         "title": "Refresh",
         "category": "Debrief",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "debrief.showAllRepos",
+        "title": "Show All Repositories",
+        "category": "Debrief",
+        "icon": "$(check-all)"
       },
       {
         "command": "debrief.stackedDiff",
@@ -172,6 +190,11 @@
         {
           "command": "debrief.refresh",
           "when": "view == debrief.snapshots",
+          "group": "navigation@1"
+        },
+        {
+          "command": "debrief.showAllRepos",
+          "when": "view == debrief.repositories && debrief.reposHidden",
           "group": "navigation@1"
         }
       ],

@@ -18,7 +18,8 @@ import {
 import { FileRow, rowsFor } from "./files";
 import { ChangedFile, Snapshot } from "./git";
 import { GitWatch, gitApi } from "./gitwatch";
-import { Repo, Repos } from "./repos";
+import { RepositoriesProvider } from "./repositories";
+import { Repo, RepoSelection, Repos } from "./repos";
 import {
   clearLane,
   committableRun,
@@ -46,6 +47,10 @@ import {
 function workspaceFolders(): string[] {
   return (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
 }
+
+/** Where the repository selector's unchecked roots are remembered, in this
+ * window's workspace state. */
+const HIDDEN_REPOS = "debrief.hiddenRepos";
 
 /** A multi-diff row's resource URI carries the row's marks in its file name —
  * `✓ ` once read, `⇣ ` when the change was not the agent's — because that name is
@@ -88,12 +93,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const repos = new Repos();
   await repos.discover(workspaceFolders());
 
+  // Per workspace, and deliberately not a setting: which clones you are reading
+  // right now is a property of this window, not of the project, and nothing
+  // outside the view reads it.
+  const selection = new RepoSelection(context.workspaceState.get<string[]>(HIDDEN_REPOS, []));
+
   const gitWatch = new GitWatch(await gitApi());
   const snapshots = new SnapshotsProvider(
     repos,
+    selection,
     gitWatch,
     vscode.Uri.joinPath(context.extensionUri, "media"),
   );
+  const repositories = new RepositoriesProvider(repos, selection);
   const comments = new Comments(repos);
   const revisions = new RevisionContentProvider(repos);
   const decorations = new SnapshotDecorations();
@@ -108,6 +120,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     treeDataProvider: snapshots,
     canSelectMany: true,
   });
+
+  /** What the selector has to say for itself. `manyRepos` decides whether the
+   * Repositories view appears at all — a workspace of one clone has nothing to
+   * choose between, and a list whose single row can only be switched off is a
+   * worse offer than no list. `reposHidden` decides which welcome the Snapshots
+   * view shows when it draws nothing, so an empty view says *why* it is empty. */
+  const publishSelection = async (): Promise<void> => {
+    await vscode.commands.executeCommand("setContext", "debrief.manyRepos", repos.all.length > 1);
+    await vscode.commands.executeCommand(
+      "setContext",
+      "debrief.reposHidden",
+      repos.all.some((repo) => !selection.shows(repo)),
+    );
+  };
+  await publishSelection();
+
+  const repositoriesView = vscode.window.createTreeView("debrief.repositories", {
+    treeDataProvider: repositories,
+  });
+  context.subscriptions.push(
+    repositoriesView,
+    repositoriesView.onDidChangeCheckboxState(async (event) => {
+      for (const [repo, state] of event.items) {
+        selection.set(repo.root, state === vscode.TreeItemCheckboxState.Checked);
+      }
+      await context.workspaceState.update(HIDDEN_REPOS, selection.hiddenRoots);
+      await publishSelection();
+      // Nothing git-side moved, so the structure each repo already measured still
+      // stands — a repo coming back into view measures its own on the way in.
+      snapshots.refresh(false);
+    }),
+    // The selector's rows carry each repo's lane and snapshot count, which move
+    // for the same reasons the Snapshots view redraws. Following it is one
+    // subscription and cannot drift; asking every caller to redraw two views
+    // would eventually miss one.
+    snapshots.onDidChangeTreeData(() => repositories.refresh()),
+  );
 
   /** The stacked diffs opened so far, by the title each was given, against the
    * snapshots it is a review of.
@@ -424,6 +473,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
       await repos.discover(workspaceFolders());
       rewatch();
+      // A folder arriving or leaving is the one thing that changes whether there
+      // is a choice of repository to offer.
+      await publishSelection();
       snapshots.refresh();
     }),
   );
@@ -479,8 +531,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   register("debrief.refresh", async () => {
     await repos.discover(workspaceFolders());
     rewatch();
+    await publishSelection();
     comments.refresh();
     snapshots.refresh();
+  });
+
+  /** Put every repository back on screen.
+   *
+   * The way out of the corner the selector can paint you into: hide a repo, close
+   * the other folder, and the Repositories view goes with it — leaving a checkbox
+   * you cannot reach holding the only repo you have. */
+  register("debrief.showAllRepos", async () => {
+    repos.all.forEach((repo) => selection.set(repo.root, true));
+    await context.workspaceState.update(HIDDEN_REPOS, selection.hiddenRoots);
+    await publishSelection();
+    snapshots.refresh(false);
   });
 
   /** The row a command acts on when it was not launched from one.

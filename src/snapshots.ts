@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import { abandonedRepoUri, frozenSnapshotUri, snapshotFileUri } from "./decorations";
 import { ChangedFile, Snapshot } from "./git";
 import { GitWatch } from "./gitwatch";
-import { Repo, Repos } from "./repos";
+import { Repo, RepoSelection, Repos } from "./repos";
 import {
   foreignPaths,
   LandedCommit,
@@ -257,7 +257,12 @@ export async function filesOf(node: FileNode | SnapshotNode): Promise<ChangedFil
  * before — a workspace of several clones is mostly repos you are not reviewing,
  * and rows reading "no snapshots yet" are the noise this view exists to cut.
  * Snapshotting is unaffected: every repo in the workspace is still captured, and
- * shows up here the moment it has something to show. */
+ * shows up here the moment it has something to show.
+ *
+ * The reviewer can cut it further by unchecking a repo in the Repositories view
+ * (`RepoSelection`), which is the same subtraction for a different reason: the
+ * first is a repo with nothing to say, the second a repo they are not listening
+ * to right now. */
 export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
   private changed = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this.changed.event;
@@ -294,6 +299,10 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
 
   constructor(
     private readonly repos: Repos,
+    /** Which repos the reviewer has asked to see. Read on every redraw rather
+     * than folded into the structure cache: it is the reviewer's own answer,
+     * costs nothing to ask, and changes without git changing. */
+    private readonly selection: RepoSelection,
     private readonly gitWatch: GitWatch,
     /** `media/`, where the agent logos live. */
     private readonly media: vscode.Uri,
@@ -667,7 +676,7 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       // so the row can offer the cleanup exactly when there is one to offer.
       return Promise.all(
         this.repos.all
-          .filter((repo) => repo.store.data.snapshots.length > 0)
+          .filter((repo) => this.selection.shows(repo) && repo.store.data.snapshots.length > 0)
           .map(async (repo) => new RepoNode(repo, (await this.structureOf(repo)).sweep)),
       );
     }
