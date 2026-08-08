@@ -460,8 +460,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       "debrief.diffViewed",
       active !== undefined && active.repo.store.isReviewed(active.rel, active.at),
     );
-    // A one-file review opens as a plain diff, which already carries the tick for
+    // A plain diff — one file, opened from the tree — already carries the tick for
     // that file. Offering "mark all" beside it would be the same button twice.
+    // Every review is a multi-diff, however few rows it has, so this now separates
+    // the two ways in rather than counting files.
     await vscode.commands.executeCommand(
       "setContext",
       "debrief.inReview",

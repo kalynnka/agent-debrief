@@ -79,9 +79,11 @@ Drop refuse for the same reason — mid-merge, the rows describe git's work.
 | one file's evolution across snapshots | **Open Step History** on the file row |
 | the whole lane | click the repo row |
 
-The first row of a multi-file review is `Notes.md`: each selected snapshot's
+The first row of every review is `Notes.md`: each selected snapshot's
 label, and the few lines the agent left under it. The tree row has room for the
-label alone; this is the rest, and it is meant to be read before the diff. It is
+label alone; this is the rest, and it is meant to be read before the diff. A
+review of a single file opens as a one-row multi-diff for this reason — the note
+is worth more than the empty space a plain diff would save. It is
 a diff row like any other, so it shows the text as text. The
 `prepare-change-review` skill is what keeps it worth reading: one sentence as the
 label, then Purpose and Verification, and a Risks line only when there is a real

@@ -248,28 +248,18 @@ export async function openStackedDiff(
       ? `snapshot ${snapshots[0].n}`
       : `snapshots ${snapshots[0].n}→${last.n} net`;
   const counts = `+${added} −${deleted}${hidden > 0 ? ` · ${hidden} read` : ""}`;
-  if (rows.length === 1) {
-    // A one-row multi-diff leaves the rest of the tab empty; the plain diff
-    // editor shows the same change at full height. There is no note row here, so
-    // the title says which file instead.
-    const file = rows[0].file;
-    const abs = path.join(repo.root, file.path);
-    const title = `${repo.name}: ${span} · ${path.basename(file.path)} · ${counts}`;
-    await vscode.commands.executeCommand(
-      "vscode.diff",
-      revisionUri(base, path.join(repo.root, file.oldPath ?? file.path)),
-      isLatest ? vscode.Uri.file(abs) : revisionUri(last.sha, abs),
-      title,
-      { preview: false },
-    );
-    return title;
-  }
   const title = `${repo.name}: ${span} · ${counts}`;
   // The agent's own account of the work, first: a diff is easier to read for
   // knowing what the snapshot was trying to do, and this is the one place with
   // room for the whole message. Always present, because it is now the only place
   // the message is — a snapshot with none falls back to its label, which the tab
   // title no longer carries either.
+  //
+  // Which is also why a one-file review comes through here rather than opening as
+  // a plain diff at full height: that saved a row of empty space and cost the
+  // note, and a review that opens without saying what it was for is the worse
+  // trade. The single row still opens per file from the tree, where it is asked
+  // for by itself.
   const resources = [
     [
       vscode.Uri.file(path.join(repo.root, NOTE_NAME)),
