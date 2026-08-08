@@ -105,18 +105,11 @@ export class Comments {
     widget.label = `${stage} · snapshot ${thread.snapshot}${outdated}`;
     widget.contextValue = thread.id;
     widget.canReply = thread.state === "draft";
-    // An answered thread folds. It stays on the file — the agent's answer is worth
-    // finding again, and the lines under it are usually what you read next — but
-    // expanded it stands in front of them. `state` is VS Code's own resolved mark,
-    // which the Comments panel filters on and this extension has no command for:
-    // resolving is the agent saying it has dealt with something.
-    const resolved = thread.state === "resolved";
-    widget.state = resolved
-      ? vscode.CommentThreadState.Resolved
-      : vscode.CommentThreadState.Unresolved;
-    widget.collapsibleState = resolved
-      ? vscode.CommentThreadCollapsibleState.Collapsed
-      : vscode.CommentThreadCollapsibleState.Expanded;
+    // Every drawn thread is one still waiting — `placement` keeps the resolved out
+    // — so there is no folded case to mark. The unresolved state is set anyway,
+    // for the dot VS Code puts beside a live thread.
+    widget.state = vscode.CommentThreadState.Unresolved;
+    widget.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
   }
 
   private key(repo: Repo, id: string, uri: vscode.Uri): string {
@@ -136,8 +129,16 @@ export class Comments {
    * always will be. That is where an outdated comment is actually readable, and
    * GitHub keeps them off the current file for the same reason.
    *
-   * A thread from before `origin` was recorded has only the file. */
+   * A thread from before `origin` was recorded has only the file.
+   *
+   * A resolved one has nowhere at all. It has been answered, and on a lane where
+   * the snapshots and the file move this fast it would be a widget over lines that
+   * have since become someone else's — the record stays in `state.json`, and
+   * `review open` is the thing that says what is still waiting. */
   private placement(thread: Thread, uri: vscode.Uri): vscode.Range | undefined {
+    if (thread.state === "resolved") {
+      return undefined;
+    }
     const origin = thread.origin;
     if (thread.outdated && origin !== undefined) {
       return uri.scheme === SCHEME && uri.query === origin.rev
@@ -270,11 +271,15 @@ export class Comments {
   }
 
   /** Repaint every open widget — used after a submit flips threads to read-only
-   * or an external writer (the hook) moved anchors under us. */
+   * or an external writer (the hook) moved anchors under us.
+   *
+   * A thread that has been resolved since the last pass goes, the same as one that
+   * has been deleted: this is where an agent answering a review in a terminal takes
+   * its comments off the file, without the reviewer having to close anything. */
   refresh(): void {
     for (const [key, live] of this.live) {
       const thread = live.repo.store.data.threads.find((t) => t.id === live.id);
-      if (thread === undefined) {
+      if (thread === undefined || thread.state === "resolved") {
         live.widget.dispose();
         this.live.delete(key);
       } else {

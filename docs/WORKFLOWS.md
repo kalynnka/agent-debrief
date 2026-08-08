@@ -236,6 +236,12 @@ stays visible there until you close it, because taking it out from under your
 cursor to redraw it on a file you may not have open is worse than a second row
 for as long as you are looking at it.
 
+**A resolved thread is drawn nowhere.** It disappears from the file the moment the
+agent closes it, without you closing anything, because on a lane moving at a
+snapshot a turn a widget over answered lines is in the way within minutes. The
+thread itself stays in `state.json` — `review resolve` closes a comment, it does
+not delete it — and `debrief review open` remains the answer to what is left.
+
 ### 3.4 Ask the agent about its own change
 
 **Not built yet.** PRD UC-4. Today, quote the hunk into your reply.
