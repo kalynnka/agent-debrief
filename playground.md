@@ -1,7 +1,12 @@
 # Playground
 
 A scratch file for exercising the review loop end to end: leave a line comment,
-submit the batch, hand it to the agent, watch the agent answer it.
+message the agent, watch the agent answer it. There is no submit step any more —
+a comment is open from the moment you write it.
+
+Round two. What is being tested this time is where a comment says it came from:
+comment on **this** snapshot's diff and on an older one, and every thread should
+name the snapshot whose diff you were reading.
 
 ## What a snapshot is
 
@@ -11,17 +16,16 @@ you never re-read work you already cleared.
 
 ## What to try here
 
-1. Open this file's diff for the newest snapshot. The right-hand side is the
-   real file on disk, so the language server attaches while you read.
-2. Comment on a line — any line, the wronger the better.
-3. Comment on a line this snapshot deleted, too: the left side takes comments.
-4. Submit the review. One batch, however many drafts went into it.
-5. Send it to the terminal the agent is in, and let the agent answer.
+1. Open this file's diff for the newest snapshot and comment on a line.
+2. Open snapshot 1's diff — an older one — and comment there too.
+3. Comment on a line **this** snapshot deleted, on the left-hand side. That one
+   is the whole point: the text is the previous snapshot's, but the diff you are
+   reading is this one, and this one is what the thread should say.
+4. Message the agent. Nothing to press.
 
 ## Claims worth arguing with
 
 - Every snapshot needs a label, and the label is always a sentence.
-- Two comments on the same line always merge into one thread.
 
 ## Where the review lands
 
@@ -47,3 +51,17 @@ reads the whole review as one insertion rather than as typing.
 
 - A resolved thread disappears from `review open` with no way to see it again.
 - Nothing stops two reviewers submitting batches a second apart.
+- One thread is drawn once per document, so the Comments panel lists it once for
+  every revision you have opened. Still unfixed — the next thing on the list.
+
+## What each thread should say
+
+| where you comment | the thread should say |
+|---|---|
+| the newest snapshot's diff | the newest snapshot |
+| snapshot 1's right-hand side | snapshot 1 |
+| snapshot 2's left-hand side | snapshot 2, not snapshot 1 |
+| the file on disk | the newest snapshot |
+
+If a thread names the newest snapshot when you were reading an older diff, the
+fix is not live — reload the Extension Development Host and try again.
