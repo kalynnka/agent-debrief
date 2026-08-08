@@ -224,11 +224,17 @@ deleted — the left-hand side, which holds snapshot 5's content — and it is s
 snapshot 6 you are reviewing. That is GitHub's rule, and it is what keeps a
 dropped snapshot taking its own comments with it.
 
-A thread therefore has **two homes and one set of words**. On the file it sits at
-the relocated line, which is where you go to act on it. On the revision it was
-written against it sits where you put it, forever, because that diff never
-changes. Those are the only two places it is drawn — the Comments panel lists it
-once per open home, and a thread written on the file has only the one.
+A thread is drawn in **one** place, and which place says whether its lines are
+still there. While they are, it sits on the file at the relocated line, which is
+where you would go to act on it. Once they are gone it moves to the diff it was
+written against and sits where you put it, because that diff never changes and
+the file no longer has an honest position to offer. One home either way: two
+would list the same comment twice in the Comments panel.
+
+The exception is the tab you are typing in. A comment written on an older diff
+stays visible there until you close it, because taking it out from under your
+cursor to redraw it on a file you may not have open is worse than a second row
+for as long as you are looking at it.
 
 ### 3.4 Ask the agent about its own change
 

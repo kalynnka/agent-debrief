@@ -45,12 +45,12 @@ things should be true of it, and each one is a different piece of machinery:
 | the snapshot it names | the one that deleted the line, not the one that still had it |
 | where it sits in that diff | on the deleted line, unmoved, for good |
 | `outdated` | true — a line that is gone cannot be found again |
-| the Comments panel | one row per open tab that holds it, and no more |
+| the Comments panel | one row, and one only |
+| the file on disk | nothing — a line that is gone has no place there |
 
-A comment on a surviving line in the same diff should name the same snapshot and
-be `outdated: false`, which is what makes it the control.
+A comment on a surviving line in the same diff should name the same snapshot, be
+`outdated: false`, and live on the file instead. That is the control, and the two
+together are the whole rule: a thread is drawn wherever its lines still are.
 
-The fourth column is the one I would not bet on. An outdated thread keeps the
-coordinates it was written with, so on the file it may draw against a line nobody
-commented on — the same class of bug as the one that started all this, one layer
-further in. If it does, that is the finding, not a surprise.
+One row means one, with a single exception — the tab you typed into keeps its
+widget until you close it.

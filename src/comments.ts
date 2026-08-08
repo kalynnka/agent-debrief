@@ -123,26 +123,30 @@ export class Comments {
     return `${repo.root}\0${id}\0${uri.toString()}`;
   }
 
-  /** Where a thread belongs on this document, if it belongs on it at all.
+  /** The one document a thread is drawn on, and where on it.
    *
-   * Two places, and the coordinates differ between them. The file on disk gets
-   * `anchor`, which `carryForward` keeps at the newest snapshot — the line as it
-   * stands now. The revision the comment was written against gets `origin`, the
-   * lines the reviewer actually picked, which no relocation may move.
+   * One, not two: a thread with two homes is a comment the Comments panel lists
+   * twice, which is the same complaint as being drawn on every revision, only
+   * quieter. Which home is decided by whether the lines survived.
    *
-   * Every other document gets nothing. That is what stopped one thread appearing
-   * once per revision opened: an anchor that is true at the newest snapshot names
-   * a different line on an older one, so those widgets were not just noise in the
-   * Comments panel, they were pointing at the wrong text. A thread written before
-   * `origin` was recorded has only the first of the two homes. */
+   * While they exist it is the file on disk, at `anchor` — `carryForward` keeps
+   * that true, and the file is the copy you go and edit. Once they are gone the
+   * file has no honest position left, so the thread falls back to the diff it was
+   * written against, at `origin`, where its lines are what they always were and
+   * always will be. That is where an outdated comment is actually readable, and
+   * GitHub keeps them off the current file for the same reason.
+   *
+   * A thread from before `origin` was recorded has only the file. */
   private placement(thread: Thread, uri: vscode.Uri): vscode.Range | undefined {
-    if (uri.scheme === "file") {
-      return new vscode.Range(thread.anchor.startLine, 0, thread.anchor.endLine, 0);
+    const origin = thread.origin;
+    if (thread.outdated && origin !== undefined) {
+      return uri.scheme === SCHEME && uri.query === origin.rev
+        ? new vscode.Range(origin.startLine, 0, origin.endLine, 0)
+        : undefined;
     }
-    if (uri.scheme === SCHEME && thread.origin !== undefined && uri.query === thread.origin.rev) {
-      return new vscode.Range(thread.origin.startLine, 0, thread.origin.endLine, 0);
-    }
-    return undefined;
+    return uri.scheme === "file"
+      ? new vscode.Range(thread.anchor.startLine, 0, thread.anchor.endLine, 0)
+      : undefined;
   }
 
   /** Draw stored threads onto a document that has a home for them. */
