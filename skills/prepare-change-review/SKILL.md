@@ -141,7 +141,7 @@ stacked without air is one paragraph wearing three labels:
 
     Purpose: a re-read review reopened every file, and the cleared ones were noise.
 
-    Verification: 47 checks pass (25 smoke + 22 cli); the two buttons are unclicked.
+    Verification: 47 checks pass; the two buttons are unclicked.
 
     Risks: the tick is a proposed API and goes with any VS Code update — src/extension.ts:52
     is where it is worked around.
@@ -158,6 +158,12 @@ point at it, not what the section is for.
 Purpose and Verification are the two that usually earn their place. One is fine.
 **Under 300 characters all told** is the target — a note the reader has to scroll
 is one they skip, and then the line that mattered went unread with it.
+
+**One short sentence per section, and Verification is the one that tempts you
+otherwise.** The counts, what each suite covers, what you could not check, what
+to re-run — all of that is your reply's job. Here it is `47 checks pass`, and a
+second clause only when something did *not*: `47 pass; the buttons are unclicked`.
+A reader who wants the rest has your reply open beside the diff.
 
 **A `path:line` reference becomes a clickable link.** Write it plainly —
 `src/extension.ts:52`, or `src/review.ts:270-275` for a span — and debrief
