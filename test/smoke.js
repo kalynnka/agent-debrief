@@ -196,6 +196,15 @@ async function main() {
   assert.deepStrictEqual(restored.hiddenRoots, [], "checking a repo back on left its root behind");
   console.log("repository selector                   ok");
 
+  // Which repos the tree draws — and the same set the badge counts over, which is
+  // why it is one method. Both subtractions apply: the second clone is checked
+  // here and still left out, because it has no snapshots to show.
+  const fresh = new RepoSelection();
+  assert.deepStrictEqual(repos.drawn(fresh).map((r) => r.root), [rootReal], "a repo with no snapshots was drawn");
+  fresh.set(rootReal, false);
+  assert.deepStrictEqual(repos.drawn(fresh), [], "unchecking the only repo with snapshots still drew it");
+  console.log("drawn repos: shown, and non-empty     ok");
+
   // 9. Snapshot history is per repo: the second clone starts empty even though the
   //    first has two snapshots, which is the bug a single global store produced.
   const first = repos.all.find((r) => r.root === rootReal);
@@ -402,8 +411,16 @@ async function main() {
   lg(["commit", "-qm", "land snapshot 1"]);
 
   const landedNow = async () => landedSnapshots(lgit, lstore.data.snapshots, await lgit.head());
+  // What the activity-bar badge shows: the snapshots no commit has taken, which
+  // is the Open area exactly. It has to fall to nothing once the lane has landed,
+  // or the number never drops and stops being worth reading.
+  const openNow = async () => {
+    const done = await landedNow();
+    return lstore.data.snapshots.filter((snapshot) => !done.has(snapshot.n)).length;
+  };
   let landed = await landedNow();
   assert.deepStrictEqual([...landed], [1], "only snapshot 1's file is committed");
+  assert.strictEqual(await openNow(), 1, "the badge must not count the snapshot already committed");
 
   // A third snapshot rewrites snapshot 1's file and is not committed. Snapshot 1 no longer
   // owns a.txt, so it stays landed — judging it on what it touched would flip it
@@ -413,12 +430,14 @@ async function main() {
   landed = await landedNow();
   assert.strictEqual(landed.has(1), true, "a committed snapshot must not un-land");
   assert.strictEqual(landed.has(3), false, "the snapshot that owns a.txt now is open");
+  assert.strictEqual(await openNow(), 2, "a new snapshot must put the badge back up");
 
   // `snapshot commit` is the same answer from the other side: commit through snapshot 3
   // and every snapshot lands, with the working tree never having moved.
   await lgit.commitSnapshot(lstore.data.snapshots[2].sha, "land everything");
   assert.deepStrictEqual([...(await landedNow())].sort(), [1, 2, 3], "all snapshots land");
   assert.strictEqual(lg(["status", "--porcelain"]).trim(), "", "the commit must match disk");
+  assert.strictEqual(await openNow(), 0, "a fully committed lane must leave no badge");
   console.log("commit lands the snapshots it covers  ok");
 
   // 16. How far the Reviewed area can be committed from. A commit is a prefix of

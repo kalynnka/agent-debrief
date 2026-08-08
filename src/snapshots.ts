@@ -218,6 +218,12 @@ function struckThrough(text: string): string {
   return [...text].map((character) => `${character}̶`).join("");
 }
 
+/** The snapshots a lane's commits have taken between them — everything else is
+ * the Open area, and the number on the activity-bar icon. */
+function takenBy(commits: LandedCommit[]): Set<number> {
+  return new Set(commits.flatMap((commit) => commit.snapshots));
+}
+
 /** `snapshots 5–13`, `snapshots 2, 5–7`, `snapshot 9`. A commit no longer takes
  * an unbroken run — a reviewer who commits a staged subset lands part of the lane
  * and leaves the rest — so the numbers have to say where the gaps are. */
@@ -290,7 +296,7 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
    * it takes the common mid-turn redraw of a five-repo workspace from 23 git
    * subprocesses to 8, and the eight left are `hash-object` reading the working
    * tree, which is the thing that actually changed. */
-  private structure = new Map<string, RepoStructure>();
+  private structure = new Map<string, Promise<RepoStructure>>();
 
   /** How many commits each repo's Commits area is showing. Kept across refreshes
    * — a reviewer who asked for more history should not have to ask again every
@@ -331,23 +337,54 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
 
   /** What a redraw needs that only HEAD, the refs or the lane's state can change.
    * Worked out once and kept until one of those does. */
-  private async structureOf(repo: Repo): Promise<RepoStructure> {
+  private structureOf(repo: Repo): Promise<RepoStructure> {
     const known = this.structure.get(repo.root);
     if (known !== undefined) {
       return known;
     }
-    const [sweep, stashed, head] = await Promise.all([
-      sweepLanes(repo.git, repo.lane.commonDir, false),
-      stashedSince(repo.git, repo.store),
-      repo.git.head(),
-    ]);
-    const built: RepoStructure = {
-      sweep,
-      stashed,
-      commits: await landedCommits(repo.git, repo.store.data.snapshots, head),
-    };
-    this.structure.set(repo.root, built);
-    return built;
+    // The promise is what is kept, not the answer: the badge and the tree now ask
+    // for this at the same moment, and two callers finding an empty cache would
+    // each run the same git commands to write the same result. A measure that
+    // fails is dropped instead, so the next redraw tries again rather than being
+    // told the same "no" until something clears the cache.
+    const measuring = (async (): Promise<RepoStructure> => {
+      const [sweep, stashed, head] = await Promise.all([
+        sweepLanes(repo.git, repo.lane.commonDir, false),
+        stashedSince(repo.git, repo.store),
+        repo.git.head(),
+      ]);
+      return {
+        sweep,
+        stashed,
+        commits: await landedCommits(repo.git, repo.store.data.snapshots, head),
+      };
+    })();
+    this.structure.set(repo.root, measuring);
+    void measuring.catch(() => {
+      if (this.structure.get(repo.root) === measuring) {
+        this.structure.delete(repo.root);
+      }
+    });
+    return measuring;
+  }
+
+  /** Per repo on screen, how many of its snapshots no commit has taken.
+   *
+   * The badge's number, and deliberately the tree's own arithmetic: the Open area
+   * is exactly this set, so the count on the icon and the rows underneath it
+   * cannot disagree about how much is still outstanding. It reads the structure
+   * each repo has already measured, so asking costs nothing the view was not
+   * going to spend anyway. */
+  async openSnapshots(): Promise<{ repo: Repo; open: number }[]> {
+    return Promise.all(
+      this.repos.drawn(this.selection).map(async (repo) => {
+        const taken = takenBy((await this.structureOf(repo)).commits);
+        return {
+          repo,
+          open: repo.store.data.snapshots.filter((snapshot) => !taken.has(snapshot.n)).length,
+        };
+      }),
+    );
   }
 
   /** Take the tree's selection as the scope. A file row counts for its snapshot and a
@@ -675,8 +712,8 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       // abandoned, which is the usual answer — cheap enough to ask every refresh
       // so the row can offer the cleanup exactly when there is one to offer.
       return Promise.all(
-        this.repos.all
-          .filter((repo) => this.selection.shows(repo) && repo.store.data.snapshots.length > 0)
+        this.repos
+          .drawn(this.selection)
           .map(async (repo) => new RepoNode(repo, (await this.structureOf(repo)).sweep)),
       );
     }
@@ -692,7 +729,7 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       }
       const nodes = await this.shapeOf(node.repo, commits);
       const at = new Map(nodes.map((snapshot) => [snapshot.snapshot.n, snapshot]));
-      const taken = new Set(commits.flatMap((commit) => commit.snapshots));
+      const taken = takenBy(commits);
       const areas: GroupNode[] = [
         new GroupNode(
           node.repo,

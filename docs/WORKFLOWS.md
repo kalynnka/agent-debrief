@@ -26,6 +26,18 @@ It takes the repo, the session id and a label from the transcript, so the snapsh
 arrives already named. The Snapshots view notices — a file watch on the lane's
 state directory, not a service — and the new snapshot appears at the bottom, expanded.
 
+The Debrief icon in the activity bar carries a **badge**: how much is still
+waiting on you, so a turn that finished while the panel was closed still
+announces itself. It counts the snapshots no commit has taken — the **Open**
+area exactly — so it empties once you have landed the lane, the way Source
+Control's own number empties when the tree is clean. A running total of
+everything ever snapshotted would only ever climb, and a number that never falls
+stops being read.
+
+It counts exactly what the view would draw, so a repo you have unchecked (§6.1)
+takes its snapshots off the icon with it, and a lane with nothing outstanding
+carries no badge rather than a zero.
+
 You open a file and read **snapshot N-1 → snapshot N**. The agent is free to keep
 working the whole time; nothing you do blocks it.
 
@@ -333,8 +345,9 @@ snapshot finds an identical working tree and records nothing, so no phantom entr
 appears. The lane does not change, the snapshot refs survive, and the numbering
 carries on.
 
-What does change: the snapshots the commit covered move into **Commits**, and the
-"staged" markers clear.
+What does change: the snapshots the commit covered move into **Commits**, the
+"staged" markers clear, and the badge on the activity-bar icon drops by what the
+commit took — to nothing at all when it took the lot.
 
 **Landed is derived from content, not from a matching tree.** A snapshot has landed
 once every path it changed is in a commit — as that snapshot left it, or as a later

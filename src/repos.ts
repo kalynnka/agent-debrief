@@ -79,6 +79,16 @@ export class Repos {
     return [...this.byRoot.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  /** The repos a review is actually looking at: the ones still checked, that have
+   * something to show. Both subtractions in one place because the tree and the
+   * badge on the activity-bar icon have to agree on the answer — a count that
+   * includes a repo the tree left out is a number nobody can account for. */
+  drawn(selection: RepoSelection): Repo[] {
+    return this.all.filter(
+      (repo) => selection.shows(repo) && repo.store.data.snapshots.length > 0,
+    );
+  }
+
   /** Resolve folders to repos and load their review state. A repo already known
    * is kept only while its lane is unchanged — switching branches starts a new
    * lane, and the Repo follows it. */

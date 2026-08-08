@@ -136,6 +136,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   await publishSelection();
 
+  /** The count on the Debrief icon in the activity bar: how much is still waiting
+   * on you.
+   *
+   * Source Control's badge is the model down to what the number means — work
+   * outstanding, not work done — so this counts the snapshots no commit has
+   * taken and goes back to nothing once the lane has landed. A running total of
+   * everything ever snapshotted would only ever climb, and a number that never
+   * falls stops being read.
+   *
+   * It counts exactly what the view would draw, so unchecking a repo takes its
+   * snapshots off the icon with it, and a lane with nothing outstanding carries
+   * no badge rather than a zero. */
+  const paintBadge = async (): Promise<void> => {
+    const open = (await snapshots.openSnapshots()).filter((entry) => entry.open > 0);
+    const total = open.reduce((n, entry) => n + entry.open, 0);
+    const plural = total === 1 ? "" : "s";
+    view.badge =
+      total === 0
+        ? undefined
+        : {
+            value: total,
+            tooltip:
+              open.length === 1
+                ? `${total} snapshot${plural} to land on ${open[0].repo.lane.name}`
+                : `${total} snapshot${plural} to land across ${open.length} repositories`,
+          };
+  };
+  await paintBadge();
+
   const repositoriesView = vscode.window.createTreeView("debrief.repositories", {
     treeDataProvider: repositories,
   });
@@ -151,11 +180,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // stands — a repo coming back into view measures its own on the way in.
       snapshots.refresh(false);
     }),
-    // The selector's rows carry each repo's lane and snapshot count, which move
-    // for the same reasons the Snapshots view redraws. Following it is one
-    // subscription and cannot drift; asking every caller to redraw two views
-    // would eventually miss one.
-    snapshots.onDidChangeTreeData(() => repositories.refresh()),
+    // The selector's rows carry each repo's lane and snapshot count, and the
+    // badge is a count of the same thing — both move for the reasons the
+    // Snapshots view redraws. Following it is one subscription and cannot drift;
+    // asking every caller to repaint three things would eventually miss one.
+    snapshots.onDidChangeTreeData(() => {
+      repositories.refresh();
+      void paintBadge();
+    }),
   );
 
   /** The stacked diffs opened so far, by the title each was given, against the
