@@ -364,6 +364,64 @@ async function main() {
   assert.strictEqual(store.data.snapshots.find((t) => t.n === lp.snapshot.n).message, full);
   console.log("stop hook: session, label, message    ok");
 
+  //     The payload's own closing text is preferred over the transcript, and is
+  //     enough on its own: a host that sends `last_assistant_message` never has
+  //     its transcript opened. Both are sent here, and the payload's wins.
+  const closingText = "chore: said in the payload\n\nPurpose: no file was read for this.";
+  fs.writeFileSync(path.join(root, "spoken.txt"), "s\n");
+  const fromPayload = debrief(
+    ["snapshot", "--from-stop-hook", "--json"],
+    parent,
+    JSON.stringify({
+      session_id: "sess-123",
+      transcript_path: transcript,
+      cwd: root,
+      last_assistant_message: closingText,
+    }),
+  );
+  assert.strictEqual(fromPayload.status, 0, fromPayload.stderr);
+  const pp = JSON.parse(fromPayload.stdout);
+  assert.strictEqual(pp.snapshot.label, "chore: said in the payload");
+  await store.load();
+  const payloadSnapshot = store.data.snapshots.find((t) => t.n === pp.snapshot.n);
+  assert.strictEqual(payloadSnapshot.message, closingText, "the transcript was read instead");
+  assert.strictEqual(
+    payloadSnapshot.described,
+    "transcript",
+    "answered for by the hook however it was carried, so it must not read as the agent's own",
+  );
+
+  //     With no transcript_path at all — the shape a host that carries only the
+  //     closing text sends — the snapshot is still named.
+  fs.writeFileSync(path.join(root, "pathless.txt"), "p\n");
+  const pathless = debrief(
+    ["snapshot", "--from-stop-hook", "--json"],
+    parent,
+    JSON.stringify({ session_id: "sess-123", cwd: root, last_assistant_message: closingText }),
+  );
+  assert.strictEqual(pathless.status, 0, pathless.stderr);
+  assert.strictEqual(JSON.parse(pathless.stdout).snapshot.label, "chore: said in the payload");
+
+  //     An empty closing text names nothing, so it falls through to the scrape
+  //     rather than leaving the snapshot with no sentence on it.
+  fs.writeFileSync(path.join(root, "blank.txt"), "b\n");
+  const blank = debrief(
+    ["snapshot", "--from-stop-hook", "--json"],
+    parent,
+    JSON.stringify({
+      session_id: "sess-123",
+      transcript_path: transcript,
+      cwd: root,
+      last_assistant_message: "   \n",
+    }),
+  );
+  assert.strictEqual(blank.status, 0, blank.stderr);
+  assert.strictEqual(
+    JSON.parse(blank.stdout).snapshot.label,
+    "I fixed strip_markdown to keep code fences.",
+  );
+  console.log("stop hook: payload text beats scrape   ok");
+
   // 18. Stacked history: every line's lifecycle rendered in place as unified
   //     diff — a replaced value reads +bbb then -bbb where it lived, so the
   //     flow of the selected snapshots is readable top to bottom.

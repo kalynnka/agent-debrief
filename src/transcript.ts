@@ -81,10 +81,28 @@ export function codeReferences(text: string): CodeReference[] {
   return found;
 }
 
+/** A snapshot's summary from an agent's own closing text, whatever carried it —
+ * the Stop payload's `last_assistant_message`, or the last assistant text found
+ * in a transcript. Undefined when there is no line in it to name a snapshot
+ * with, which is also how an empty closing text is rejected; the caller falls
+ * back to `snapshot <n>`.
+ *
+ * One rule for both sources, for the same reason `labelOf` is: where the text
+ * came from must not change how it reads once it is a row. */
+export function summaryOf(message: string | undefined): SnapshotSummary | undefined {
+  const label = labelOf(message);
+  if (message === undefined || label === undefined) {
+    return undefined;
+  }
+  return { label, message: message.trim() };
+}
+
 /** Read a snapshot's summary out of a Claude Code transcript: the session's last
  * assistant text, which is the agent's own account of what it just did. Returns
- * undefined when the transcript is unreadable or holds no assistant text; the
- * caller falls back to `snapshot <n>`. */
+ * undefined when the transcript is unreadable or holds no assistant text.
+ *
+ * This is the fallback for a payload that carries no closing text of its own —
+ * see `summaryOf`, which is the cheaper path when one is there. */
 export async function summaryFromTranscript(file: string): Promise<SnapshotSummary | undefined> {
   let raw: string;
   try {
@@ -108,11 +126,7 @@ export async function summaryFromTranscript(file: string): Promise<SnapshotSumma
       message = text;
     }
   }
-  const label = labelOf(message);
-  if (message === undefined || label === undefined) {
-    return undefined;
-  }
-  return { label, message: message.trim() };
+  return summaryOf(message);
 }
 
 function assistantText(entry: unknown): string | undefined {

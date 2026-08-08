@@ -23,7 +23,7 @@ import {
   takeSnapshot,
 } from "./review";
 import { Store } from "./state";
-import { labelOf, summaryFromTranscript } from "./transcript";
+import { labelOf, summaryFromTranscript, summaryOf } from "./transcript";
 
 /** Bumped when a payload's shape changes; clients refuse a version they do not
  * know. 2 renamed every `turn` field and `turns` array to `snapshot`; 3 records
@@ -255,18 +255,25 @@ async function snapshotCommand(args: string[]): Promise<number> {
     repo ??= hook.cwd;
     session ??= hook.sessionId;
     agent ??= "claude";
-    if (hook.transcriptPath !== undefined) {
-      // Only what the caller did not give. An agent that described its own snapshot
-      // has said it better than the transcript's last paragraph can; the scrape
-      // is the backstop for the snapshot where it did not get the chance — and the
-      // snapshot is marked as having been answered for, because that is also the
-      // shape of a snapshot that was cut off before it could finish.
-      const summary = await summaryFromTranscript(hook.transcriptPath);
-      label ??= summary?.label;
-      if (message === undefined && summary !== undefined) {
-        message = summary.message;
-        described = "transcript";
-      }
+    // The agent's closing text, from the payload when it carries one: Claude
+    // Code puts it in `last_assistant_message`, and its docs say to prefer that
+    // over re-reading the transcript for the same sentence. Scraping the file
+    // stays as the fallback, for a host whose payload has no such field.
+    //
+    // Only what the caller did not give. An agent that described its own snapshot
+    // has said it better than its last paragraph can; either read is the backstop
+    // for the snapshot where it did not get the chance — and the snapshot is
+    // marked as having been answered for, because that is also the shape of a
+    // snapshot that was cut off before it could finish.
+    const summary =
+      summaryOf(hook.lastMessage) ??
+      (hook.transcriptPath !== undefined
+        ? await summaryFromTranscript(hook.transcriptPath)
+        : undefined);
+    label ??= summary?.label;
+    if (message === undefined && summary !== undefined) {
+      message = summary.message;
+      described = "transcript";
     }
   }
   // A label is a sentence somebody wrote, not the first line of something else.
@@ -673,13 +680,16 @@ function readStdin(): Promise<string> {
   });
 }
 
-/** The JSON a Claude Code Stop hook pipes in: session id, transcript path, and
- * the project directory the session runs in. Everything is optional — a missing
- * field falls back to flags or defaults rather than failing the snapshot. */
+/** The JSON a Claude Code Stop hook pipes in: session id, transcript path, the
+ * project directory the session runs in, and the turn's closing assistant text.
+ * Everything is optional — a missing field falls back to flags, to the
+ * transcript, or to defaults rather than failing the snapshot, which is what
+ * lets another host's stop-time hook send the subset it has. */
 function stopHookPayload(raw: string): {
   sessionId?: string;
   transcriptPath?: string;
   cwd?: string;
+  lastMessage?: string;
 } {
   let entry: unknown;
   try {
@@ -690,15 +700,17 @@ function stopHookPayload(raw: string): {
   if (typeof entry !== "object" || entry === null) {
     throw new Error("the stop-hook payload is not an object");
   }
-  const { session_id, transcript_path, cwd } = entry as {
+  const { session_id, transcript_path, cwd, last_assistant_message } = entry as {
     session_id?: unknown;
     transcript_path?: unknown;
     cwd?: unknown;
+    last_assistant_message?: unknown;
   };
   return {
     sessionId: typeof session_id === "string" ? session_id : undefined,
     transcriptPath: typeof transcript_path === "string" ? transcript_path : undefined,
     cwd: typeof cwd === "string" ? cwd : undefined,
+    lastMessage: typeof last_assistant_message === "string" ? last_assistant_message : undefined,
   };
 }
 
