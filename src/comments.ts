@@ -123,8 +123,21 @@ export class Comments {
     return `${repo.root}\0${id}\0${uri.toString()}`;
   }
 
-  /** Draw stored threads onto whichever document is showing the file. */
+  /** Draw stored threads onto the file on disk.
+   *
+   * The working tree and nowhere else. An anchor is kept at the newest snapshot,
+   * so those are the only coordinates that are true — the same line number on an
+   * older revision is a different line. Drawing on every document that showed the
+   * path also gave one thread a widget per revision opened, which the Comments
+   * panel lists as one comment written three times.
+   *
+   * A widget the reviewer types into an older diff is not made here and is left
+   * alone: it is on the lines they chose, in the tab they chose them in. `forget`
+   * takes it when that tab closes. */
   rehydrate(uri: vscode.Uri): void {
+    if (uri.scheme !== "file") {
+      return;
+    }
     const located = this.repos.locate(pathOf(uri));
     if (located === undefined) {
       return;
@@ -205,6 +218,23 @@ export class Comments {
     this.decorate(reply.thread, updated);
     if (updated === fresh) {
       this.live.set(this.key(repo, fresh.id, uri), { widget: reply.thread, repo, id: fresh.id });
+    }
+  }
+
+  /** Let go of the widgets on a revision document that has closed — the ones
+   * `reply` made, which nothing else would ever take back. The file on disk keeps
+   * its own: closing that tab is not the reviewer saying they are done, and
+   * reopening it draws them again anyway. */
+  forget(uri: vscode.Uri): void {
+    if (uri.scheme === "file") {
+      return;
+    }
+    const closed = uri.toString();
+    for (const [key, live] of this.live) {
+      if (live.widget.uri.toString() === closed) {
+        live.widget.dispose();
+        this.live.delete(key);
+      }
     }
   }
 

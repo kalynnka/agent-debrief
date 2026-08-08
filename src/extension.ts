@@ -538,6 +538,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   vscode.window.visibleTextEditors.forEach(paint);
   context.subscriptions.push(
     vscode.window.onDidChangeVisibleTextEditors((editors) => editors.forEach(paint)),
+    // A diff tab closing takes the comment widgets that were typed into it; the
+    // thread itself is in the store and is drawn on the file regardless.
+    vscode.workspace.onDidCloseTextDocument((document) => comments.forget(document.uri)),
     vscode.workspace.onDidChangeWorkspaceFolders(async () => {
       await repos.discover(workspaceFolders());
       rewatch();
