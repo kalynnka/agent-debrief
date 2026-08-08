@@ -3,9 +3,8 @@
 A scratch file for exercising the review loop end to end: leave a line comment,
 submit the batch, hand it to the agent, watch the agent answer it.
 
-Round two. What is being tested this time is where a comment says it came from:
-comment on **this** snapshot's diff and on an older one, and every thread should
-name the snapshot whose diff you were reading.
+Round three, and it has one job: **the left-hand side**. Every comment so far has
+been on a line that still exists, which is the easy half.
 
 ## What a snapshot is
 
@@ -15,15 +14,11 @@ you never re-read work you already cleared.
 
 ## What to try here
 
-1. Open this file's diff for the newest snapshot and comment on a line.
-2. Open snapshot 1's diff — an older one — and comment there too.
-3. Comment on a line **this** snapshot deleted, on the left-hand side. That one
-   is the whole point: the text is the previous snapshot's, but the diff you are
-   reading is this one, and this one is what the thread should say.
-
-## Claims worth arguing with
-
-- Every snapshot needs a label, and the label is always a sentence.
+1. Open the newest snapshot's diff. Every line struck through in red is one this
+   snapshot deleted — comment on one of those.
+2. Comment on a surviving line in the same diff, so there is something to compare
+   it against.
+3. Leave the tabs open, then message the agent.
 
 ## Where the review lands
 
@@ -34,32 +29,28 @@ inside the repository that was reviewed. It stays out of `git status` because
 The agent reads it back with `debrief review open`, which prints every comment
 still waiting across every batch — not just the last one submitted.
 
-## Three ways to hand it over
-
-| way | what it does | when it fits |
-|---|---|---|
-| Copy Review | puts the text on the clipboard | the agent is somewhere else |
-| Send to Terminal | pastes it into the agent's terminal | the agent is running here |
-| `review open` | the agent asks for it itself | the agent is picking work up |
-
-Sending to the terminal wraps the text in a bracketed paste, so a terminal UI
-reads the whole review as one insertion rather than as typing.
-
 ## Known rough edges
 
 - A resolved thread disappears from `review open` with no way to see it again.
 - Nothing stops two reviewers submitting batches a second apart.
-- One thread is drawn once per document, so the Comments panel lists it once for
-  every revision you have opened. Still unfixed — the next thing on the list.
+- `Notes.md` takes comments, and anchors them to a file that does not exist.
 
-## What each thread should say
+## The answer key
 
-| where you comment | the thread should say |
+A comment on a **deleted** line is the case none of this has been tested on. Four
+things should be true of it, and each one is a different piece of machinery:
+
+| what | should be |
 |---|---|
-| the newest snapshot's diff | the newest snapshot |
-| snapshot 1's right-hand side | snapshot 1 |
-| snapshot 2's left-hand side | snapshot 2, not snapshot 1 |
-| the file on disk | the newest snapshot |
+| the snapshot it names | the one that deleted the line, not the one that still had it |
+| where it sits in that diff | on the deleted line, unmoved, for good |
+| `outdated` | true — a line that is gone cannot be found again |
+| the Comments panel | one row per open tab that holds it, and no more |
 
-If a thread names the newest snapshot when you were reading an older diff, the
-fix is not live — reload the Extension Development Host and try again.
+A comment on a surviving line in the same diff should name the same snapshot and
+be `outdated: false`, which is what makes it the control.
+
+The fourth column is the one I would not bet on. An outdated thread keeps the
+coordinates it was written with, so on the file it may draw against a line nobody
+commented on — the same class of bug as the one that started all this, one layer
+further in. If it does, that is the finding, not a surprise.
