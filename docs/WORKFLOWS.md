@@ -16,20 +16,25 @@ it. Your index, your HEAD and your branches are never touched.
 
 ### 1.1 The agent finishes; you review
 
-**Press Take Snapshot.** That is the loop, and it is not a fallback — you snapshot when
-the agent has done something worth reading, which is not the same as every time it
-stops. The Snapshots view notices — a file watch on the lane's state directory, not a
-service — and the new snapshot appears at the bottom, expanded.
+**The agent snapshots its own work**, and picks the moments: that is what
+`prepare-change-review` (§7.1) has it do, one snapshot per piece of work finished rather
+than one per turn. The Snapshots view notices — a file watch on the lane's state
+directory, not a service — and each new snapshot appears at the bottom, expanded.
 
-A Stop hook does the same thing on every turn, for a repo where you want that:
+**Take Snapshot** is the same thing by hand, for the gaps: one before you set an agent
+going, one to fence off your own edits, one for an agent that cannot run a command.
+
+A Stop hook makes it a guarantee rather than an instruction, for a repo where you want
+that:
 
 ```bash
 debrief snapshot --from-stop-hook   # reads the hook payload on stdin
 ```
 
-It takes the repo, the session id and a label from the turn's closing message, so the
-snapshot arrives already named — which is the one thing a hand-pressed snapshot cannot
-do, since nobody has written the note yet. §6.5 is where it goes and where it must not.
+It takes the repo and the session id from the payload, and a label from the turn's
+closing message — which is the best it can do and worse than what the agent writes when
+it snapshots deliberately. On a tree already snapshotted it records nothing, so it costs
+nothing to have. §6.5 is where it goes and where it must not.
 
 The Debrief icon in the activity bar carries a **badge**: how much is still
 waiting on you, so a turn that finished while the panel was closed still

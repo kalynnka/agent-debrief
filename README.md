@@ -47,8 +47,8 @@ half, and you add them when you have a reason to.
 **1 · The extension** — the review itself. Search *Agent Debrief* in the Extensions view.
 Nothing else is required: take a snapshot, read the diff, write comments.
 
-**2 · The Claude Code plugin** — the skills your agent uses to write a snapshot's note and
-to pick up a branch it did not work on, plus `debrief` on its PATH. No global install:
+**2 · The Claude Code plugin** — the skills that get your agent snapshotting its own work
+and picking up a branch it did not write, plus `debrief` on its PATH. No global install:
 
 ```bash
 /plugin marketplace add kalynnka/agent-debrief
@@ -64,14 +64,21 @@ npm i -g agent-debrief      # the package is agent-debrief; the command is debri
 Every example below types `debrief`. Door 2 provides it inside Claude Code; door 3
 provides it everywhere.
 
-## Snapshots are yours to take
+## Where snapshots come from
 
-**A hook is not required, and mostly not wanted.** Pressing **Take Snapshot** is how this
-is meant to work — you snapshot when there is something worth reading, which is not the
-same as every time an agent stops.
+**The agent takes them, and picks its own moments.** That is what the
+[`prepare-change-review`](skills/prepare-change-review/SKILL.md) skill is for: it tells the
+agent to snapshot through the CLI as each piece of work lands, and to write the label and
+the note itself. Nothing limits a turn to one snapshot — schema, then managers, then call
+sites arrives as three rows you can read and revert separately, because the agent knew
+where the seams were and you did not have to guess from outside.
 
-Reach for a hook only when you want *every* turn in a repo captured without thinking about
-it. Then put it in **that project's** `.claude/settings.json`:
+Install the skill and this needs no thought from you: the review is simply there when the
+agent stops talking.
+
+**A hook is how you make it a guarantee.** A skill is guidance, and a turn can end without
+following it. If you want *every* run that changed something snapshotted regardless, add
+the Stop hook to **that project's** `.claude/settings.json`:
 
 ```json
 "hooks": {
@@ -81,12 +88,20 @@ it. Then put it in **that project's** `.claude/settings.json`:
 }
 ```
 
+It is a backstop rather than an author. On a tree the agent already snapshotted it takes
+nothing, so it cannot double up; when it does fire it names the snapshot from the turn's
+closing sentence, which reads less well than one written on purpose.
+
 > **Not in `~/.claude/settings.json`.** A hook there fires in every repository you open,
 > writing snapshot refs into dozens you will never review. The cost is per-repo and so is
 > the benefit — install it where you are actually reviewing.
 
-Optionally, beside it, a second hook keeps your **own** edits between turns in a snapshot
-of their own rather than inside the agent's next one:
+**Take Snapshot is still yours**, and worth one press before you set an agent going: the
+first snapshot diffs against `HEAD`, so anything already sitting in the tree would
+otherwise turn up inside the agent's first row as though it wrote it.
+
+Optionally, a hook does that for you, keeping your **own** edits between turns in a
+snapshot of their own rather than inside the agent's next one:
 
 ```json
 "UserPromptSubmit": [{ "hooks": [{ "type": "command",
@@ -96,7 +111,8 @@ of their own rather than inside the agent's next one:
 Snapshotting is idempotent — a turn that changed nothing takes no snapshot — so neither
 hook can pollute the numbering.
 
-**Codex** works the same way, same payload, same opt-in rule. `<repo>/.codex/hooks.json`:
+**Codex** works the same way, same skills, same payload, same opt-in rule.
+`<repo>/.codex/hooks.json`:
 
 ```json
 { "hooks": { "Stop": [{ "hooks": [{ "type": "command",
@@ -114,10 +130,9 @@ reviewed by snapshotting yourself before and after it works.
 1. **One snapshot before the agent starts.** The first snapshot diffs against `HEAD`, so
    anything already sitting in the tree would otherwise turn up inside snapshot 1. The
    camera on the repo's row takes it, and so does **Debrief: Take Snapshot** in the palette.
-2. **The agent works, and you snapshot when it has done something worth reading.** Press
-   the camera again — or let a hook do it, if you set one up for this repo. Either way a
-   row appears in the Snapshots view and the activity-bar icon carries a badge counting
-   what is still waiting.
+2. **The agent works, and snapshots each piece as it finishes it.** A row appears in the
+   Snapshots view for each one, and the activity-bar icon carries a badge counting what is
+   still waiting on you. The camera is there for anything it did not take.
 3. **The change is there to read.** Clicking a file opens its snapshot-over-snapshot
    diff. The first row of every review is `Notes.md` — the agent's label and the few
    lines under it, worth reading before the diff. A `src/review.ts:270` in a note is a link.
@@ -213,9 +228,10 @@ carrying `schemaVersion`.
 | `debrief gc [--dry-run]` | let go of lanes whose branch is gone |
 
 Two skills ship with the repo and are the agent's half of the loop:
-[`prepare-change-review`](skills/prepare-change-review/SKILL.md) for the end of a turn,
-[`recover-change-context`](skills/recover-change-context/SKILL.md) for picking up a
-branch it does not remember.
+[`prepare-change-review`](skills/prepare-change-review/SKILL.md) for snapshotting the work
+and answering the comments it brings back,
+[`recover-change-context`](skills/recover-change-context/SKILL.md) for picking up a branch
+it does not remember.
 
 ## Your git state is not touched
 
