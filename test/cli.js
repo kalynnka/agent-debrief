@@ -233,6 +233,36 @@ async function main() {
   assert.ok(rendered.includes("  me: why rename?"), "with the comment under it");
   assert.ok(!rendered.includes("@renamed.txt"), "never the @-mention form — it types badly");
 
+  // 14c. The agent's half of the loop: it answers a comment and leaves it open.
+  //      Closing belongs to the reviewer, so a reply that closed anything would
+  //      let the thing that answered decide the answer was good enough.
+  const replied = JSON.parse(
+    debrief(
+      ["review", "reply", "cli-t1", "-m", "renamed it back", "--author", "claude",
+        "--repo", root, "--json"],
+      parent,
+    ).stdout,
+  );
+  assert.strictEqual(replied.thread.comments.length, 2, "the reply lands in the thread");
+  assert.strictEqual(replied.thread.comments[1].author, "claude");
+  assert.strictEqual(replied.thread.state, "submitted", "answering leaves the state alone");
+  const answered = JSON.parse(debrief(["review", "open", "--repo", root, "--json"], parent).stdout);
+  assert.deepStrictEqual(
+    answered.threads.map((t) => t.id),
+    ["cli-t1"],
+    "an answered thread is still waiting on the reviewer",
+  );
+  assert.strictEqual(
+    debrief(["review", "reply", "cli-t1", "--repo", root], parent).status,
+    2,
+    "a reply with no message is a usage error",
+  );
+  assert.strictEqual(
+    debrief(["review", "reply", "-m", "which one?", "--repo", root], parent).status,
+    2,
+    "a reply with no thread id is a usage error",
+  );
+
   const closed = JSON.parse(
     debrief(["review", "resolve", "cli-t1", "--repo", root, "--json"], parent).stdout,
   );
@@ -250,7 +280,13 @@ async function main() {
     2,
     "resolve with no id is a usage error",
   );
+  assert.strictEqual(
+    debrief(["review", "reply", "cli-t1", "-m", "too late", "--repo", root], parent).status,
+    3,
+    "answering a closed thread fails rather than dropping the answer",
+  );
   console.log("review open -> resolve                ok");
+  console.log("review reply leaves it open           ok");
 
   // 15. Carry-forward: a thread follows its lines when they move, and goes
   //     outdated when the lines themselves change.

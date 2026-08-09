@@ -17,6 +17,7 @@ import {
   adoptLane,
   landedSnapshots,
   openThreads,
+  replyToThread,
   resolveThreads,
   reviewText,
   sweepLanes,
@@ -46,7 +47,10 @@ const USAGE = `usage: debrief <command> [options]
   show <rev> <path>      file content at a revision (a snapshot number or a sha)
   review submit          write the pending comment threads out as one batch
   review open            print every comment still waiting on you, across batches
-  review resolve <id>…   close the comments you have dealt with
+  review reply <id>      say what you did about a comment, leaving it open  (-m
+                         required, --author)
+  review resolve <id>…   close the comments you have dealt with — the reviewer's
+                         job from the widget, yours only when they ask
   review batch           print the latest submitted batch
   gc                     let go of lanes whose branch is gone, so git can collect
                          their snapshots on its own schedule  (--dry-run)
@@ -107,6 +111,9 @@ async function dispatch(argv: string[]): Promise<number> {
       }
       if (sub === "open") {
         return openReviewCommand(args);
+      }
+      if (sub === "reply") {
+        return replyCommand(args);
       }
       if (sub === "resolve") {
         return resolveCommand(args);
@@ -596,6 +603,56 @@ async function openReviewCommand(args: string[]): Promise<number> {
     return 0;
   }
   process.stdout.write(threads.length === 0 ? "no open review comments\n" : reviewText(threads));
+  return 0;
+}
+
+/** The agent's half of the loop: the reviewer writes a comment, the agent fixes
+ * it and says so here. The thread stays open — closing it is the reviewer reading
+ * the answer and agreeing, which is a different act by a different party. */
+async function replyCommand(args: string[]): Promise<number> {
+  const { values, positionals } = guarded(() =>
+    parseArgs({
+      args,
+      options: {
+        repo: { type: "string" },
+        lane: { type: "string" },
+        message: { type: "string", short: "m" },
+        author: { type: "string" },
+        json: { type: "boolean" },
+      },
+      allowPositionals: true,
+    }),
+  );
+  if (positionals.length !== 1) {
+    throw new UsageError("review reply takes exactly one thread id");
+  }
+  const body = values.message?.trim() ?? "";
+  if (body === "") {
+    throw new UsageError('review reply needs a message: -m "<what you did about it>"');
+  }
+  const { lane, store } = await open(values.repo, values.lane);
+  const thread = await replyToThread(store, positionals[0], body, values.author ?? "agent");
+  if (thread === undefined) {
+    // A resolution failure, not a quiet no-op: the fix this message describes has
+    // already been made, and dropping the message leaves the reviewer waiting on
+    // an answer that was written.
+    throw new Error(
+      `no open thread '${positionals[0]}' — it may have been resolved or deleted; ` +
+        "run `debrief review open` for the ids that are still waiting",
+    );
+  }
+  if (values.json ?? false) {
+    process.stdout.write(
+      JSON.stringify({ schemaVersion: SCHEMA_VERSION, repo: lane.root, lane: lane.name, thread }) +
+        "\n",
+    );
+    return 0;
+  }
+  const { file, startLine } = thread.anchor;
+  process.stdout.write(
+    `replied to ${thread.id} on ${file}:${startLine + 1} — ` +
+      `${thread.comments.length} comment(s), still open for the reviewer\n`,
+  );
   return 0;
 }
 

@@ -419,7 +419,9 @@ export function openThreads(store: Store): Thread[] {
 export function reviewText(threads: Thread[]): string {
   const out = [
     `Debrief review — ${threads.length} comment${threads.length === 1 ? "" : "s"} still open.`,
-    "Address each one, then close it with `debrief review resolve <id>`.",
+    'Fix each one, then say what you did: `debrief review reply <id> -m "…"`.',
+    "Leave them open — the reviewer closes a thread once the answer satisfies them.",
+    "Only close one yourself, with `debrief review resolve <id>`, if they ask you to.",
     "",
   ];
   const ordered = [...threads].sort(
@@ -442,6 +444,28 @@ export function reviewText(threads: Thread[]): string {
     out.push("");
   }
   return out.join("\n");
+}
+
+/** The agent's answer to a comment, appended to the thread it answers.
+ *
+ * Answering is not closing. The thread stays open and stays on the file, because
+ * whether the fix is the right one is the reviewer's call and they make it from
+ * the widget — this is only the agent saying what it did.
+ *
+ * Undefined when the id names nothing still open, which the caller should treat
+ * as a failure rather than a shrug: the work the message describes has already
+ * happened, and a dropped answer leaves the reviewer waiting for one. */
+export async function replyToThread(
+  store: Store,
+  id: string,
+  body: string,
+  author: string,
+): Promise<Thread | undefined> {
+  return store.withLock((state) => {
+    const thread = state.threads.find((t) => t.id === id && t.state !== "resolved");
+    thread?.comments.push({ body, author, at: new Date().toISOString() });
+    return thread;
+  });
 }
 
 /** Close the threads an agent says it has dealt with. Returns the ids it

@@ -120,6 +120,12 @@
         "category": "Debrief"
       },
       {
+        "command": "debrief.resolveThread",
+        "title": "Resolve",
+        "category": "Debrief",
+        "icon": "$(check)"
+      },
+      {
         "command": "debrief.deleteThread",
         "title": "Delete Thread",
         "category": "Debrief",
@@ -339,6 +345,10 @@
           "when": "false"
         },
         {
+          "command": "debrief.resolveThread",
+          "when": "false"
+        },
+        {
           "command": "debrief.gallery.ask",
           "when": "false"
         },
@@ -411,8 +421,13 @@
       ],
       "comments/commentThread/title": [
         {
+          "command": "debrief.resolveThread",
+          "group": "navigation@1",
+          "when": "commentController == debrief && commentThreadIsEmpty == false"
+        },
+        {
           "command": "debrief.deleteThread",
-          "group": "navigation",
+          "group": "navigation@2",
           "when": "commentController == debrief && commentThreadIsEmpty == false"
         },
         {

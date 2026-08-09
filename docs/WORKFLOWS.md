@@ -169,15 +169,27 @@ batch stop taking replies; open a new one to say more.
 The agent reads your comments with:
 
 ```bash
-debrief review open           # every comment still waiting on it, across submits
-debrief review resolve <id>…  # what it has dealt with
+debrief review open               # every comment still waiting, across submits
+debrief review reply <id> -m "…"  # what it did about one
+debrief review resolve <id>…      # close it — only when you ask
 ```
 
 `review open` is the one to work from — `review batch` is still there and answers
-a different question, the contents of one submit as a record. Resolving is what
-makes the open set shrink; the `prepare-change-review` skill tells agents to
-close only what they have actually answered, and to leave a comment they disagree
-with open for you.
+a different question, the contents of one submit as a record.
+
+The loop is four steps, and the ✓ is yours:
+
+1. You write comments. Each is open from the moment it is written.
+2. You tell the agent to look; it reads them with `review open`.
+3. It fixes what it can and answers each thread with `review reply`. The answer
+   appears under your comment on the file, within a moment.
+4. You read the answer and click **✓** in the thread's title bar when it satisfies
+   you.
+
+An answered thread is still open and still printed by `review open`, because it is
+waiting on you now rather than on the agent. The `prepare-change-review` skill
+tells agents not to close their own work — `review resolve` is for when you say
+so, which is also how "mark them all as resolved" gets done.
 
 ### 3.2 Handing the review over
 
@@ -236,8 +248,9 @@ stays visible there until you close it, because taking it out from under your
 cursor to redraw it on a file you may not have open is worse than a second row
 for as long as you are looking at it.
 
-**A resolved thread is drawn nowhere.** It disappears from the file the moment the
-agent closes it, without you closing anything, because on a lane moving at a
+**A resolved thread is drawn nowhere.** It disappears from the file the moment it
+is closed — by your ✓, or by the agent when you told it to — because on a lane
+moving at a
 snapshot a turn a widget over answered lines is in the way within minutes. The
 thread itself stays in `state.json` — `review resolve` closes a comment, it does
 not delete it — and `debrief review open` remains the answer to what is left.

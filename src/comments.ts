@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import { Repo, Repos } from "./repos";
-import { anchorForward } from "./review";
+import { anchorForward, resolveThreads } from "./review";
 import { Thread } from "./state";
 
 export const SCHEME = "debrief";
@@ -251,6 +251,22 @@ export class Comments {
         this.live.delete(key);
       }
     }
+  }
+
+  /** Close a thread from its title bar: the reviewer saying the answer will do.
+   *
+   * The button is theirs and only theirs. An agent can close one too, from the
+   * CLI, but only when told to — otherwise the thing that decides a comment is
+   * dealt with would be the thing that answered it. `refresh` then takes the
+   * widget off the file, since a resolved thread is drawn nowhere. */
+  async resolve(widget: vscode.CommentThread): Promise<void> {
+    const id = widget.contextValue;
+    const located = this.repos.locate(pathOf(widget.uri));
+    if (id === undefined || located === undefined) {
+      return;
+    }
+    await resolveThreads(located.repo.store, [id]);
+    this.refresh();
   }
 
   async delete(widget: vscode.CommentThread): Promise<void> {

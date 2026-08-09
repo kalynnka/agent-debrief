@@ -237,19 +237,24 @@ Each one carries `path:line`, the snapshot it was written against, and an id.
 — it still stands, but find what it is about rather than trusting the line
 number.
 
-Work through them, then close what you have dealt with:
+Work through them, and answer each one where it was asked:
+
+    debrief review reply <id> -m "what you did about it"
+
+The reply lands in the thread, under their comment, and shows up on the file
+within a moment. Say what you changed, or say why you disagree — a thread is also
+where an argument happens, and one sentence there beats a paragraph in your reply
+that they have to match back to a line by hand.
+
+**Answering is not closing, and closing is not yours.** The thread stays open
+after you reply, because whether the fix is right is the human's call and they
+make it from the ✓ on the widget. Do not resolve your own work:
 
     debrief review resolve <id> <id> …
 
-**Closing is not bookkeeping, it is the state.** `review open` is the only thing
-that says what is left, so a comment you answered but did not resolve comes back
-on every read, and one you resolved without answering is gone with nobody
-noticing. Resolve exactly what you have done, and say in your reply what you did
-for each id.
-
-Leave a comment open when you are disagreeing with it. Say why, do not resolve
-it, and let the human close the argument — resolving your way out of a
-disagreement is the one use of this command that is a lie.
+is for when they ask you to — "mark those as resolved", "close them all" — and
+for nothing else. `review open` still prints an answered thread, which is correct:
+it is waiting on them now, not on you.
 
 Then snapshot the work the review produced, exactly as any other turn: it is its
 own unit of work and the human will read it as one.

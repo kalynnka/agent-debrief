@@ -58,7 +58,9 @@ drifts from the work it describes.
    types and go-to-definition all work while you read.
 5. Comment on any line. Each one is open the moment you write it — there is no
    send step. Tell the agent you have reviewed and it reads them with
-   `debrief review open`, then closes what it answers with `debrief review resolve`.
+   `debrief review open`, fixes them, and answers each thread with
+   `debrief review reply`. Its answer lands under your comment; click **✓** on the
+   thread to close it when you are satisfied.
 6. **Debrief: Submit Review** is for the record rather than for sending: it writes
    the open comments to `.git/debrief/<lane>/batches/<timestamp>.json` in the
    reviewed repo, which is the batch that leaves this machine.

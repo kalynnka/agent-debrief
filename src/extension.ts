@@ -1198,6 +1198,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     snapshots.refresh();
   });
 
+  register("debrief.resolveThread", async (thread: vscode.CommentThread) => {
+    await comments.resolve(thread);
+    snapshots.refresh();
+  });
+
   register("debrief.deleteThread", async (thread: vscode.CommentThread) => {
     await comments.delete(thread);
     snapshots.refresh();
