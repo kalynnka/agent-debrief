@@ -212,12 +212,6 @@
         "icon": "$(trash)"
       },
       {
-        "command": "debrief.gallery.additional",
-        "title": "Additional Action",
-        "category": "Debrief",
-        "icon": "$(rocket)"
-      },
-      {
         "command": "debrief.gallery.edit",
         "title": "Edit",
         "category": "Debrief",
@@ -366,10 +360,6 @@
           "when": "false"
         },
         {
-          "command": "debrief.gallery.additional",
-          "when": "false"
-        },
-        {
           "command": "debrief.gallery.edit",
           "when": "false"
         },
@@ -439,13 +429,6 @@
         {
           "command": "debrief.gallery.deleteThread",
           "group": "navigation@2",
-          "when": "commentController == debrief-gallery"
-        }
-      ],
-      "comments/commentThread/additionalActions": [
-        {
-          "command": "debrief.gallery.additional",
-          "group": "inline@1",
           "when": "commentController == debrief-gallery"
         }
       ],

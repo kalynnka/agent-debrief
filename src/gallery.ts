@@ -260,7 +260,6 @@ export function gallery(extensionUri: vscode.Uri): vscode.Disposable[] {
     button("debrief.gallery.comment", () => "Comment — same argument, different intent."),
     button("debrief.gallery.resolve", () => "Resolve — thread title bar."),
     button("debrief.gallery.deleteThread", () => "Delete Thread — thread title bar."),
-    button("debrief.gallery.additional", () => "Additional Action — the thread's action row."),
     button("debrief.gallery.edit", () => "Edit — hover icon on a comment."),
     button("debrief.gallery.askAbout", () => "Ask Claude About This — hover icon on a comment."),
     button("debrief.gallery.copy", () => "Copy Comment — the comment's ... menu."),
