@@ -111,6 +111,11 @@ npm ≥ 11.5.1 and Node 20 ships npm 10.
 
 ## Cutting a release
 
+0. **Check the credentials first.** Actions → **Credentials** → *Run workflow*. It asks
+   each registry whether the stored secret is accepted and publishes nothing. Both
+   credentials are otherwise first exercised by the release itself, which is a bad moment
+   to discover a PAT was scoped to one organization. Worth a click before the first
+   release, and after either token is rotated or expires.
 1. **Bump `version` in `package.json`,** and `version` in
    `.claude-plugin/plugin.json` to match — that second one is what decides when plugin
    users are offered the update.
