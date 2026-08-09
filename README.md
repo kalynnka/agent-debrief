@@ -61,9 +61,10 @@ drifts from the work it describes.
    `debrief review open`, fixes them, and answers each thread with
    `debrief review reply`. Its answer lands under your comment; click **✓** on the
    thread to close it when you are satisfied.
-6. **Debrief: Submit Review** is for the record rather than for sending: it writes
+6. `debrief review submit` is for the record rather than for sending: it writes
    the open comments to `.git/debrief/<lane>/batches/<timestamp>.json` in the
-   reviewed repo, which is the batch that leaves this machine.
+   reviewed repo, which is the batch that leaves this machine. There is no button
+   for it, because there is nothing in the editor it would change.
 
 Marking a file reviewed records the snapshot you reviewed it at. A later snapshot
 touching that file makes it unreviewed again — the rule is just

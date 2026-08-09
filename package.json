@@ -93,12 +93,6 @@
         "icon": "$(history)"
       },
       {
-        "command": "debrief.submit",
-        "title": "Submit Review",
-        "category": "Debrief",
-        "icon": "$(check-all)"
-      },
-      {
         "command": "debrief.copyReview",
         "title": "Copy Review for the Agent",
         "category": "Debrief",
@@ -186,13 +180,6 @@
       }
     ],
     "menus": {
-      "editor/title": [
-        {
-          "command": "debrief.submit",
-          "when": "debrief.inReview",
-          "group": "navigation@2"
-        }
-      ],
       "view/title": [
         {
           "command": "debrief.refresh",
@@ -215,11 +202,6 @@
           "command": "debrief.stackedDiff",
           "when": "view == debrief.snapshots && viewItem =~ /^repo/",
           "group": "inline@2"
-        },
-        {
-          "command": "debrief.submit",
-          "when": "view == debrief.snapshots && viewItem =~ /^repo/",
-          "group": "inline@3"
         },
         {
           "command": "debrief.copyReview",

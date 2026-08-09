@@ -154,17 +154,18 @@ reviewed" and the agent picks the lot up.
 That still gets you the batch, because the batching was never the button. Nothing
 pushes a comment at an agent — an agent *asks*, once, when you next speak to it,
 so it gets the shape of your review in one reply rather than five interruptions.
-The button only ever added a way to lose a comment you forgot to press it for.
+The button only ever added a way to lose a comment you forgot to press it for,
+and it is gone.
 
-**Submit Review** on the repo's row remains, for the other half of its old job:
-it writes what is open to one file —
+`debrief review submit` remains, for the other half of the button's old job: it
+writes what is open to one file —
 
 ```
 .git/debrief/<lane>/batches/<timestamp>.json
 ```
 
-— which is the record, and the thing that leaves this repository. Threads in a
-batch stop taking replies; open a new one to say more.
+— which is the record, and the thing that leaves this repository. It changes
+nothing you can see: a thread stays open and keeps taking replies until the ✓.
 
 The agent reads your comments with:
 

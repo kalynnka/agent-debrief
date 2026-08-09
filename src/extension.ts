@@ -494,15 +494,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       "debrief.diffViewed",
       active !== undefined && active.repo.store.isReviewed(active.rel, active.at),
     );
-    // A plain diff — one file, opened from the tree — already carries the tick for
-    // that file. Offering "mark all" beside it would be the same button twice.
-    // Every review is a multi-diff, however few rows it has, so this now separates
-    // the two ways in rather than counting files.
-    await vscode.commands.executeCommand(
-      "setContext",
-      "debrief.inReview",
-      rows.length > 0 && activeDiff() === undefined,
-    );
     // Which way the toggle points, and whether there is anything to toggle: a
     // review with nothing read yet should not offer to hide nothing.
     await vscode.commands.executeCommand(
@@ -1204,29 +1195,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     snapshots.refresh();
   });
 
-  register("debrief.submit", async (node?: RepoNode) => {
-    const repo = await repoOf(node);
-    if (repo === undefined) {
-      return;
-    }
-    const result = await repo.store.submit();
-    if (result === undefined) {
-      vscode.window.showInformationMessage(`Debrief: no draft comments in ${repo.name}.`);
-      return;
-    }
-    comments.refresh();
-    snapshots.refresh();
-    vscode.window.showInformationMessage(
-      `Debrief: submitted ${result.count} thread(s) in ${repo.name} → ${result.path}`,
-    );
-  });
-
-  /** Submit whatever is still draft, then render everything the agent has not
-   * answered. Both hand-over buttons mean "send my review", so leaving a draft
-   * behind would make the one comment the reviewer just wrote the one the agent
-   * never sees. */
+  /** Everything the agent has not answered yet. Both hand-over buttons mean "send
+   * my review", and a comment has been sendable since the moment it was written —
+   * so there is nothing to flip on the way out, and the reviewer keeps a thread
+   * they can still reply to. */
   const reviewForAgent = async (repo: Repo): Promise<string | undefined> => {
-    await repo.store.submit();
     const threads = openThreads(repo.store);
     comments.refresh();
     snapshots.refresh();
