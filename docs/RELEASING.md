@@ -46,9 +46,25 @@ The Marketplace accepts no token of its own; it takes an Azure DevOps one.
 1. Go to **https://dev.azure.com** and sign in with **the same Microsoft account**. If you
    have no organization it offers to make one — accept, the name does not matter.
 2. Top right, the **gear/avatar** → **Personal access tokens** → **New Token**.
+
+The dialog has four fields, and the two that matter are not the ones you would guess.
+**Organization is its own dropdown between Name and Expiration — it is not one of the
+scopes**, which is where people go looking for it:
+
+```
+Name          [ agent-debrief release        ]
+Organization  [ All accessible organizations ]  <- 3
+Expiration    [ 90 days                      ]
+Scopes        ( ) Full access
+              (o) Custom defined
+                  └─ Marketplace  [ ] Read  [x] Manage   <- 4
+```
+
 3. **Organization: "All accessible organizations."** ← *The usual failure.* Left on a
-   single organization, the token authenticates but publishing returns 401, because the
-   Marketplace is not inside your organization.
+   single organization — which is the default, since you are signed in to one — the token
+   is refused with **401**, because the Marketplace sits outside your organization rather
+   than inside it. If the dropdown does not offer it, an organization policy is
+   restricting multi-org tokens.
 4. **Scopes: "Custom defined"** → scroll to **Marketplace** → tick **Manage**. ←
    *The other usual failure.* The default scope set does not include Marketplace at all.
 5. Set an expiration you will remember, and **copy the token now** — it is shown once.
