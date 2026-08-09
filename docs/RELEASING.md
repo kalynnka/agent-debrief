@@ -14,16 +14,16 @@ Pushing `v0.1.0` on its own does nothing at all; clicking **Publish release** is
 
 ## One-time setup
 
-Three accounts and two secrets. Nothing in the workflow works until they exist, and the
+Three accounts and **one** secret. Nothing in the workflow works until they exist, and the
 `publish-vsix` job says so rather than failing blank.
 
-| GitHub secret | is | where it comes from |
+| registry | credential | where it comes from |
 |---|---|---|
-| `MARKETPLACE_PAT` | Azure DevOps PAT, scope **Marketplace → Manage** | [2](#2-the-pat-that-publishes-it--marketplace_pat) |
-| `NPM_TOKEN` | npm granular or Automation token | [3](#3-the-npm-token--npm_token) |
+| Marketplace | `MARKETPLACE_PAT`, an Azure DevOps PAT scoped **Marketplace → Manage** | [2](#2-the-pat-that-publishes-it--marketplace_pat) |
+| npm | none — a trusted publisher, configured once on npmjs.com | [3](#3-npm-keeps-no-secret) |
 
-Both go in **Settings → Secrets and variables → Actions**. `.env.example` carries the same
-two names for a local copy — `.env` itself is gitignored and excluded from both published
+The PAT goes in **Settings → Secrets and variables → Actions**. `.env.example` carries the
+name for a local copy — `.env` itself is gitignored and excluded from both published
 artifacts, because a tarball is public and permanent.
 
 ### 1. The Marketplace publisher
@@ -75,63 +75,72 @@ Scopes        ( ) Full access
 > **This expires twice.** Once on the date you chose, and once for good: global PATs
 > retire **1 December 2026**. See [After the PAT](#after-the-pat) — but not yet.
 
-### 3. The npm token — `NPM_TOKEN`
+### 3. npm keeps no secret
 
-No Azure anywhere in this one.
+No Azure anywhere in this one, and no token either. `publish-npm` asks GitHub for an OIDC
+token, hands it to the registry, and gets back a credential that is good for this one
+package for a few minutes — **trusted publishing**. Nothing is stored, so there is nothing
+to rotate, leak or watch expire.
 
-1. Sign up at **https://www.npmjs.com/signup** and turn on 2FA.
-2. **Access Tokens → Generate New Token → Granular Access Token.**
-3. **Read and write** on packages. Scope it to `agent-debrief` once that exists; until
-   then it has to be account-wide, which is a reason to replace it soon — see below.
-4. **Expiration: as short as you can stand.** Seven days is enough to publish `0.1.0` and
-   switch to Trusted Publishing, and an expired token is one that cannot be stolen.
-5. Tick **Bypass two-factor authentication (2FA)**, and read the next paragraph.
-6. GitHub secret named exactly **`NPM_TOKEN`**.
+It is configured per package, once, at **npmjs.com → Packages → agent-debrief → Settings →
+Trusted publishing**:
 
-> **npm warns about that checkbox in red, and it is right.** Ticking it produces a
-> credential that publishes as you with the one control that would stop a thief switched
-> off. Leaving it unticked is not an option either: `npm publish` then asks for a one-time
-> password, and no CI run can answer. That is the whole reason the warning points at
-> Trusted Publishing — which you cannot use yet. So the honest position is that this token
-> is a **bootstrap credential**: short expiry, one release, then deleted.
+| field | value |
+|---|---|
+| Publisher | GitHub Actions |
+| Organization or user | `kalynnka` |
+| Repository | `agent-debrief` |
+| Workflow filename | `release.yml` — the filename alone, no path |
+| Environment | leave empty |
+| Allowed actions | `npm publish` |
 
-**Trusted Publishing is the real answer, and you cannot start with it.** It swaps the
-stored token for OIDC — GitHub Actions proves its identity to npm directly, with a
-short-lived credential scoped to this repository and workflow, and nothing kept anywhere.
-It is configured per-package under **npmjs.com → Packages → agent-debrief → Settings →
-Trusted publishing**, and that page does not exist until the package does. npm has no
-pre-registration for a name that has never been published ([npm/cli#8544][oidc]), so the
-first release goes out on the token above, and then:
+**The workflow filename is matched exactly, and that is load-bearing.** The registry grants
+the exchange to that file and nothing else, which is what makes an OIDC identity narrower
+than any token: a publish from another workflow in this same repository is refused. It is
+also why there is no npm pre-flight — see [Cutting a release](#cutting-a-release).
 
-1. Configure the trusted publisher: GitHub Actions, repo `kalynnka/agent-debrief`,
-   workflow `release.yml`.
-2. Delete the `NPM_TOKEN` secret and the `NODE_AUTH_TOKEN` env from `publish-npm`.
-3. Drop `--provenance` — trusted publishing attests automatically.
-4. **Revoke the bootstrap token on npmjs.com.** Deleting the GitHub secret removes the
-   pipeline's copy, not the credential; the token stays valid until you revoke it or its
-   expiry catches up.
+Two things the workflow does for it, both easy to undo by accident:
 
-The alternative, if you would rather never mint a 2FA-bypass token at all: publish `0.1.0`
-by hand from your terminal, where the 2FA prompt is answerable, then configure trusted
-publishing and let CI take every release after it. The cost is that `publish-npm` fails on
-that first release — the version is already on the registry by then — so it is a trade of
-one failed job against one short-lived credential.
+- **No `registry-url` on `actions/setup-node`.** It writes
+  `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into `.npmrc`, and with no token in
+  the environment that line expands to an empty credential. npm reads it as *auth is
+  already configured*, skips the exchange, and fails with `ENEEDAUTH`
+  ([actions/setup-node#1551][sn]). The default registry is registry.npmjs.org regardless.
+- **No `--provenance`.** Trusted publishing attests on its own; passing the flag is how you
+  get told so.
 
-`publish-npm` is already prepared for it: it requests `id-token: write`, and it runs on
-Node 24 rather than the 20 the rest of the workflow uses, because trusted publishing needs
-npm ≥ 11.5.1 and Node 20 ships npm 10.
+> **Why `0.1.0` went out on a token instead.** npm has no way to pre-register a trusted
+> publisher for a name that has never been published ([npm/cli#8544][oidc]) — the settings
+> page does not exist until the package does. So the first release used a granular token
+> with **Bypass two-factor authentication** ticked, which is a credential that publishes as
+> you with the one control that would stop a thief switched off. It was a bootstrap: one
+> release, then gone. If you ever have to do that again for a *new* package, note that the
+> token also needs **All packages** rather than "Only select packages" — a token scoped to
+> a list cannot create a package that is not on it yet — and that direct publishing from
+> bypass-2FA tokens is [due to stop in January 2027][gat] anyway.
 
+**Retiring that token is three clicks and not optional**, because the workflow no longer
+reads it and an unused publish credential is the worst kind:
+
+1. Configure the trusted publisher above. Do it in the browser, signed in with 2FA —
+   since 31 July 2026 a bypass-2FA token may not change trusted-publishing config, so the
+   token cannot do this even if you wanted it to.
+2. Delete the `NPM_TOKEN` repository secret.
+3. **Revoke the token on npmjs.com.** Deleting the secret removes the pipeline's copy, not
+   the credential; it stays valid until you revoke it or its expiry catches up.
+
+[gat]: https://github.blog/changelog/2026-07-31-restricting-npm-bypass-2fa-granular-access-tokens/
 [oidc]: https://github.com/npm/cli/issues/8544
+[sn]: https://github.com/actions/setup-node/issues/1551
 
 ---
 
 ## Cutting a release
 
-0. **Check the credentials first.** Actions → **Credentials** → *Run workflow*. It asks
-   each registry whether the stored secret is accepted and publishes nothing. Both
-   credentials are otherwise first exercised by the release itself, which is a bad moment
-   to discover a PAT was scoped to one organization. Worth a click before the first
-   release, and after either token is rotated or expires.
+0. **Check the PAT first.** Actions → **Credentials** → *Run workflow*. It asks the
+   Marketplace whether the stored PAT is accepted and publishes nothing. Worth a click
+   after the PAT is rotated or expires — otherwise it is first exercised by the release
+   itself, which is a bad moment to discover it was scoped to one organization.
 1. **Bump `version` in `package.json`,** and `version` in
    `.claude-plugin/plugin.json` to match — that second one is what decides when plugin
    users are offered the update.
@@ -139,17 +148,24 @@ npm ≥ 11.5.1 and Node 20 ships npm 10.
 3. GitHub → **Releases → Draft a new release.** Create the tag `v<version>` from `main`,
    write the notes, **Publish release**.
 
-Then `release.yml`:
+Then `release.yml`, in this order:
 
 | job | |
 |---|---|
-| `guard` | refuses unless the tag matches `package.json` — before anything is built |
+| `guard` | refuses unless the tag matches `package.json` and `plugin.json` — before anything is built |
 | `build` | lint, types, tests, then the `.vsix`, attached to the release |
+| `publish-npm` | `npm publish`, on an OIDC identity minted for this run |
 | `publish-vsix` | `vsce publish --packagePath`, the same file the release carries |
-| `publish-npm` | `npm publish --provenance` |
 
-Both publishers wait for `build`, so a failing suite cannot leave one registry with the
-release and the other without it.
+**npm goes first on purpose.** It is the credential with no pre-flight — the exchange only
+succeeds from `release.yml`, so the release is the only place it can be tested — while the
+PAT has step 0. Failing the untestable one before anything is public is what keeps a
+release from ending up on the Marketplace and not on npm, which is where `0.1.0` spent an
+afternoon. Both wait for `build`, so a failing suite publishes nothing at all.
+
+That ordering is only safe because `publish-npm` checks the registry first and skips a
+version it already has, instead of failing on it. Re-running a release after a half-failure
+therefore reaches `publish-vsix`.
 
 ## When it goes wrong
 
@@ -159,13 +175,14 @@ release and the other without it.
 | `publish-vsix` fails asking for a credential | `MARKETPLACE_PAT` is unset. §2. |
 | 401 from the Marketplace | the PAT was scoped to one organization, not all. §2, step 3. |
 | 403 from the Marketplace | the PAT lacks **Marketplace → Manage**. §2, step 4. |
-| `npm publish` asks for a one-time password | the token was made without **Bypass 2FA** ticked. §3, step 5. |
-| 401 from npm | the token expired. It was meant to be short-lived; §3's switch to Trusted Publishing is the fix, not a longer one. |
-| `You cannot publish over the previously published versions` | that version is already on the registry. Versions are permanent — bump and cut another. |
+| npm `ENEEDAUTH`, or a 404 on a package that plainly exists | the OIDC exchange was skipped. Almost always `registry-url` back on `actions/setup-node`, writing an empty `_authToken` into `.npmrc`. §3. |
+| npm **403** naming two-factor authentication | the trusted publisher does not match this run. Check the three fields it matches on — owner, repository, and **workflow filename**, which must still be `release.yml`. §3. |
+| npm publishes but carries no provenance | provenance is not generated for private repositories, whatever the package's own visibility. |
+| `You cannot publish over the previously published versions` | that version is already on the registry, and `publish-npm` should have skipped it. Versions are permanent — bump and cut another. |
 
-A failed publish is safe to re-run: re-running the workflow on the same release repeats
-the whole thing, and a registry that already has the version rejects it rather than
-duplicating it.
+A failed publish is safe to re-run: re-running the workflow on the same release repeats the
+whole thing, `publish-npm` steps over a version npm already has, and the Marketplace
+rejects a duplicate rather than taking it twice.
 
 ---
 

@@ -64,10 +64,13 @@ jobs:
           name: vsix
           path: "*.vsix"
 
-  # Both publishers wait for build, so a suite that fails cannot half-publish: one
-  # registry with the release and the other without it is the state worth avoiding.
+  # After publish-npm rather than beside it. npm is the credential that cannot be
+  # checked before a release — its OIDC exchange only happens at publish, and only
+  # from this workflow — while the Marketplace PAT has its own pre-flight. Putting
+  # the unverifiable one first means a broken npm identity stops the release before
+  # anything is public, which is exactly the state 0.1.0 ended up in.
   publish-vsix:
-    needs: build
+    needs: publish-npm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -102,27 +105,46 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Lets npm use Trusted Publishing once the package exists and it is turned on
-      # for it on npmjs.com — an OIDC exchange instead of a stored token. Harmless
-      # while NPM_TOKEN is still doing the work.
+      # The entire npm credential. npm trades this OIDC identity for a short-lived
+      # token scoped to this one package, so there is nothing stored to leak, rotate
+      # or expire. It is granted by the trusted publisher configured on npmjs.com,
+      # which names this repository and this workflow file by name.
       id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
-      # 24 rather than the 20 the rest of the workflow uses. Nothing here needs it to
-      # build — the tarball is files on disk — but Trusted Publishing needs npm 11.5.1
-      # and Node 20 ships npm 10, so this is what lets the token be deleted later
-      # without touching the workflow again.
+      # 24 rather than the 20 the rest of the workflow uses: trusted publishing
+      # needs npm >= 11.5.1 and Node 20 ships npm 10.
+      #
+      # And deliberately no registry-url. It writes
+      #   //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
+      # into .npmrc, which with no token in the environment expands to an empty
+      # credential; npm reads that as "auth is already configured", skips the OIDC
+      # exchange, and fails with ENEEDAUTH. actions/setup-node#1551, still open.
+      # registry.npmjs.org is the default anyway.
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
       - run: npm --version
       - run: pnpm install --frozen-lockfile
       - run: pnpm run compile
+      # publish-vsix is downstream of this job now, so a release re-run after a
+      # half-failure has to get past here. npm refuses a version it already has,
+      # and that refusal would otherwise strand the Marketplace half for good.
+      - id: registry
+        name: has the registry got this version already
+        run: |
+          v="$(node -p "require('./package.json').version")"
+          # On the version string rather than the exit status. npm 11 exits 1 for a
+          # version it does not have, but that has not always been true, and the way
+          # this step fails wrong is by skipping every publish in silence.
+          if [ -n "$(npm view "agent-debrief@$v" version 2>/dev/null)" ]; then
+            echo "npm already has $v — skipping the publish, not failing the release"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
       # npm, not pnpm: .npmignore is what carves this tarball, and npm is the tool
-      # that reads it the way the registry will.
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # that reads it the way the registry will. No --provenance either — trusted
+      # publishing attests on its own, and passing it is how you get told so.
+      - if: steps.registry.outputs.published != 'true'
+        run: npm publish --access public
