@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -50,3 +51,27 @@ jobs:
       # only src/core, which has no vscode import to satisfy. No display, no
       # editor download, nothing to stub — the split is what buys that.
       - run: pnpm test
+
+  # Both artifacts, built on every push and published by nothing. Packaging broke
+  # once already — vsce's secret scanner died on a directory symlink — and it broke
+  # where only a hand-run `vsce package` could see it.
+  package:
+    name: build both artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run compile
+      - run: pnpm run package
+      # .vscodeignore and .npmignore carve two different artifacts out of one tree,
+      # and each is easy to break without touching the other.
+      - run: npm pack --dry-run
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vsix
+          path: "*.vsix"

@@ -1,0 +1,128 @@
+name: Release
+
+# A release you published by hand, never a tag push. Pushing v0.1.0 on its own does
+# nothing; this starts when you click Publish release in GitHub's UI, which is the
+# only gate between a commit and two public registries.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  # The release tag and package.json are edited in different places, and a mismatch
+  # publishes a version nobody named. Cheapest possible check, first.
+  guard:
+    name: the tag names the version being published
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "release tag $GITHUB_REF_NAME says $tag; package.json says $pkg" >&2
+            echo "bump one to match the other and re-run — nothing has been published" >&2
+            exit 1
+          fi
+          # The plugin's own version is what decides when an installed plugin is
+          # offered the update, and it lives in a second file nobody looks at while
+          # cutting a release. Drift here is silent: npm gets the new code and every
+          # plugin user stays where they are.
+          plugin="$(node -p "require('./.claude-plugin/plugin.json').version")"
+          if [ "$plugin" != "$pkg" ]; then
+            echo ".claude-plugin/plugin.json says $plugin; package.json says $pkg" >&2
+            echo "plugin users are offered an update only when that version changes" >&2
+            exit 1
+          fi
+          echo "publishing $pkg"
+
+  build:
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+      - run: pnpm run compile
+      - run: pnpm test
+      - run: pnpm run package
+      # Attached to the release itself, so the .vsix somebody installs by hand is
+      # the same file the registry got.
+      - run: gh release upload "$GITHUB_REF_NAME" ./*.vsix --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vsix
+          path: "*.vsix"
+
+  # Both publishers wait for build, so a suite that fails cannot half-publish: one
+  # registry with the release and the other without it is the state worth avoiding.
+  publish-vsix:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: vsix
+      - name: the credential has to exist before this means anything
+        env:
+          VSCE_PAT: ${{ secrets.MARKETPLACE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "no MARKETPLACE_PAT secret — nothing was published to the Marketplace." >&2
+            echo "docs/RELEASING.md §2 is how to make one, including the two settings" >&2
+            echo "that are the usual failures: 'All accessible organizations', and the" >&2
+            echo "Marketplace > Manage scope, which the default scope set omits." >&2
+            exit 1
+          fi
+      # Publishing the built .vsix rather than rebuilding, so what reaches the
+      # Marketplace is the file the release carries.
+      - run: pnpm exec vsce publish --packagePath ./*.vsix
+        env:
+          VSCE_PAT: ${{ secrets.MARKETPLACE_PAT }}
+
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Lets npm use Trusted Publishing once the package exists and it is turned on
+      # for it on npmjs.com — an OIDC exchange instead of a stored token. Harmless
+      # while NPM_TOKEN is still doing the work.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      # 24 rather than the 20 the rest of the workflow uses. Nothing here needs it to
+      # build — the tarball is files on disk — but Trusted Publishing needs npm 11.5.1
+      # and Node 20 ships npm 10, so this is what lets the token be deleted later
+      # without touching the workflow again.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: npm --version
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run compile
+      # npm, not pnpm: .npmignore is what carves this tarball, and npm is the tool
+      # that reads it the way the registry will.
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
