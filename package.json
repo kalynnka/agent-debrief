@@ -176,6 +176,76 @@
         "title": "Show Earlier Commits",
         "category": "Debrief",
         "icon": "$(ellipsis)"
+      },
+      {
+        "command": "debrief.commentGallery",
+        "title": "Comment UI Gallery",
+        "category": "Debrief"
+      },
+      {
+        "command": "debrief.gallery.ask",
+        "title": "Ask Claude",
+        "category": "Debrief"
+      },
+      {
+        "command": "debrief.gallery.comment",
+        "title": "Comment",
+        "category": "Debrief"
+      },
+      {
+        "command": "debrief.gallery.resolve",
+        "title": "Resolve",
+        "category": "Debrief",
+        "icon": "$(check)"
+      },
+      {
+        "command": "debrief.gallery.deleteThread",
+        "title": "Delete Thread",
+        "category": "Debrief",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "debrief.gallery.additional",
+        "title": "Additional Action",
+        "category": "Debrief",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "debrief.gallery.edit",
+        "title": "Edit",
+        "category": "Debrief",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "debrief.gallery.askAbout",
+        "title": "Ask Claude About This",
+        "category": "Debrief",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "debrief.gallery.copy",
+        "title": "Copy Comment",
+        "category": "Debrief"
+      },
+      {
+        "command": "debrief.gallery.save",
+        "title": "Save",
+        "category": "Debrief"
+      },
+      {
+        "command": "debrief.gallery.cancel",
+        "title": "Cancel",
+        "category": "Debrief"
+      },
+      {
+        "command": "debrief.gallery.apply",
+        "title": "Apply",
+        "category": "Debrief"
+      },
+      {
+        "command": "debrief.gallery.showDiff",
+        "title": "Show the Diff",
+        "category": "Debrief"
       }
     ],
     "menus": {
@@ -267,6 +337,54 @@
         {
           "command": "debrief.deleteThread",
           "when": "false"
+        },
+        {
+          "command": "debrief.gallery.ask",
+          "when": "false"
+        },
+        {
+          "command": "debrief.gallery.comment",
+          "when": "false"
+        },
+        {
+          "command": "debrief.gallery.resolve",
+          "when": "false"
+        },
+        {
+          "command": "debrief.gallery.deleteThread",
+          "when": "false"
+        },
+        {
+          "command": "debrief.gallery.additional",
+          "when": "false"
+        },
+        {
+          "command": "debrief.gallery.edit",
+          "when": "false"
+        },
+        {
+          "command": "debrief.gallery.askAbout",
+          "when": "false"
+        },
+        {
+          "command": "debrief.gallery.copy",
+          "when": "false"
+        },
+        {
+          "command": "debrief.gallery.save",
+          "when": "false"
+        },
+        {
+          "command": "debrief.gallery.cancel",
+          "when": "false"
+        },
+        {
+          "command": "debrief.gallery.apply",
+          "when": "false"
+        },
+        {
+          "command": "debrief.gallery.showDiff",
+          "when": "false"
         }
       ],
       "comments/commentThread/context": [
@@ -279,6 +397,16 @@
           "command": "debrief.replyThread",
           "group": "inline@2",
           "when": "commentController == debrief && commentThreadIsEmpty == false"
+        },
+        {
+          "command": "debrief.gallery.ask",
+          "group": "inline@1",
+          "when": "commentController == debrief-gallery && commentThread == unanswered"
+        },
+        {
+          "command": "debrief.gallery.comment",
+          "group": "inline@2",
+          "when": "commentController == debrief-gallery"
         }
       ],
       "comments/commentThread/title": [
@@ -286,6 +414,52 @@
           "command": "debrief.deleteThread",
           "group": "navigation",
           "when": "commentController == debrief && commentThreadIsEmpty == false"
+        },
+        {
+          "command": "debrief.gallery.resolve",
+          "group": "navigation@1",
+          "when": "commentController == debrief-gallery"
+        },
+        {
+          "command": "debrief.gallery.deleteThread",
+          "group": "navigation@2",
+          "when": "commentController == debrief-gallery"
+        }
+      ],
+      "comments/commentThread/additionalActions": [
+        {
+          "command": "debrief.gallery.additional",
+          "group": "inline@1",
+          "when": "commentController == debrief-gallery"
+        }
+      ],
+      "comments/comment/title": [
+        {
+          "command": "debrief.gallery.edit",
+          "group": "group@1",
+          "when": "commentController == debrief-gallery && comment == reviewer"
+        },
+        {
+          "command": "debrief.gallery.askAbout",
+          "group": "group@2",
+          "when": "commentController == debrief-gallery && comment == agent"
+        },
+        {
+          "command": "debrief.gallery.copy",
+          "group": "overflow@1",
+          "when": "commentController == debrief-gallery"
+        }
+      ],
+      "comments/comment/context": [
+        {
+          "command": "debrief.gallery.cancel",
+          "group": "inline@1",
+          "when": "commentController == debrief-gallery && comment == editing"
+        },
+        {
+          "command": "debrief.gallery.save",
+          "group": "inline@2",
+          "when": "commentController == debrief-gallery && comment == editing"
         }
       ]
     },
