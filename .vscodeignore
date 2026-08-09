@@ -1,0 +1,33 @@
+# What stays out of the .vsix. Everything not listed here ships, so this is the
+# list that keeps a 900 KB source tree out of an extension that is out/ plus an
+# icon plus the readme.
+
+# Sources. `out/` is what runs; the maps and the .ts they point at are for
+# working on debrief, not for running it.
+src/**
+**/*.ts
+**/*.map
+tsconfig.json
+
+# The test suite is headless and run from the repo, never from an install.
+test/**
+
+# Written for people reading the repository. The readme is the extension's own
+# page and is the one that ships.
+docs/**
+skills/**
+
+# Tooling and editor state. `.claude/skills/` holds symlinks to directories, and
+# vsce's secret scanner reads every packaged file — handed a directory it fails
+# the whole package with EISDIR.
+.github/**
+.vscode/**
+.claude/**
+eslint.config.mjs
+pnpm-lock.yaml
+pnpm-workspace.yaml
+.gitignore
+
+# The activity-bar icon and the agent marks are used at runtime. The readme's
+# screenshot is not, and it is the largest file in the repository.
+media/screenshot-review.png
