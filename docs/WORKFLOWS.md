@@ -16,15 +16,20 @@ it. Your index, your HEAD and your branches are never touched.
 
 ### 1.1 The agent finishes; you review
 
-The Stop hook snapshots the working tree the moment the agent stops:
+**Press Take Snapshot.** That is the loop, and it is not a fallback — you snapshot when
+the agent has done something worth reading, which is not the same as every time it
+stops. The Snapshots view notices — a file watch on the lane's state directory, not a
+service — and the new snapshot appears at the bottom, expanded.
+
+A Stop hook does the same thing on every turn, for a repo where you want that:
 
 ```bash
 debrief snapshot --from-stop-hook   # reads the hook payload on stdin
 ```
 
-It takes the repo, the session id and a label from the transcript, so the snapshot
-arrives already named. The Snapshots view notices — a file watch on the lane's
-state directory, not a service — and the new snapshot appears at the bottom, expanded.
+It takes the repo, the session id and a label from the turn's closing message, so the
+snapshot arrives already named — which is the one thing a hand-pressed snapshot cannot
+do, since nobody has written the note yet. §6.5 is where it goes and where it must not.
 
 The Debrief icon in the activity bar carries a **badge**: how much is still
 waiting on you, so a turn that finished while the panel was closed still
@@ -128,13 +133,14 @@ the one that counts, and hiding a real edit would be the worse mistake. `Notes.m
 names the move at the top when there was one.
 
 Edits *you* make between turns are not the agent's either, and a `git apply` moves
-no HEAD for the mark to notice. The answer is a second hook, beside the Stop one,
-that snapshots when you send a prompt — so your own edits land in a `manual`
-snapshot and the agent's turn starts after them:
+no HEAD for the mark to notice. Snapshotting before you send a prompt is the answer —
+your own edits land in a `manual` snapshot and the agent's turn starts after them. Press
+the camera, or, in a repo already running the Stop hook of §6.5, let a second one beside
+it do the same:
 
 ```json
 "UserPromptSubmit": [{ "hooks": [{ "type": "command",
-  "command": "node <debrief>/out/cli.js snapshot --agent manual --label 'before the turn'" }]}]
+  "command": "debrief snapshot --agent manual --label 'before the turn'" }]}]
 ```
 
 Snapshotting is idempotent, so a turn where you changed nothing costs nothing. An
@@ -537,16 +543,48 @@ Each snapshot row carries its agent's mark: Claude's and Codex's own logos, a
 codicon for Copilot, a pencil for a snapshot you took yourself, and a sparkle for
 anything else — because an agent this build has never heard of is still an agent.
 
-### 6.5 No hook available
+### 6.5 Hooks, and where they belong
 
-Any agent that can run a command can record a snapshot:
+A hook earns its place in a repository you are reviewing turn by turn and nowhere else.
+It goes in **that project's** `.claude/settings.json`:
 
-```bash
-debrief snapshot --label "what the snapshot did" --agent codex
+```json
+"hooks": {
+  "Stop": [{ "hooks": [{ "type": "command",
+    "command": "/bin/sh -c 'debrief snapshot --from-stop-hook >/dev/null; exit 0'"
+  }]}]
+}
 ```
 
-And any agent at all can be reviewed by snapshotting manually before and after
-you let it work.
+**Not in `~/.claude/settings.json`.** A hook there fires in every repository you open, so
+every clone you touch starts accumulating snapshot refs and a badge for work nobody is
+going to read. The benefit is per-repo; so is the cost.
+
+It is also why the Claude Code plugin ships **no hook**. A plugin installs globally, so a
+hook inside one is a global hook by construction. The plugin carries what is safe
+everywhere — the skills, and `debrief` on the Bash tool's PATH.
+
+**Codex** is the same shape. Its lifecycle hooks deliver a `Stop` payload with the fields
+debrief already reads — `session_id`, `cwd`, `transcript_path`, `last_assistant_message`,
+on stdin — so the command is unchanged but for the agent name. `<repo>/.codex/hooks.json`:
+
+```json
+{ "hooks": { "Stop": [{ "hooks": [{ "type": "command",
+  "command": "debrief snapshot --from-stop-hook --agent codex" }] }] } }
+```
+
+Its skills are the same `SKILL.md` files, copied or symlinked into
+`<repo>/.agents/skills/`. Skills are model-invoked and cost nothing when they do not
+apply, so `~/.agents/skills/` is fine for those — the global rule above is about hooks.
+
+**Any other agent** that can run a command can record its own:
+
+```bash
+debrief snapshot --label "what the snapshot did" --agent copilot
+```
+
+And any agent at all can be reviewed by snapshotting manually before and after you let it
+work.
 
 ---
 

@@ -41,55 +41,83 @@ The repository being reviewed must be a git repository with at least one commit.
 
 ## Install
 
-> **Not on the marketplace yet.** The listing, the one-click install and the
-> `ext install` line belong here, and this section is the space held for them.
-> Until they exist, [Develop](#develop) is how it gets running.
+Three doors, and **the first one is a complete install.** The rest are for the agent's
+half, and you add them when you have a reason to.
 
-Every example below types `debrief`, which is `out/cli.js` — the bin the package
-declares. Where it is not on your `PATH`, `node <debrief>/out/cli.js` is the same command.
+**1 · The extension** — the review itself. Search *Agent Debrief* in the Extensions view.
+Nothing else is required: take a snapshot, read the diff, write comments.
 
-## Where snapshots come from
+**2 · The Claude Code plugin** — the skills your agent uses to write a snapshot's note and
+to pick up a branch it did not work on, plus `debrief` on its PATH. No global install:
 
-Snapshots are taken by whoever finishes the work. For Claude Code, one Stop hook in
-`.claude/settings.json` captures every turn — the label and the note come from the
-turn's own closing message, so a snapshot arrives already described:
+```bash
+/plugin marketplace add kalynnka/agent-debrief
+/plugin install debrief@agent-debrief
+```
+
+**3 · The CLI, globally** — for Codex, Copilot, CI, a terminal, or wiring a hook:
+
+```bash
+npm i -g agent-debrief      # the package is agent-debrief; the command is debrief
+```
+
+Every example below types `debrief`. Door 2 provides it inside Claude Code; door 3
+provides it everywhere.
+
+## Snapshots are yours to take
+
+**A hook is not required, and mostly not wanted.** Pressing **Take Snapshot** is how this
+is meant to work — you snapshot when there is something worth reading, which is not the
+same as every time an agent stops.
+
+Reach for a hook only when you want *every* turn in a repo captured without thinking about
+it. Then put it in **that project's** `.claude/settings.json`:
 
 ```json
 "hooks": {
   "Stop": [{ "hooks": [{ "type": "command",
-    "command": "/bin/sh -c 'node <debrief>/out/cli.js snapshot --from-stop-hook >/dev/null; exit 0'"
+    "command": "/bin/sh -c 'debrief snapshot --from-stop-hook >/dev/null; exit 0'"
   }]}]
 }
 ```
 
-A second hook beside it is optional, and keeps your **own** edits between turns in a
-snapshot of their own rather than inside the agent's next one:
+> **Not in `~/.claude/settings.json`.** A hook there fires in every repository you open,
+> writing snapshot refs into dozens you will never review. The cost is per-repo and so is
+> the benefit — install it where you are actually reviewing.
+
+Optionally, beside it, a second hook keeps your **own** edits between turns in a snapshot
+of their own rather than inside the agent's next one:
 
 ```json
 "UserPromptSubmit": [{ "hooks": [{ "type": "command",
-  "command": "node <debrief>/out/cli.js snapshot --agent manual --label 'before the turn'" }]}]
+  "command": "debrief snapshot --agent manual --label 'before the turn'" }]}]
 ```
 
 Snapshotting is idempotent — a turn that changed nothing takes no snapshot — so neither
 hook can pollute the numbering.
 
-**No hook available?** Any agent that can run a command can record its own:
+**Codex** works the same way, same payload, same opt-in rule. `<repo>/.codex/hooks.json`:
 
-```bash
-debrief snapshot --label "what the snapshot did" --agent codex
+```json
+{ "hooks": { "Stop": [{ "hooks": [{ "type": "command",
+  "command": "debrief snapshot --from-stop-hook --agent codex" }] }] } }
 ```
 
-And any agent at all can be reviewed by taking a snapshot yourself before and after it
-works.
+Its skills are the same files: copy or symlink `skills/*` into `<repo>/.agents/skills/`.
+
+**Any other agent** that can run a command can record its own snapshot —
+`debrief snapshot --label "what it did" --agent <name>` — and any agent at all can be
+reviewed by snapshotting yourself before and after it works.
 
 ## How a review goes
 
 1. **One snapshot before the agent starts.** The first snapshot diffs against `HEAD`, so
    anything already sitting in the tree would otherwise turn up inside snapshot 1. The
    camera on the repo's row takes it, and so does **Debrief: Take Snapshot** in the palette.
-2. **The agent works.** Nothing on this side blocks it. When it stops, the hook captures
-   the snapshot and a row appears in the Snapshots view; the activity-bar icon carries a
-   badge counting what is still waiting.
+2. **The agent works, and you snapshot when it has done something worth reading.** Press
+   the camera again — or let a hook do it, if you set one up for this repo. Either way a
+   row appears in the Snapshots view and the activity-bar icon carries a badge counting
+   what is still waiting.
 3. **The change is there to read.** Clicking a file opens its snapshot-over-snapshot
    diff. The first row of every review is `Notes.md` — the agent's label and the few
    lines under it, worth reading before the diff. A `src/review.ts:270` in a note is a link.
@@ -214,13 +242,12 @@ worth of work keeps a real decision point at a granularity worth reading.
 
 ## Develop
 
-Building it is also how it is installed, until there is a listing to install from:
-
 ```bash
 pnpm install
 pnpm run compile
 pnpm run dev    # a second VS Code, with the extension loaded
 pnpm test       # headless: git plumbing + store, no editor needed
+pnpm run lint   # eslint; `pnpm run typecheck` is the other gate
 ```
 
 `F5` from this repo opens the same Extension Development Host through the debugger, on
@@ -236,8 +263,8 @@ editor. `src/ui/` is everything that draws. Both entry points stay at the `src/`
 
 [docs/WORKFLOWS.md](docs/WORKFLOWS.md) is the full guide — every situation this is for,
 what you click and what the agent runs. [docs/PRD.md](docs/PRD.md) is what and why,
-[docs/PLAN.md](docs/PLAN.md) the order it landed in, [docs/GIT.md](docs/GIT.md) the
-plumbing.
+[docs/GIT.md](docs/GIT.md) the plumbing, and [docs/RELEASING.md](docs/RELEASING.md) how a
+version reaches the Marketplace and npm.
 
 M1: lane-scoped core + CLI + extension client, TypeScript end to end. Comments land as a
 JSON batch in the reviewed repo's own `.git`; the intended home for sharing is an Octomate
