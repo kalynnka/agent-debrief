@@ -1,5 +1,11 @@
 node_modules/
 out/
 *.vsix
+*.tgz
+
+# Live credentials. .env.example carries the names and no values.
+.env
+.env.*
+!.env.example
 .claude/settings.local.json
 .claude/skills/

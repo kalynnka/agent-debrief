@@ -1,0 +1,37 @@
+# What stays out of the npm tarball — the CLI, the skills and the plugin files.
+#
+# A `files` allowlist in package.json would be one list instead of two, and vsce
+# refuses to run at all when both it and .vscodeignore exist. So each artifact keeps
+# its own ignore file, and this one exists rather than that.
+#
+# npm reads .gitignore only when this file is absent. Its presence is what lets
+# out/ — gitignored, and the only thing anyone installs this for — into the tarball.
+
+# Sources. out/ is what runs, and the maps point at .ts files that do not ship.
+src/
+test/
+*.map
+tsconfig.json
+eslint.config.mjs
+
+# For people reading the repository, not for anyone installing it. README.md is
+# always included by npm and is the page this package shows.
+docs/
+
+# Live credentials. npm has no default opinion about .env, and a tarball is
+# public and permanent.
+.env
+.env.*
+
+# Tooling and editor state.
+.github/
+.vscode/
+.claude/
+.vscodeignore
+pnpm-lock.yaml
+pnpm-workspace.yaml
+*.vsix
+
+# The activity-bar icon and the agent marks are used at runtime by the extension
+# half of out/. The readme's screenshot is served from GitHub, not from here.
+media/screenshot-review.png

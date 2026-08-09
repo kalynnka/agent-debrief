@@ -15,7 +15,19 @@ test/**
 # Written for people reading the repository. The readme is the extension's own
 # page and is the one that ships.
 docs/**
+
+# The agent's half, carried by the npm package and the Claude Code plugin it
+# doubles as. The extension talks to git through src/core directly and needs
+# none of it.
 skills/**
+bin/**
+.claude-plugin/**
+.npmignore
+
+# Live credentials. vsce refuses to package a .env without
+# --allow-package-env-file, but that is a backstop, not the rule.
+.env
+.env.*
 
 # Tooling and editor state. `.claude/skills/` holds symlinks to directories, and
 # vsce's secret scanner reads every packaged file — handed a directory it fails
