@@ -351,46 +351,41 @@ Gone with it: the ✓ on a diff row's header, `⌘⌥V`, **Mark All Files Viewed
 **eye** that put read files back into a review, and the commit button, which was
 gated entirely on marks. Reviews now open whole, every time.
 
-### 5.3 Commit a prefix
+### 5.3 Committing is git's
 
-Committing is the CLI's:
+There is no debrief command for it, and there is no button. You stage what you have
+read and commit it, the way you would in a repo with no debrief in it at all:
 
 ```bash
-debrief snapshot commit <n> -m "<subject>"
+git add src/core/review.ts
+git commit -m "…"
 ```
 
-A commit is a **prefix** of the lane — snapshot 12's content sits on top of snapshot
-11's — so only an unbroken run from the earliest one can be landed. `n` is where you
-stop, which used to be worked out from the marks and is now yours to say.
+Debrief's only part is reading the result back. It never writes your index, never moves
+`HEAD`, and never commits on your behalf — which is the §1.3 invariant with the last
+exception taken out of it. `debrief snapshot commit` used to be that exception: it
+loaded a snapshot into your real index and committed it, which meant refusing whenever
+anything was staged, because staging is your progress marker. Both the command and the
+refusal are gone.
 
-Adjacency is in the snapshot list, not the numbering: dropping snapshot 30 leaves a hole
-in the numbers, and snapshots 29 and 31 still commit together.
-
-One thing gets in the way, deliberately. A snapshot whose message the **hook**
-wrote — rather than the agent describing its own work — is the shape an interrupted
-turn leaves behind, and a commit takes that snapshot exactly as it stands, half-done
-work included. `debrief snapshot commit` stops and says so; the snapshot row's
-hover says it earlier, before you get there.
+Nothing warns you any more about committing a snapshot the **hook** described rather
+than the agent — the shape an interrupted turn leaves behind. That check lived in the
+removed command. The snapshot row's hover still says which snapshots nobody stood
+behind; reading it before you stage is now the whole of the guard.
 
 ### 5.4 Commit 1–10 now, 11–20 later
 
-This is the case the whole design bends around, and there is **no restore step**.
-The content comes from snapshot 10 itself, so the working tree never moves:
+Still the case the design bends around, and it needs nothing special: stage the files
+snapshots 1–10 left and commit them. Snapshots 11+ stay uncommitted on disk exactly as
+they were.
 
-```bash
-debrief snapshot commit 10 -m "project registry"
-```
+The difference from the old command is **what content lands**. It committed snapshot
+10's tree, so a file snapshot 12 had edited again went in at its snapshot-10 value. Git
+stages what is on disk, so that file goes in as snapshot 12 left it. If you want the
+older content, that is `git add -p`, or a revert first — debrief no longer offers a
+third way.
 
-Snapshots 11+ stay uncommitted on disk exactly as they were. A file snapshot 12
-edited again still commits at its **snapshot 10** value, and a file snapshot 4 deleted
-is recorded as a deletion. Carry on; commit through snapshot 20 when you get there.
-
-### 5.5 What it costs
-
-Loading a snapshot into the index **replaces whatever was staged**, and your
-staged set is your review progress marker. Both the button and the CLI refuse
-while anything is staged; only the CLI offers `--force`. Do it between batches,
-not mid-review.
+Landing is therefore not a prefix, and never really was on git's side — see §5.6.
 
 ### 5.6 After a commit
 
@@ -408,15 +403,15 @@ once every path it changed is in a commit — as that snapshot left it, or as a 
 snapshot rewrote it, since work written over still reached the branch through the
 work that replaced it.
 
-So your own commits count. Stage the three files you have read, commit them, and the
-snapshot they belonged to lands the moment its last file goes in — credited to the
-commit that finished it. Half of one lands nothing, which is the honest answer: it
-still has work outstanding.
+Your commits are the only commits, and they count without being told to. Stage the
+three files you have read, commit them, and the snapshot they belonged to lands the
+moment its last file goes in — credited to the commit that finished it. Half of one
+lands nothing, which is the honest answer: it still has work outstanding.
 
 Landing is therefore **not** a prefix. Commit snapshot 2's files and leave snapshot 1's
-half done, and 2 lands while 1 waits — a commit's row says `snapshots 2, 5–7` when
-that is what it took. The commit *button* is still a prefix (§5.2); that is a rule
-about what debrief may commit for you, not about what git has already done.
+half done, and 2 lands while 1 waits — a commit's row says `snapshots 2, 5–7` when that
+is what it took. Nothing constrains you to an unbroken run any more; the rule that did
+belonged to the removed command, not to git.
 
 Nothing is recorded, so amend, reset and rebase all just move the answer.
 
@@ -613,9 +608,8 @@ may have reverted a file or dropped a snapshot since.
 - Touch the index. The staged set is the human's review progress marker.
 - Approve or waive anything. That boundary is the product, and it is the human's
   side of it.
-- Commit uninvited. `debrief snapshot commit` exists so the human's instruction can
-  be carried out, not so an agent can decide to land work — and the instruction
-  is scoped to the message it was given in.
+- Commit. Not uninvited, and not when invited either — debrief has no command for it,
+  and `git commit` is the human's. An agent asked to land work says what to run.
 - Read or write `.git/debrief/` directly. The CLI owns that state and its
   locking; two writers share it.
 

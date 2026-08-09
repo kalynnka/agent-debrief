@@ -631,28 +631,6 @@ export class Git {
     }
   }
 
-  /** Commit a revision's tree as its own commit on the current branch, leaving
-   * the working tree alone.
-   *
-   * This is what "commit through snapshot N" means: the snapshot is the content,
-   * so the index is loaded from it and `git commit` records that — the working
-   * tree never moves, and everything later snapshots did stays uncommitted on disk.
-   *
-   * `git commit` rather than plumbing, so the repo's hooks, signing and reflog
-   * behave as they do for any other commit. That is also why the index is put
-   * back when the commit does not happen: a rejecting pre-commit hook would
-   * otherwise leave the reviewer holding an index they never staged. */
-  async commitSnapshot(rev: string, message: string): Promise<string> {
-    await this.run(["read-tree", rev]);
-    try {
-      await this.run(["commit", "-m", message]);
-    } catch (error) {
-      await this.run(["read-tree", "HEAD"]);
-      throw error;
-    }
-    return (await this.run(["rev-parse", "HEAD"])).trim();
-  }
-
   /** Put one path back to how it was at `rev`, in the working tree only — the
    * index belongs to the reviewer. A path the revision does not have is removed,
    * which is what "how it was" means for a file the snapshot added. */

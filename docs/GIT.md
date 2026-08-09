@@ -115,8 +115,9 @@ changed files is never created.
 
 *What it cost.* The prefix model. A commit can land snapshot 2 while snapshot 1 is
 still half outstanding, so the Committed area no longer assumes a run and a
-commit's row reads `snapshots 2, 5–7` where that is the truth. `committableRun` is
-untouched: it governs what *we* may commit, which is a different question.
+commit's row reads `snapshots 2, 5–7` where that is the truth. `committableRun`
+governed the other question — what *we* may commit — and went with the commit
+command; nothing constrains a run now, because nothing but git commits.
 
 *Attribution.* The earliest commit at which the condition first holds, walking
 from where the lane started. No fast path was needed — the content rule reproduces

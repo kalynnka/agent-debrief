@@ -22,7 +22,6 @@ import { RepositoriesProvider } from "./ui/repositories";
 import { Repo, RepoSelection, Repos } from "./core/repos";
 import {
   clearLane,
-  committableRun,
   dropSnapshot,
   landedCommits,
   openThreads,
@@ -981,95 +980,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // from the earliest snapshot can be landed, and the tree is re-read here rather
   // than trusted: a `git restore` in a terminal moves what is reviewable between
   // the row being drawn and the button being pressed.
-  register("debrief.commitReviewed", async (node: GroupNode) => {
-    const { repo } = node;
-    const nodes = await snapshots.shapeOf(repo);
-    // Only what a commit has not already taken: the run restarts after the last
-    // landed snapshot, or committing through 13 twice would look available forever.
-    const taken = new Set(
-      (await landedCommits(repo.git, repo.store.data.snapshots, await repo.git.head())).flatMap(
-        (commit) => commit.snapshots,
-      ),
-    );
-    const open = nodes.filter((snapshot) => !taken.has(snapshot.snapshot.n));
-    const { through, blocked } = committableRun(
-      open.map((snapshot) => ({ n: snapshot.snapshot.n, reviewed: snapshot.reviewed })),
-    );
-    if (through === undefined && blocked.length === 0) {
-      vscode.window.showInformationMessage(
-        `Debrief: nothing in ${repo.name} is marked reviewed yet.`,
-      );
-      return;
-    }
-    if (blocked.length > 0) {
-      const gap = open.find((snapshot) => !snapshot.reviewed)?.snapshot;
-      const detail =
-        `Snapshot ${gap?.n} — ${gap?.label} — has not been reviewed, and snapshot ` +
-        `${blocked.join(", ")} ${blocked.length === 1 ? "sits" : "sit"} after it. ` +
-        `A commit takes the snapshots from the earliest one onwards, so it cannot ` +
-        `reach past a snapshot you have not read.`;
-      const answer = await vscode.window.showWarningMessage(
-        `Debrief: snapshot ${gap?.n} is in the way.`,
-        { modal: true, detail },
-        ...(through === undefined ? [] : [`Commit Through Snapshot ${through}`]),
-      );
-      if (answer === undefined) {
-        return;
-      }
-    }
-    if (through === undefined) {
-      return;
-    }
-    const snapshot = repo.store.data.snapshots.find((t) => t.n === through);
-    if (snapshot === undefined) {
-      throw new Error(`debrief: snapshot ${through} went away while committing`);
-    }
-    // A snapshot the agent never described is one the Stop hook answered for,
-    // which is the shape an interrupted turn leaves behind — and what a commit
-    // takes is that snapshot exactly as it stands. Say so before it lands, not
-    // after: the reviewer is the only one who can tell finished from cut off.
-    if (snapshot.described === "transcript") {
-      const answer = await vscode.window.showWarningMessage(
-        `Debrief: snapshot ${through} was recorded by the hook, not described by the agent.`,
-        {
-          modal: true,
-          detail:
-            `Its message was scraped from the session rather than written for it, ` +
-            `which is what an interrupted turn leaves behind. The commit takes ` +
-            `snapshot ${through} exactly as it stands — including work that may ` +
-            `have been half done when it was cut off.`,
-        },
-        "Commit Anyway",
-      );
-      if (answer === undefined) {
-        return;
-      }
-    }
-    // The snapshot is loaded into the index to be committed, and the staged set
-    // is the reviewer's own progress marker. Refuse rather than replace it.
-    if (await repo.git.staged()) {
-      vscode.window.showWarningMessage(
-        `Debrief: ${repo.name} has staged changes, and committing snapshot ` +
-          `${through} would replace them. Commit or unstage them first.`,
-      );
-      return;
-    }
-    const first = open[0].snapshot.n;
-    const message = await vscode.window.showInputBox({
-      title: `Commit ${repo.name} snapshots ${first}–${through}`,
-      prompt: `${open.filter((t) => t.snapshot.n <= through).length} snapshot(s) become one commit`,
-      placeHolder: "what this batch of snapshots did",
-    });
-    if (message === undefined || message === "") {
-      return;
-    }
-    const sha = await repo.git.commitSnapshot(snapshot.sha, message);
-    snapshots.refresh();
-    vscode.window.showInformationMessage(
-      `Debrief: committed ${sha.slice(0, 8)} — ${repo.name} snapshots ${first}–${through}.`,
-    );
-  });
-
   register("debrief.stackedDiff", async (node?: RepoNode) => {
     const repo = await repoOf(node);
     if (repo === undefined) {

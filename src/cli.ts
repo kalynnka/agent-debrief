@@ -15,7 +15,6 @@ import { ChangedFile, Git, Snapshot } from "./core/git";
 import { resolveLane } from "./core/lanes";
 import {
   adoptLane,
-  landedSnapshots,
   openThreads,
   replyToThread,
   resolveThreads,
@@ -40,9 +39,6 @@ const USAGE = `usage: debrief <command> [options]
                          --label is one sentence and names the snapshot; -m is the
                          few lines under it, and needs a --label to go with it
   snapshot describe <n>  say what snapshot n did  (--label and -m both required)
-  snapshot commit <n>    commit snapshots 1..n as one commit  (-m required, --force)
-                         --force overrides both refusals: a staged index, and a
-                         snapshot the agent never described
   diff <n>               changed files for snapshot n
   show <rev> <path>      file content at a revision (a snapshot number or a sha)
   review submit          write the pending comment threads out as one batch
@@ -88,8 +84,14 @@ async function dispatch(argv: string[]): Promise<number> {
       return statusCommand(rest);
     case "snapshot": {
       const [sub, ...args] = rest;
+      // Committing was debrief's for a while, and skills and habits still reach
+      // for it. Say where it went rather than letting it fall through to the
+      // capture path, which answers `Unexpected argument 'commit'`.
       if (sub === "commit") {
-        return commitCommand(args);
+        throw new UsageError(
+          "committing is git's — stage what you have read and `git commit`. " +
+            "The snapshots it covers move to Commits on their own",
+        );
       }
       if (sub === "describe") {
         return describeCommand(args);
@@ -395,87 +397,6 @@ async function describeCommand(args: string[]): Promise<number> {
     return 0;
   }
   process.stdout.write(`snapshot ${described.n}: ${described.label}\n`);
-  return 0;
-}
-
-/** Commit everything up to and including snapshot n — the reviewed prefix — as one
- * commit, and leave every later snapshot uncommitted on disk.
- *
- * Committing is the human's call. This exists so it can be carried out on their
- * instruction without hand-assembling plumbing, not so an agent can decide to
- * land work: `prepare-change-review` still forbids reaching for it uninvited. */
-async function commitCommand(args: string[]): Promise<number> {
-  const { values, positionals } = guarded(() =>
-    parseArgs({
-      args,
-      options: {
-        repo: { type: "string" },
-        lane: { type: "string" },
-        json: { type: "boolean" },
-        message: { type: "string", short: "m" },
-        force: { type: "boolean" },
-      },
-      allowPositionals: true,
-    }),
-  );
-  if (positionals.length !== 1 || !/^\d+$/.test(positionals[0])) {
-    throw new UsageError("snapshot commit takes exactly one snapshot number");
-  }
-  if (values.message === undefined || values.message === "") {
-    throw new UsageError("snapshot commit needs a message: -m \"<subject>\"");
-  }
-  const n = Number(positionals[0]);
-  const { lane, git, store } = await open(values.repo, values.lane);
-  const snapshot = store.data.snapshots.find((t) => t.n === n);
-  if (snapshot === undefined) {
-    throw new Error(`no snapshot ${n} in lane ${lane.name}`);
-  }
-  const head = await git.head();
-  if (head !== undefined && (await git.treeOf(head)) === (await git.treeOf(snapshot.sha))) {
-    throw new Error(`snapshot ${n} is already committed — HEAD holds exactly its snapshot`);
-  }
-  // Loading the snapshot into the index destroys whatever was staged, and the
-  // staged set is the reviewer's own progress marker.
-  if (head !== undefined && !(values.force ?? false) && (await git.staged())) {
-    throw new Error(
-      `the index has staged changes that committing snapshot ${n} would replace — ` +
-        `commit or unstage them first, or pass --force`,
-    );
-  }
-  // What gets committed is snapshot n's snapshot exactly as it stands, so a snapshot the
-  // agent never described is a tree nobody said was finished — the shape an
-  // interrupted snapshot leaves behind. Snapshots from before this was recorded say
-  // nothing either way and are not second-guessed.
-  if (snapshot.described === "transcript" && !(values.force ?? false)) {
-    throw new Error(
-      `snapshot ${n} was recorded by the Stop hook rather than described by the agent, ` +
-        `so it may be work that was cut off mid-change — and its snapshot is ` +
-        `exactly what would be committed. Read it, or describe it, or pass --force`,
-    );
-  }
-  const files = await git.changedFiles(head ?? (await git.emptyTree()), snapshot.sha);
-  const sha = await git.commitSnapshot(snapshot.sha, values.message);
-  const landed = await landedSnapshots(git, store.data.snapshots, sha);
-  const payload = {
-    schemaVersion: SCHEMA_VERSION,
-    repo: lane.root,
-    lane: lane.name,
-    commit: sha,
-    through: n,
-    landed: [...landed],
-    files: files.map((f) => ({ ...f, reviewed: store.isReviewed(f.path, n) })),
-  };
-  if (values.json ?? false) {
-    process.stdout.write(JSON.stringify(payload) + "\n");
-    return 0;
-  }
-  process.stdout.write(
-    `committed ${sha.slice(0, 8)} — snapshots through ${n}, ${files.length} file(s)\n` +
-      `landed:   ${payload.landed.join(", ") || "none"}\n`,
-  );
-  for (const f of payload.files) {
-    process.stdout.write(fileLine(f) + "\n");
-  }
   return 0;
 }
 

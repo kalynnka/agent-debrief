@@ -17,9 +17,9 @@ skill `recover-change-context` is the one you want.
 ## Rules that are not yours to bend
 
 - **Never touch the user's git state.** No `git add`, no commits, no branch or
-  stash operations. The staged set is the human's review progress marker; the
-  tool exists to protect it. `debrief snapshot commit` is the one exception, and
-  only on an instruction to commit in the human's *latest* message — see below.
+  stash operations, and no exceptions — debrief has no command that commits, so
+  there is nothing to reach for. The staged set is the human's review progress
+  marker; the tool exists to protect it.
 - **Every git fact comes from the `debrief` CLI.** Never read or write
   `.git/debrief/` directly and never create or delete refs yourself — the CLI
   owns that state and its locking.
@@ -262,30 +262,17 @@ own unit of work and the human will read it as one.
 `debrief review batch --json` still exists and answers a different question —
 the contents of one submit, as a record. `review open` is the one to work from.
 
-## Landing a reviewed prefix
+## Landing is not yours
 
-Only when the human asks for it in the message you are answering:
+There is no debrief command that commits, and `git commit` is the human's — the
+staged set it would consume is their review progress marker.
 
-    debrief snapshot commit <n> -m "<subject>" --json
+Asked to land work, say what to run and stop:
 
-This commits snapshots 1..n as one commit and leaves every later snapshot
-uncommitted in the working tree, which is what makes "commit through snapshot 10,
-keep going on 11+" possible: the content comes from snapshot n, so the working
-tree never moves and a file that snapshot 12 edited again still commits at its
-snapshot-10 value.
+    git add <the files they cleared>
+    git commit -m "<subject>"
 
-- `n` must be a snapshot that exists; the prefix is implied, so there is no way
-  to commit a gapped set.
-- It **replaces the index**, which is the human's review progress marker. The
-  command refuses while anything is staged rather than discarding it.
-- It refuses a snapshot **the hook recorded rather than you**. That is the shape
-  a turn cut off mid-change leaves behind, and what lands is that snapshot
-  exactly as it stands. Describing it (step 1) is the fix; `--force` is not.
-- Do not reach for `--force` on their behalf — report either refusal and let
-  them decide.
-- `landed` in the JSON is the snapshots that now have nothing uncommitted left of
-  them. It is derived from git, so it is also the answer after an amend, a reset
-  or a rebase.
-
-An instruction to commit is scoped to the turn it was given in, exactly like
-every other approval. Having committed once grants nothing for the next batch.
+Debrief follows it on its own. Landing is derived from content, so a snapshot moves
+into **Commits** the moment its last file reaches a commit, and an amend, a reset or
+a rebase just move the answer. `debrief status --json` reports where that leaves
+things, which is the honest way to answer "is it landed".

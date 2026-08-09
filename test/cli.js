@@ -493,42 +493,6 @@ async function main() {
   );
   console.log("stacked history rendering             ok");
 
-  // 19. `snapshot commit n`: snapshots 1..n become one commit, later snapshots stay on disk,
-  //     the message is required, and staged work is protected without --force.
-  fs.writeFileSync(path.join(stack, "later.txt"), "later\n");
-  JSON.parse(debrief(["snapshot", "--label", "t3", "--json"], stack).stdout);
-  const noMsg = debrief(["snapshot", "commit", "2"], stack);
-  assert.strictEqual(noMsg.status, 2, "a commit without a message is a usage error");
-  const noSnapshot = debrief(["snapshot", "commit", "99", "-m", "x"], stack);
-  assert.strictEqual(noSnapshot.status, 3, "committing a snapshot that does not exist must fail");
-
-  fs.writeFileSync(path.join(stack, "mine.txt"), "staged by the human\n");
-  git(["add", "mine.txt"], stack);
-  const refused = debrief(["snapshot", "commit", "2", "-m", "land t1-t2"], stack);
-  assert.strictEqual(refused.status, 3, "staged work must not be silently replaced");
-  assert.ok(refused.stderr.includes("--force"), "the refusal must name the way through");
-  git(["restore", "--staged", "mine.txt"], stack);
-
-  const landedOut = JSON.parse(
-    debrief(["snapshot", "commit", "2", "-m", "land t1-t2", "--json"], stack).stdout,
-  );
-  assert.deepStrictEqual(landedOut.landed, [1, 2], "snapshots 1-2 land, snapshot 3 does not");
-  assert.strictEqual(
-    git(["show", "HEAD:f.txt"], stack),
-    "x\nn\nccc\ny\n",
-    "the commit holds snapshot 2's snapshot",
-  );
-  assert.strictEqual(
-    fs.existsSync(path.join(stack, "later.txt")),
-    true,
-    "snapshot 3's file must stay in the working tree, uncommitted",
-  );
-  assert.strictEqual(
-    git(["status", "--porcelain"], stack).includes("?? later.txt"),
-    true,
-    "snapshot 3 is what is left to commit",
-  );
-  console.log("snapshot commit lands a prefix        ok");
 
   // 20. The agent describes its own snapshot, and the hook is the backstop rather
   //     than the author: an agent-given message survives the hook firing after
@@ -611,53 +575,14 @@ async function main() {
   assert.strictEqual(absent.status, 3, "describing a snapshot that does not exist is a resolution error");
   const noMessage = debrief(["snapshot", "describe", "1"], told);
   assert.strictEqual(noMessage.status, 2, "describe without a message is a usage error");
-  console.log("agent describes, hook backstops       ok");
-
-  // 21. Provenance is what stands between a cut-off snapshot and a commit. A snapshot
-  //     the hook answered for may be work in the middle of being done, and a
-  //     commit takes its snapshot exactly as it stands — so committing one is
-  //     refused until somebody has stood behind it.
+  // Provenance is recorded whether or not anything gates on it. Nothing refuses a
+  // commit any more — committing is git's, and the reviewer's — so this is what the
+  // snapshot row's hover has to say "nobody stood behind this one" from.
   assert.strictEqual(own.snapshot.described, "agent", "an agent-given message is the agent's");
   assert.strictEqual(cut.snapshot.described, "transcript", "a scraped message is the hook's");
   assert.strictEqual(fixed.snapshot.described, "agent", "describing a snapshot answers for it");
-  fs.writeFileSync(path.join(told, "f.txt"), "three\n");
-  const scraped = JSON.parse(
-    debrief(
-      ["snapshot", "--from-stop-hook", "--json"],
-      parent,
-      JSON.stringify({ session_id: "s", transcript_path: transcript2, cwd: told }),
-    ).stdout,
-  );
-  const blocked = debrief(["snapshot", "commit", String(scraped.snapshot.n), "-m", "x"], told);
-  assert.strictEqual(blocked.status, 3, "committing an undescribed snapshot must be refused");
-  assert.strictEqual(blocked.stderr.includes("cut off mid-change"), true, blocked.stderr);
-  const commit = ["snapshot", "commit", String(scraped.snapshot.n), "-m", "x"];
-  const forced = debrief([...commit, "--force", "--json"], told);
-  assert.strictEqual(forced.status, 0, forced.stderr);
-  // And the same snapshot, once described, needs no override at all.
-  fs.writeFileSync(path.join(told, "f.txt"), "four\n");
-  const nextCut = JSON.parse(
-    debrief(
-      ["snapshot", "--from-stop-hook", "--json"],
-      parent,
-      JSON.stringify({ session_id: "s", transcript_path: transcript2, cwd: told }),
-    ).stdout,
-  );
-  debrief(
-    [
-      "snapshot",
-      "describe",
-      String(nextCut.snapshot.n),
-      "--label",
-      "chore: said properly",
-      "-m",
-      "Why: the hook had nothing better to go on.",
-    ],
-    told,
-  );
-  const allowed = debrief(["snapshot", "commit", String(nextCut.snapshot.n), "-m", "y", "--json"], told);
-  assert.strictEqual(allowed.status, 0, allowed.stderr);
-  console.log("a cut-off snapshot cannot land unseen ok");
+  console.log("agent describes, hook backstops       ok");
+
 
   fs.rmSync(parent, { recursive: true, force: true });
   console.log("\nall checks passed");

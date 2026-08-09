@@ -14,7 +14,6 @@ const {
   adoptLane,
   anchorForward,
   clearLane,
-  committableRun,
   dropSnapshot,
   foreignPaths,
   hashLines,
@@ -434,29 +433,14 @@ async function main() {
   assert.strictEqual(landed.has(3), false, "the snapshot that owns a.txt now is open");
   assert.strictEqual(await openNow(), 2, "a new snapshot must put the badge back up");
 
-  // `snapshot commit` is the same answer from the other side: commit through snapshot 3
-  // and every snapshot lands, with the working tree never having moved.
-  await lgit.commitSnapshot(lstore.data.snapshots[2].sha, "land everything");
+  // Committing the rest the ordinary way — `git add` then `git commit`, which is
+  // the only way a commit happens — lands every snapshot and empties the badge.
+  lg(["add", "-A"]);
+  lg(["commit", "-qm", "land everything"]);
   assert.deepStrictEqual([...(await landedNow())].sort(), [1, 2, 3], "all snapshots land");
   assert.strictEqual(lg(["status", "--porcelain"]).trim(), "", "the commit must match disk");
   assert.strictEqual(await openNow(), 0, "a fully committed lane must leave no badge");
   console.log("commit lands the snapshots it covers  ok");
-
-  // 16. How far the Reviewed area can be committed from. A commit is a prefix of
-  //     the lane, so an unbroken run from the earliest snapshot is the whole rule —
-  //     and adjacency is in the list, never in the numbering, or one dropped snapshot
-  //     would block committing for the rest of the lane's life.
-  const run = (spec) => committableRun(spec.map(([n, reviewed]) => ({ n, reviewed })));
-  assert.deepStrictEqual(run([]), { through: undefined, blocked: [] });
-  assert.deepStrictEqual(run([[1, true], [2, true], [3, true]]), { through: 3, blocked: [] });
-  assert.deepStrictEqual(run([[1, false], [2, true]]), { through: undefined, blocked: [2] });
-  assert.deepStrictEqual(run([[1, true], [2, false], [3, true], [4, true]]), {
-    through: 1,
-    blocked: [3, 4],
-  });
-  // Snapshot 2 was dropped; 1 and 3 are adjacent in the list and commit together.
-  assert.deepStrictEqual(run([[1, true], [3, true]]), { through: 3, blocked: [] });
-  console.log("committable run is a list prefix      ok");
 
   // 17. The regression the screenshot caught: a snapshot whose files a later snapshot
   //     rewrote owns nothing, and "every file it owns matches HEAD" is vacuously
@@ -501,8 +485,10 @@ async function main() {
     fs.writeFileSync(path.join(twoRoot, `f${n}.txt`), `${n}\n`);
     await takeSnapshot(tgit, tstore, { label: `snapshot ${n}`, agent: "manual" });
   }
-  await tgit.commitSnapshot(tstore.data.snapshots[1].sha, "first batch\n\nwith a body line");
-  await tgit.commitSnapshot(tstore.data.snapshots[3].sha, "second batch");
+  tg(["add", "f1.txt", "f2.txt"]);
+  tg(["commit", "-qm", "first batch\n\nwith a body line"]);
+  tg(["add", "f3.txt", "f4.txt"]);
+  tg(["commit", "-qm", "second batch"]);
   const groups = await landedCommits(tgit, tstore.data.snapshots, await tgit.head());
   assert.strictEqual(groups.length, 2, "two commits must read back as two groups");
   assert.deepStrictEqual(groups[0].snapshots, [1, 2], "the older commit took snapshots 1-2");

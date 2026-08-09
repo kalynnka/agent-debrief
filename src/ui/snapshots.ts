@@ -483,9 +483,9 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
         committed
           ? `**Commits**\n\nThe snapshots each commit took. Read back from git rather ` +
             `than recorded, so amending or rebasing moves them.`
-          : `**Open**\n\nEverything no commit has taken yet, oldest first. Land a run of ` +
-            `it with \`debrief snapshot commit <n>\`, which commits 1..n and leaves ` +
-            `the rest in the working tree.`,
+          : `**Open**\n\nEverything no commit has taken yet, oldest first. Stage what ` +
+            `you have read and commit it with git — a snapshot moves across on its own ` +
+            `once its last file has landed.`,
       );
       if (!committed) {
         // The area's own net diff: everything still open, in one tab. The

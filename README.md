@@ -102,9 +102,9 @@ works.
 6. **Answers land under your comments.** The agent fixes what it can and replies with
    `debrief review reply`. The **✓** that closes a thread stays yours — an agent never
    closes its own work.
-7. **Landing is a prefix.** `debrief snapshot commit <n> -m "<subject>"` takes snapshots
-   1..n as one commit. The working tree never moves, and snapshots n+1 stay uncommitted
-   exactly as they were.
+7. **Landing is plain git.** Stage what you have read and `git commit` it, the way you
+   always would. Debrief works out which snapshots that commit completed and moves them
+   into **Commits** on its own — it never commits for you.
 
 The live file on the right-hand side is the newest snapshot's privilege alone; older ones
 diff two revisions and are read-only by nature.
@@ -177,7 +177,6 @@ carrying `schemaVersion`.
 | `debrief status` | repo, lane, snapshots and review state; captures nothing |
 | `debrief snapshot` | capture one (`--label`, `-m`, `--agent`, `--from-stop-hook`) |
 | `debrief snapshot describe <n>` | give a snapshot the message it should have had |
-| `debrief snapshot commit <n> -m` | commit snapshots 1..n as one commit |
 | `debrief diff <n>` · `debrief show <rev> <path>` | what a snapshot changed, and file content at it |
 | `debrief review open` | every comment still waiting on the agent |
 | `debrief review reply <id> -m` | say what you did about one; it stays open |
@@ -204,7 +203,8 @@ never reads or writes the index you are curating. The commit object is written w
 | branches | `main` | `main` |
 
 Review state lives in `.git/debrief/`, so it never appears in `git status` and needs no
-`.gitignore` entry.
+`.gitignore` entry. Nothing in Debrief writes the index or moves `HEAD` — committing is
+yours, through git, and Debrief only reads back which snapshots your commit completed.
 
 ## Why not per-edit approval
 

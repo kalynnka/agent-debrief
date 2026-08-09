@@ -537,34 +537,6 @@ export async function clearLane(
   });
 }
 
-/** How far a commit can reach: the unbroken run of reviewed snapshots from the
- * start of the lane, and the reviewed snapshots beyond it that it cannot take.
- *
- * A commit is a prefix of the lane's history — snapshot 12's content sits on top
- * of snapshot 11's, so there is no way to land one without the other. Reviewing
- * out of order is still allowed; it just leaves snapshots stranded until the gap
- * is read.
- *
- * Adjacency is in the list, not in the numbering. Dropping a snapshot leaves a
- * hole in the numbers for good, and a numeric rule would let one dropped snapshot
- * block committing for the rest of the lane's life. */
-export function committableRun(snapshots: { n: number; reviewed: boolean }[]): {
-  through: number | undefined;
-  blocked: number[];
-} {
-  let end = 0;
-  while (end < snapshots.length && snapshots[end].reviewed) {
-    end++;
-  }
-  return {
-    through: end === 0 ? undefined : snapshots[end - 1].n,
-    blocked: snapshots
-      .slice(end)
-      .filter((snapshot) => snapshot.reviewed)
-      .map((snapshot) => snapshot.n),
-  };
-}
-
 /** A commit that landed some snapshots, and which ones. */
 export interface LandedCommit {
   sha: string;
