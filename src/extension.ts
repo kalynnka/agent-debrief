@@ -16,7 +16,6 @@ import {
   reopenRevisionTabs,
 } from "./diff";
 import { FileRow, rowsFor } from "./files";
-import { gallery } from "./gallery";
 import { ChangedFile, Snapshot } from "./git";
 import { GitWatch, gitApi } from "./gitwatch";
 import { RepositoriesProvider } from "./repositories";
@@ -333,9 +332,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       { scheme: NOTE_SCHEME },
       new NoteLinkProvider(repos),
     ),
-    // A scratch surface for looking at the comment API, on its own controller so
-    // it cannot touch a review. Nothing else in here refers to it.
-    ...gallery(context.extensionUri),
   );
   // Tabs are restored before we activate, so any diff left open at shutdown came
   // back with nothing serving its scheme. Now that the provider is registered,
