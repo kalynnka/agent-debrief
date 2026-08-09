@@ -74,6 +74,11 @@ async function main() {
   const fresh = path.join(parent, "fresh");
   fs.mkdirSync(fresh);
   git(["init", "-q", "-b", "main", "."], fresh);
+  // Every repo the suite makes gets its own identity. This one is snapshotted in
+  // §13, which writes a commit object — and a machine whose hostname git cannot
+  // build an address from has nothing to fall back on, which is every CI runner.
+  git(["config", "user.email", "t@t"], fresh);
+  git(["config", "user.name", "t"], fresh);
   assert.strictEqual((await resolveLane(fresh)).name, "main");
   console.log("unborn HEAD: init branch              ok");
 
