@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A second push to the same branch makes the first run's answer irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Before setup-node, which needs pnpm on PATH to resolve its cache. The
+      # version comes from packageManager in package.json.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      # The gate that decides whether the code is correct. It runs even when lint
+      # has already failed, because the two answer different questions and seeing
+      # both beats a second push to find out.
+      - if: '!cancelled()'
+        run: pnpm run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The suite runs against out/, not src/.
+      - run: pnpm run compile
+      # Headless: the tests drive real git repositories in a temp dir and import
+      # only src/core, which has no vscode import to satisfy. No display, no
+      # editor download, nothing to stub — the split is what buys that.
+      - run: pnpm test

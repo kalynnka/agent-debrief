@@ -180,7 +180,7 @@ export class Store {
           continue;
         }
         if (Date.now() > deadline) {
-          throw new Error(`timed out waiting for ${this.lockFile}`);
+          throw new Error(`timed out waiting for ${this.lockFile}`, { cause: error });
         }
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
