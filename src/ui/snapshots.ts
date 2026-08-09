@@ -2,9 +2,9 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { abandonedRepoUri, frozenSnapshotUri, snapshotFileUri } from "./decorations";
-import { ChangedFile, Snapshot } from "./git";
+import { ChangedFile, Snapshot } from "../core/git";
 import { GitWatch } from "./gitwatch";
-import { Repo, RepoSelection, Repos } from "./repos";
+import { Repo, RepoSelection, Repos } from "../core/repos";
 import {
   foreignPaths,
   LandedCommit,
@@ -12,8 +12,8 @@ import {
   LaneSweep,
   stashedSince,
   sweepLanes,
-} from "./review";
-import { codeReferences, noteBody } from "./transcript";
+} from "../core/review";
+import { codeReferences, noteBody } from "../core/transcript";
 
 export class RepoNode {
   readonly kind = "repo";

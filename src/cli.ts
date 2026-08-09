@@ -11,8 +11,8 @@
 //   3  the repository, lane, snapshot or revision could not be resolved
 import { parseArgs } from "util";
 
-import { ChangedFile, Git, Snapshot } from "./git";
-import { resolveLane } from "./lanes";
+import { ChangedFile, Git, Snapshot } from "./core/git";
+import { resolveLane } from "./core/lanes";
 import {
   adoptLane,
   landedSnapshots,
@@ -22,9 +22,9 @@ import {
   reviewText,
   sweepLanes,
   takeSnapshot,
-} from "./review";
-import { Store } from "./state";
-import { labelOf, summaryFromTranscript, summaryOf } from "./transcript";
+} from "./core/review";
+import { Store } from "./core/state";
+import { labelOf, summaryFromTranscript, summaryOf } from "./core/transcript";
 
 /** Bumped when a payload's shape changes; clients refuse a version they do not
  * know. 2 renamed every `turn` field and `turns` array to `snapshot`; 3 records

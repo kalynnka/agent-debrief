@@ -7,9 +7,9 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { Git, baseRef, snapshotRef } = require("../out/git");
-const { resolveLane } = require("../out/lanes");
-const { RepoSelection, Repos } = require("../out/repos");
+const { Git, baseRef, snapshotRef } = require("../out/core/git");
+const { resolveLane } = require("../out/core/lanes");
+const { RepoSelection, Repos } = require("../out/core/repos");
 const {
   adoptLane,
   anchorForward,
@@ -25,9 +25,9 @@ const {
   stashedSince,
   sweepLanes,
   takeSnapshot,
-} = require("../out/review");
-const { Store } = require("../out/state");
-const { codeReferences, labelOf, noteBody } = require("../out/transcript");
+} = require("../out/core/review");
+const { Store } = require("../out/core/state");
+const { codeReferences, labelOf, noteBody } = require("../out/core/transcript");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-"));
 const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8" });

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import { Repo, RepoSelection, Repos } from "./repos";
+import { Repo, RepoSelection, Repos } from "../core/repos";
 
 /** The repository selector: every git repository the workspace resolves to, each
  * with a checkbox saying whether the Snapshots view draws it.

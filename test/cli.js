@@ -6,10 +6,10 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { Git } = require("../out/git");
-const { resolveLane } = require("../out/lanes");
-const { hashLines, renderHistory, stackedHistory } = require("../out/review");
-const { Store } = require("../out/state");
+const { Git } = require("../out/core/git");
+const { resolveLane } = require("../out/core/lanes");
+const { hashLines, renderHistory, stackedHistory } = require("../out/core/review");
+const { Store } = require("../out/core/state");
 
 const cliPath = path.join(__dirname, "..", "out", "cli.js");
 const debrief = (args, cwd, input) =>
@@ -329,8 +329,8 @@ async function main() {
       }
     })().catch((e) => { console.error(e); process.exit(1); });
   `;
-  const lanesJs = path.join(__dirname, "..", "out", "lanes.js");
-  const stateJs = path.join(__dirname, "..", "out", "state.js");
+  const lanesJs = path.join(__dirname, "..", "out", "core", "lanes.js");
+  const stateJs = path.join(__dirname, "..", "out", "core", "state.js");
   const [wa, wb] = await Promise.all([
     collect(spawn(process.execPath, ["-e", worker, lanesJs, stateJs, root, "A"])),
     collect(spawn(process.execPath, ["-e", worker, lanesJs, stateJs, root, "B"])),

@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
 
-import { Repo, Repos } from "./repos";
-import { anchorForward, resolveThreads } from "./review";
-import { Thread } from "./state";
+import { Repo, Repos } from "../core/repos";
+import { anchorForward, resolveThreads } from "../core/review";
+import { Thread } from "../core/state";
 
 export const SCHEME = "debrief";
 

@@ -2,8 +2,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
-import { Comments, SCHEME, pathOf } from "./comments";
-import { SnapshotDecorations } from "./decorations";
+import { Comments, SCHEME, pathOf } from "./ui/comments";
+import { SnapshotDecorations } from "./ui/decorations";
 import {
   NOTE_SCHEME,
   NoteContentProvider,
@@ -14,12 +14,12 @@ import {
   openStackedDiff,
   openStepHistory,
   reopenRevisionTabs,
-} from "./diff";
-import { FileRow, rowsFor } from "./files";
-import { ChangedFile, Snapshot } from "./git";
-import { GitWatch, gitApi } from "./gitwatch";
-import { RepositoriesProvider } from "./repositories";
-import { Repo, RepoSelection, Repos } from "./repos";
+} from "./ui/diff";
+import { FileRow, rowsFor } from "./core/files";
+import { ChangedFile, Snapshot } from "./core/git";
+import { GitWatch, gitApi } from "./ui/gitwatch";
+import { RepositoriesProvider } from "./ui/repositories";
+import { Repo, RepoSelection, Repos } from "./core/repos";
 import {
   clearLane,
   committableRun,
@@ -31,7 +31,7 @@ import {
   stashedSince,
   sweepLanes,
   takeSnapshot,
-} from "./review";
+} from "./core/review";
 import {
   CommitNode,
   FileNode,
@@ -42,7 +42,7 @@ import {
   SnapshotNode,
   SnapshotsProvider,
   filesOf,
-} from "./snapshots";
+} from "./ui/snapshots";
 
 function workspaceFolders(): string[] {
   return (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);

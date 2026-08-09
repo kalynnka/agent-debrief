@@ -79,6 +79,11 @@ pnpm test       # headless: git plumbing + store, no editor needed
 
 `F5` launches an Extension Development Host opened on `../kraken`.
 
+`src/core/` is the headless half — git plumbing, lanes, the store, review state — and
+imports nothing from `vscode`; that is what lets the CLI and the tests run without an
+editor. `src/ui/` is everything that draws. Both entry points stay at the `src/` root, so
+`main` and `bin` remain `out/extension.js` and `out/cli.js`.
+
 ## Status
 
 M1: lane-scoped core + CLI + extension client, TypeScript end to end — see

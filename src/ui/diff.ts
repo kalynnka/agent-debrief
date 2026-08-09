@@ -3,11 +3,11 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { SCHEME, pathOf, revisionUri } from "./comments";
-import { FileRow } from "./files";
-import { ChangedFile, Snapshot } from "./git";
-import { Repo, Repos } from "./repos";
+import { FileRow } from "../core/files";
+import { ChangedFile, Snapshot } from "../core/git";
+import { Repo, Repos } from "../core/repos";
 import { FileNode } from "./snapshots";
-import { codeReferences, noteBody } from "./transcript";
+import { codeReferences, noteBody } from "../core/transcript";
 
 /** Serves file content at a snapshot revision, so a diff can show a side that
  * no longer exists on disk. The revision URI names an absolute path, so which
