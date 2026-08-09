@@ -1,0 +1,17 @@
+{
+  "name": "agent-debrief",
+  "owner": { "name": "Lu Hui", "url": "https://github.com/kalynnka" },
+  "description": "Snapshot-by-snapshot review of agent changes, in the editor where the language server already runs.",
+  "plugins": [
+    {
+      "name": "debrief",
+      "displayName": "Agent Debrief",
+      "description": "Skills for writing a snapshot's note and recovering a branch's history, plus the debrief CLI on PATH. The reviewer's half is the VS Code extension.",
+      "source": { "source": "npm", "package": "agent-debrief" },
+      "homepage": "https://github.com/kalynnka/agent-debrief",
+      "repository": "https://github.com/kalynnka/agent-debrief",
+      "license": "MIT",
+      "keywords": ["code-review", "git", "snapshots"]
+    }
+  ]
+}

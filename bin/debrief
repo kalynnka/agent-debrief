@@ -1,0 +1,10 @@
+#!/bin/sh
+# `debrief` for a Claude Code session that installed the plugin but never installed
+# anything globally. Files in a plugin's bin/ join the Bash tool's PATH while the
+# plugin is enabled, so the skills can say `debrief review open` and mean it.
+#
+# The npm package's own `bin` field points straight at out/cli.js, which is what a
+# global install puts on the real PATH. This shim is the plugin's copy of that
+# arrangement and resolves the CLI beside itself rather than through PATH — the
+# thing it is there to provide.
+exec node "$(dirname "$0")/../out/cli.js" "$@"
