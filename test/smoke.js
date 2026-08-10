@@ -442,6 +442,37 @@ async function main() {
   assert.strictEqual(await openNow(), 0, "a fully committed lane must leave no badge");
   console.log("commit lands the snapshots it covers  ok");
 
+  // 16. A path a later snapshot renamed away. Snapshot 1 adds old.txt and snapshot 2
+  //     renames it, so no commit ever holds that path — and a rename read as a rename
+  //     names only the new one, so nothing records the old being retired. Snapshot 1
+  //     then waits for a blob no commit can hold and sits in Open for good.
+  const mvRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-rename-"));
+  const mvg = (args) => execFileSync("git", args, { cwd: mvRoot, encoding: "utf8" });
+  mvg(["init", "-q", "-b", "main", "."]);
+  mvg(["config", "user.email", "t@t"]);
+  mvg(["config", "user.name", "t"]);
+  fs.writeFileSync(path.join(mvRoot, "base.txt"), "0\n");
+  mvg(["add", "."]);
+  mvg(["commit", "-qm", "base"]);
+  const mvgit = new Git(mvRoot);
+  const mvstore = new Store(await resolveLane(mvRoot));
+  // Byte for byte the same either side, so git reports R100 rather than a delete
+  // and an add — the case that has to be got right.
+  fs.writeFileSync(path.join(mvRoot, "old.txt"), "unchanged across the rename\n");
+  await takeSnapshot(mvgit, mvstore, { label: "adds old.txt", agent: "manual" });
+  fs.renameSync(path.join(mvRoot, "old.txt"), path.join(mvRoot, "new.txt"));
+  await takeSnapshot(mvgit, mvstore, { label: "renames it", agent: "manual" });
+  mvg(["add", "-A"]);
+  mvg(["commit", "-qm", "land both"]);
+  assert.strictEqual(mvg(["status", "--porcelain"]).trim(), "", "the commit must match disk");
+  assert.deepStrictEqual(
+    [...(await landedSnapshots(mvgit, mvstore.data.snapshots, await mvgit.head()))].sort(),
+    [1, 2],
+    "the snapshot that added a renamed-away path never lands",
+  );
+  fs.rmSync(mvRoot, { recursive: true, force: true });
+  console.log("a renamed-away path still lands       ok");
+
   // 17. The regression the screenshot caught: a snapshot whose files a later snapshot
   //     rewrote owns nothing, and "every file it owns matches HEAD" is vacuously
   //     true — which read as committed in a repo with no commits of its own.

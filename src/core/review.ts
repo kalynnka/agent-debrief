@@ -562,9 +562,17 @@ async function laneContent(git: Git, snapshots: Snapshot[]): Promise<LaneContent
   // a `blobsAt` per snapshot. Same data — a snapshot's git parent is the revision
   // it is diffed against — for one process instead of two per snapshot, which is
   // what stopped a long-lived lane costing seconds to draw.
+  //
+  // `--no-renames`, matching the branch walk this is compared against. Read as a
+  // rename, a rename names only the new path, so nothing ever records the old one
+  // being retired: a snapshot that added a path the next snapshot renamed away
+  // waits for a blob no commit can hold, and stays open for ever.
   const newest = snapshots[snapshots.length - 1];
   const chain = new Map(
-    (await git.chain(newest.sha, snapshots[0].parent)).map((commit) => [commit.sha, commit.files]),
+    (await git.chain(newest.sha, snapshots[0].parent, false)).map((commit) => [
+      commit.sha,
+      commit.files,
+    ]),
   );
   const paths: string[][] = [];
   const held = new Map<string, Map<number, string | undefined>>();
