@@ -779,6 +779,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // and a bin says that where a discard arrow would not.
   register("debrief.dropSnapshot", revert);
 
+  /** Take a snapshot off the list and leave every file exactly where it is.
+   *
+   * Revert's other half. That one gives the change back and then forgets the
+   * record; this forgets the record and reads nothing off disk, so it needs none
+   * of revert's checks and is safe on any row — live, reverted or committed. It
+   * is also the only way out for the rows revert cannot reach: a snapshot a later
+   * one wrote over has nothing left to give back, and until now stayed in the
+   * list for good.
+   *
+   * What it costs is that turn's review, not that turn's work. The snapshot after
+   * it was committed against this one and still diffs against it, so the change
+   * stays on the branch and stops being anything the review can show. The dialog
+   * says so, because nothing else will. */
+  register("debrief.forgetSnapshot", async (from?: SnapshotNode) => {
+    const node = from ?? rowOf("snapshot", "a snapshot");
+    if (node === undefined) {
+      return;
+    }
+    const { repo, snapshot } = node;
+    const lane = repo.store.data.snapshots;
+    const next = lane[lane.findIndex((one) => one.n === snapshot.n) + 1];
+    const files = (await filesOf(node)).length;
+    const notes = repo.store.data.threads.filter((thread) => thread.snapshot === snapshot.n).length;
+    const confirmed = await vscode.window.showWarningMessage(
+      `Forget snapshot ${snapshot.n} — ${snapshot.label}?`,
+      {
+        modal: true,
+        detail:
+          `Nothing on disk changes: its ${files} file(s) stay exactly as they are. ` +
+          (next === undefined
+            ? `The next snapshot picks that work up as its own.`
+            : `Snapshot ${next.n} still diffs against it, so this change stays on the ` +
+              `branch and stops being something the review can show you.`) +
+          (notes > 0 ? ` ${notes} comment(s) on it go with it.` : ``),
+      },
+      "Forget Snapshot",
+    );
+    if (confirmed === undefined) {
+      return;
+    }
+    await dropSnapshot(repo.git, repo.store, snapshot.n);
+    snapshots.refresh();
+  });
+
   type OpenTarget = RepoNode | GroupNode | CommitNode | SnapshotNode;
   register("debrief.openSnapshot", async (node?: OpenTarget) => {
     // No row means the palette. The selection answers it when there is one, and

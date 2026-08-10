@@ -320,6 +320,21 @@ Once nothing of a snapshot is left on disk it goes **frozen** — struck through
 greyed, holding its number rather than vanishing, so the snapshots around it keep
 their order. Drop it when you want it gone.
 
+### 4.6 Forget a snapshot, keep the files
+
+**Forget This Snapshot** — the bin on a snapshot row — takes it out of the list and
+touches nothing on disk. Drop's opposite: that one reverts and then forgets, this one
+only forgets. It is for work you have decided not to *review*, not work you want undone.
+
+It is also the only way out for a row Drop cannot reach. A snapshot a later one wrote
+over has nothing left to give back, so reverting it is refused and it stays in the list
+for good.
+
+What it costs is that turn's review. The snapshot after it still diffs against its
+commit, so the change stays on the branch and stops being anything the review can show.
+Forget the newest one and the work has nowhere to go but the next snapshot, which picks
+it up as its own. Comments written on it go either way.
+
 ---
 
 ## 5. Landing what you have reviewed

@@ -155,6 +155,12 @@
         "icon": "$(trash)"
       },
       {
+        "command": "debrief.forgetSnapshot",
+        "title": "Forget This Snapshot",
+        "category": "Debrief",
+        "icon": "$(trash)"
+      },
+      {
         "command": "debrief.openSnapshot",
         "title": "Open Snapshot Diff",
         "category": "Debrief"
@@ -231,6 +237,11 @@
           "command": "debrief.dropSnapshot",
           "when": "view == debrief.snapshots && viewItem == snapshot-frozen-droppable",
           "group": "inline@2"
+        },
+        {
+          "command": "debrief.forgetSnapshot",
+          "when": "view == debrief.snapshots && viewItem =~ /^snapshot-/ && viewItem != snapshot-frozen-droppable",
+          "group": "inline@3"
         },
         {
           "command": "debrief.stepHistory",

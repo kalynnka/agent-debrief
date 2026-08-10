@@ -174,6 +174,11 @@ whole thing, takes its comments with it, and rewrites the later snapshots so the
 carrying the reverted content. **Drop This Snapshot** removes one from the middle when
 nothing of it is left.
 
+**Forget This Snapshot** is the other half on its own: the row goes and every file stays
+exactly where it is. For a turn you have decided not to review rather than not to keep —
+and the only way out for a snapshot a later one wrote over, which has nothing left to
+revert.
+
 ### Several repositories
 
 The unit of review is the repository, not the workspace folder. Folders resolve to their
@@ -198,6 +203,7 @@ All of them are in the palette under **Debrief**, and act on the row you have se
 | Open This File's Diff | clicking the file row · Open File is the icon beside it |
 | Revert This Snapshot's Change | file or snapshot row |
 | Drop This Snapshot | snapshot row, once frozen |
+| Forget This Snapshot | bin on a snapshot row · leaves the files alone |
 | Read the Whole Note | link in the snapshot row's hover |
 | Show All Repositories · Refresh | view title |
 
