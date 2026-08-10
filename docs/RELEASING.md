@@ -146,12 +146,48 @@ reads it and an unused publish credential is the worst kind:
 
 Events made with the default `GITHUB_TOKEN` never start another workflow. The release
 pull request is one such event, so it opens with **no CI run against it** — the checks
-sit there unstarted, and a manual close-and-reopen is what kicks them off.
+sit there unstarted, and a manual close-and-reopen is what kicks them off. A
+fine-grained PAT avoids that. The workflow falls back to `github.token` when the secret
+is absent, so skipping this costs two clicks per release and nothing else.
 
-A fine-grained PAT on this repository with **contents: write** and **pull requests:
-write**, stored as `RELEASE_PLEASE_TOKEN`, fixes that. The workflow falls back to
-`github.token` when the secret is absent, so skipping this costs two clicks per release
-and nothing else.
+Nothing to do with Azure or npm; this one is GitHub's own, and it is a *fine-grained*
+token rather than the classic kind.
+
+1. **https://github.com/settings/personal-access-tokens/new** — or by hand: your avatar,
+   top right → **Settings** → **Developer settings**, at the very bottom of the left
+   sidebar → **Personal access tokens** → **Fine-grained tokens** → **Generate new
+   token**.
+2. Fill in four fields:
+
+```
+Token name          [ agent-debrief release-please ]
+Resource owner      [ kalynnka                     ]
+Expiration          [ 90 days                      ]
+Repository access   ( ) All repositories
+                    (o) Only select repositories  →  [ agent-debrief ]   <- 3
+```
+
+3. **Repository access: "Only select repositories" → `agent-debrief`.** The default is
+   "Public repositories", which grants read and nothing else — a token made that way
+   fails at the same call the missing setting does, and looks identical.
+4. **Repository permissions** — two, and they are a long alphabetical list to scroll:
+
+   | permission | level | what needs it |
+   |---|---|---|
+   | **Contents** | Read and write | the release branch, the tag, the release |
+   | **Pull requests** | Read and write | opening and updating the release pull request |
+
+   *Metadata: Read-only* is added for you and cannot be removed.
+5. **Generate token**, and copy it now — it is shown once.
+6. GitHub → the repo → **Settings → Secrets and variables → Actions → New repository
+   secret** → name it exactly **`RELEASE_PLEASE_TOKEN`**.
+
+There is a second way past the same failure, and this repository has it switched on as
+well: **Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to
+create and approve pull requests."** Off by default, and without either that or the PAT
+release-please builds the whole release commit and is refused at the last call with
+*GitHub Actions is not permitted to create or approve pull requests*. The setting alone
+is enough to open the pull request; only the PAT also gets CI to run on it.
 
 ---
 
@@ -163,8 +199,11 @@ There is no step where you decide a version.
    Marketplace whether the stored PAT is accepted and publishes nothing. Worth a click
    after the PAT is rotated or expires — otherwise it is first exercised by the release
    itself, which is a bad moment to discover it was scoped to one organization.
-1. **Write conventional commits and push to main.** That is the whole of the day-to-day
-   part, and it is what the repository already does.
+1. **Land conventional commits on main.** That is the whole of the day-to-day part.
+   Pushing straight to main, the commit subjects are what release-please reads. Through
+   a squash-merged pull request, the **pull request title** is what it reads — the
+   branch's own commits are discarded by the squash — which is what `pr-title-lint.yml`
+   guards. A title that does not parse is work that bumps nothing and appears nowhere.
 2. **release-please opens or updates a pull request** titled `chore(main): release
    x.y.z`. It carries the version bump in `package.json` and `.claude-plugin/plugin.json`,
    and the `CHANGELOG.md` entry it built from your commit subjects. Read that changelog —
@@ -177,14 +216,20 @@ What decides the number, while the version is below 1.0.0:
 
 | commit | bump | example |
 |---|---|---|
-| `fix:` | patch | `0.1.0` → `0.1.1` |
-| `feat:` | minor | `0.1.0` → `0.2.0` |
-| `feat!:` or a `BREAKING CHANGE:` footer | minor, not major | `0.1.0` → `0.2.0` |
+| `fix:` | patch | `0.1.1` → `0.1.2` |
+| `feat:` | patch, not minor | `0.1.1` → `0.1.2` |
+| `feat!:` or a `BREAKING CHANGE:` footer | minor, not major | `0.1.1` → `0.2.0` |
 | `docs:`, `refactor:`, `perf:`, `revert:` | none on their own, but they appear in the changelog | |
 | `chore:`, `test:`, `ci:`, `build:` | none, and hidden from the changelog | |
 
-`bump-minor-pre-major` is what holds a breaking change down to a minor: nothing reaches
-`1.0.0` by accident. The sections and their order are set explicitly in
+Two options hold that shape, and both are deliberate for something this young.
+`bump-minor-pre-major` stops a breaking change reaching `1.0.0`, and
+`bump-patch-for-minor-pre-major` stops a feature reaching `0.2.0` — so the minor slot
+means "something broke" rather than "something was added", and the patch counter carries
+ordinary work. Turning the second one off is the move once the shape of the thing has
+settled; nothing else changes with it.
+
+The changelog sections and their order are set explicitly in
 `release-please-config.json` rather than left to the default, because this repository's
 history is heavily `docs:` and the default hides those.
 
@@ -220,6 +265,8 @@ therefore reaches `publish-vsix`.
 | symptom | cause |
 |---|---|
 | no release pull request appears | every commit since the last release is a type that bumps nothing — `chore`, `test`, `ci`, `build`. Nothing to release is the correct answer. |
+| work landed but the changelog does not mention it | a squash merge whose pull request title was not conventional. The branch's own commits were discarded; only the title survived. `pr-title-lint.yml` is meant to catch this before the merge. |
+| release-please is refused *GitHub Actions is not permitted to create or approve pull requests* | neither the repository setting nor `RELEASE_PLEASE_TOKEN` is in place. §4. |
 | the release pull request has no checks | expected without `RELEASE_PLEASE_TOKEN`. Close and reopen it, or §4. |
 | a release published by hand does nothing | it is meant to. release-please owns the tag and the release; a hand-cut one triggers no workflow. Merge the release pull request instead. |
 | `guard` fails naming two versions | release-please wrote one file and not the other. Check the `extra-files` entry in `release-please-config.json`. Nothing was published. |
