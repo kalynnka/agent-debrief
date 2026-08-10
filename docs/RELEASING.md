@@ -7,20 +7,29 @@ Two artifacts, one version, and a publish that only happens when you say so.
 | `agent-debrief-<v>.vsix` | VS Code Marketplace | `publish-vsix` |
 | `agent-debrief` tarball | npm | `publish-npm` |
 
-`.github/workflows/release.yml` runs on a **published GitHub release** — not on a tag.
-Pushing `v0.1.0` on its own does nothing at all; clicking **Publish release** is the gate.
+`.github/workflows/release.yml` runs on **every push to main**, and publishes on almost
+none of them. [release-please][rp] keeps one pull request open — `chore(main): release
+x.y.z` — that accumulates every conventional commit since the last release. **Merging
+that pull request is the gate**, and it is the only one: the version, the tag, the
+changelog and the GitHub release are all written by the merge, and the publish happens
+in the same run.
+
+You never type a version number, and a tag or a release cut by hand does nothing.
+
+[rp]: https://github.com/googleapis/release-please
 
 ---
 
 ## One-time setup
 
-Three accounts and **one** secret. Nothing in the workflow works until they exist, and the
-`publish-vsix` job says so rather than failing blank.
+Three accounts and **one** required secret. Nothing in the workflow works until they
+exist, and the `publish-vsix` job says so rather than failing blank.
 
 | registry | credential | where it comes from |
 |---|---|---|
 | Marketplace | `MARKETPLACE_PAT`, an Azure DevOps PAT scoped **Marketplace → Manage** | [2](#2-the-pat-that-publishes-it--marketplace_pat) |
 | npm | none — a trusted publisher, configured once on npmjs.com | [3](#3-npm-keeps-no-secret) |
+| — | `RELEASE_PLEASE_TOKEN`, optional, quality-of-life only | [4](#4-release_please_token-optional) |
 
 The PAT goes in **Settings → Secrets and variables → Actions**. `.env.example` carries the
 name for a local copy — `.env` itself is gitignored and excluded from both published
@@ -133,29 +142,68 @@ reads it and an unused publish credential is the worst kind:
 [oidc]: https://github.com/npm/cli/issues/8544
 [sn]: https://github.com/actions/setup-node/issues/1551
 
+### 4. `RELEASE_PLEASE_TOKEN`, optional
+
+Events made with the default `GITHUB_TOKEN` never start another workflow. The release
+pull request is one such event, so it opens with **no CI run against it** — the checks
+sit there unstarted, and a manual close-and-reopen is what kicks them off.
+
+A fine-grained PAT on this repository with **contents: write** and **pull requests:
+write**, stored as `RELEASE_PLEASE_TOKEN`, fixes that. The workflow falls back to
+`github.token` when the secret is absent, so skipping this costs two clicks per release
+and nothing else.
+
 ---
 
 ## Cutting a release
+
+There is no step where you decide a version.
 
 0. **Check the PAT first.** Actions → **Credentials** → *Run workflow*. It asks the
    Marketplace whether the stored PAT is accepted and publishes nothing. Worth a click
    after the PAT is rotated or expires — otherwise it is first exercised by the release
    itself, which is a bad moment to discover it was scoped to one organization.
-1. **Bump `version` in `package.json`,** and `version` in
-   `.claude-plugin/plugin.json` to match — that second one is what decides when plugin
-   users are offered the update.
-2. Commit and push.
-3. GitHub → **Releases → Draft a new release.** Create the tag `v<version>` from `main`,
-   write the notes, **Publish release**.
+1. **Write conventional commits and push to main.** That is the whole of the day-to-day
+   part, and it is what the repository already does.
+2. **release-please opens or updates a pull request** titled `chore(main): release
+   x.y.z`. It carries the version bump in `package.json` and `.claude-plugin/plugin.json`,
+   and the `CHANGELOG.md` entry it built from your commit subjects. Read that changelog —
+   it is the release notes, and this is the moment to fix a commit subject that reads
+   badly by editing the file in the pull request.
+3. **Merge it.** The merge writes the tag, publishes the GitHub release, and runs the
+   publish in the same job graph.
 
-Then `release.yml`, in this order:
+What decides the number, while the version is below 1.0.0:
+
+| commit | bump | example |
+|---|---|---|
+| `fix:` | patch | `0.1.0` → `0.1.1` |
+| `feat:` | minor | `0.1.0` → `0.2.0` |
+| `feat!:` or a `BREAKING CHANGE:` footer | minor, not major | `0.1.0` → `0.2.0` |
+| `docs:`, `refactor:`, `perf:`, `revert:` | none on their own, but they appear in the changelog | |
+| `chore:`, `test:`, `ci:`, `build:` | none, and hidden from the changelog | |
+
+`bump-minor-pre-major` is what holds a breaking change down to a minor: nothing reaches
+`1.0.0` by accident. The sections and their order are set explicitly in
+`release-please-config.json` rather than left to the default, because this repository's
+history is heavily `docs:` and the default hides those.
+
+Then, on the merge commit, `release.yml` in this order:
 
 | job | |
 |---|---|
-| `guard` | refuses unless the tag matches `package.json` and `plugin.json` — before anything is built |
+| `release-please` | writes the tag and the GitHub release, and reports `release_created` |
+| `guard` | refuses unless the tag, `package.json` and `plugin.json` agree — before anything is built |
 | `build` | lint, types, tests, then the `.vsix`, attached to the release |
 | `publish-npm` | `npm publish`, on an OIDC identity minted for this run |
 | `publish-vsix` | `vsce publish --packagePath`, the same file the release carries |
+
+Every job after the first checks out the **tag**, not `main`, so what is published is
+what the release says it is even if `main` has moved on. And `guard` survives
+release-please rather than being made redundant by it: the version reaching
+`plugin.json` depends on one `extra-files` entry in the config, a typo away from
+silently doing nothing, and the failure mode is plugin users never being offered the
+update.
 
 **npm goes first on purpose.** It is the credential with no pre-flight — the exchange only
 succeeds from `release.yml`, so the release is the only place it can be tested — while the
@@ -171,7 +219,10 @@ therefore reaches `publish-vsix`.
 
 | symptom | cause |
 |---|---|
-| `guard` fails naming two versions | the tag and `package.json` disagree. Nothing was published; fix and re-run. |
+| no release pull request appears | every commit since the last release is a type that bumps nothing — `chore`, `test`, `ci`, `build`. Nothing to release is the correct answer. |
+| the release pull request has no checks | expected without `RELEASE_PLEASE_TOKEN`. Close and reopen it, or §4. |
+| a release published by hand does nothing | it is meant to. release-please owns the tag and the release; a hand-cut one triggers no workflow. Merge the release pull request instead. |
+| `guard` fails naming two versions | release-please wrote one file and not the other. Check the `extra-files` entry in `release-please-config.json`. Nothing was published. |
 | `publish-vsix` fails asking for a credential | `MARKETPLACE_PAT` is unset. §2. |
 | 401 from the Marketplace | the PAT was scoped to one organization, not all. §2, step 3. |
 | 403 from the Marketplace | the PAT lacks **Marketplace → Manage**. §2, step 4. |
