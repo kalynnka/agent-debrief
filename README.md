@@ -64,6 +64,33 @@ npm i -g agent-debrief      # the package is agent-debrief; the command is debri
 Every example below types `debrief`. Door 2 provides it inside Claude Code; door 3
 provides it everywhere.
 
+## Or ask the agent to set it up
+
+Doors 2 and 3 are a copy-and-paste job in a repository your agent is already sitting in,
+so it is a reasonable thing to hand over. Paste this:
+
+> Set up agent-debrief for this repo. Install the CLI globally with npm, put its two skills
+> where you read skills from, and — only if it is easy — add the Stop hook to **this
+> project's** config, never my home directory. Tell me what you changed.
+
+What that comes to, so you can check it rather than take its word:
+
+**The CLI.** `npm i -g agent-debrief`. Afterwards `debrief status` should name your repo
+and its lane; if it already did, there was nothing to install.
+
+**The skills.** The package carries them, so once the CLI is in they are at
+`$(npm root -g)/agent-debrief/skills/` — `prepare-change-review` and
+`recover-change-context`. Both get copied or symlinked to wherever your agent reads skills
+from; `<repo>/.agents/skills/` is the convention Codex and several others follow. On Claude
+Code, door 2 is the better answer: the plugin brings the skills and the CLI together, with
+no global install to undo later.
+
+**The hook, if you want one.** Genuinely optional, and worth understanding before you say
+yes: the skills are what make snapshots happen, and the hook only makes them a *guarantee*.
+It belongs in this project's config and not in your home directory, for the reason under
+[Where snapshots come from](#where-snapshots-come-from) — say so in the prompt, because an
+agent left to choose will often reach for the global file.
+
 ## Where snapshots come from
 
 **The agent takes them, and picks its own moments.** That is what the
