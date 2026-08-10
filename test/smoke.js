@@ -1098,6 +1098,52 @@ async function main() {
   fs.rmSync(undoRoot, { recursive: true, force: true });
   console.log("a commit cannot land the future        ok");
 
+  // 30. The other side of that bound, and the ordinary shape of a turn: the agent
+  //     commits its work and the hook snapshots afterwards, so the snapshot records
+  //     the commit that took it as its own HEAD. Bounding on a snapshot's own HEAD
+  //     would refuse the one commit that can ever land it, leaving every such turn
+  //     in Open with nothing outstanding. The bound is the previous snapshot's
+  //     HEAD — where this snapshot's work began — so the commit between them counts.
+  const afterRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-after-"));
+  const ag = (args) => execFileSync("git", args, { cwd: afterRoot, encoding: "utf8" });
+  ag(["init", "-q", "-b", "main", "."]);
+  ag(["config", "user.email", "t@t"]);
+  ag(["config", "user.name", "t"]);
+  const wroteY = (text) => fs.writeFileSync(path.join(afterRoot, "y.txt"), text);
+  wroteY("0\n");
+  ag(["add", "."]);
+  ag(["commit", "-qm", "base"]);
+  const agit = new Git(afterRoot);
+  const astore = new Store(await resolveLane(afterRoot));
+  wroteY("1\n");
+  await takeSnapshot(agit, astore, { label: "sets y to 1", agent: "manual" });
+  ag(["add", "-A"]);
+  ag(["commit", "-qm", "land snapshot 1"]);
+  // The turn that commits before it is snapshotted.
+  wroteY("2\n");
+  ag(["add", "-A"]);
+  ag(["commit", "-qm", "committed, then snapshotted"]);
+  await takeSnapshot(agit, astore, { label: "sets y to 2", agent: "manual" });
+  assert.strictEqual(
+    astore.data.snapshots[1].head,
+    ag(["rev-parse", "HEAD"]).trim(),
+    "the snapshot must record the commit it followed as its own HEAD",
+  );
+  const afterHead = await agit.head();
+  assert.deepStrictEqual(
+    [...(await landedSnapshots(agit, astore.data.snapshots, afterHead))].sort(),
+    [1, 2],
+    "a commit must land the snapshot taken after it",
+  );
+  const afterGroups = await landedCommits(agit, astore.data.snapshots, afterHead);
+  assert.deepStrictEqual(
+    afterGroups.map((group) => group.snapshots),
+    [[1], [2]],
+    "and land it under itself, not under the commit before it",
+  );
+  fs.rmSync(afterRoot, { recursive: true, force: true });
+  console.log("commit first, snapshot after           ok");
+
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });
   console.log("\nall checks passed");

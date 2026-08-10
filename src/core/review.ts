@@ -598,6 +598,12 @@ async function laneContent(git: Git, snapshots: Snapshot[]): Promise<LaneContent
  * written over by later work still reached the branch through it. Without the
  * "or later" a lane of fifty snapshots could only ever land in its last commit.
  *
+ * Reaching the branch "through" later work means that work has to have been able
+ * to reach it. A blob only counts when the snapshot that left it could itself have
+ * been taken here, which is what `credits` answers — otherwise a revision predating
+ * the whole episode satisfies a snapshot through an undo made long after it, and
+ * work that never left the working tree reads as landed.
+ *
  * Quantified over every path the snapshot changed, never over the ones it still
  * owns. A snapshot whose files a later one all rewrote owns nothing, and "every
  * file it owns matches" is then vacuously true — which once marked 28 of 36
@@ -609,10 +615,12 @@ function present(
   /** Blobs at a revision. A missing key and a recorded `undefined` mean the same
    * thing — the path is not there — which is also what a deletion looks like. */
   at: Map<string, string | undefined>,
+  /** Whether the snapshot at an index is one this revision may be credited with. */
+  credits: (index: number) => boolean,
 ): boolean {
   return content.paths[index].every((file) => {
     for (const [i, blob] of content.held.get(file) ?? []) {
-      if (i >= index && blob === at.get(file)) {
+      if (i >= index && credits(i) && blob === at.get(file)) {
         return true;
       }
     }
@@ -628,18 +636,20 @@ function present(
  * work, not the exception. So a commit takes every snapshot whose changes it
  * completes, and a snapshot is credited to the earliest commit that completed it.
  *
- * Earliest, but never earlier than the snapshot. A snapshot that undoes work no
- * commit ever took puts a path back to what the branch already holds, so every
- * commit from there on "holds what it left" — including commits made before the
- * snapshot existed, and earliest would credit one of those. Which reads as the
- * undo never having been recorded at all: it is filed under a commit older than
- * itself instead of standing where it was taken.
+ * Earliest, but never earlier than the work. A snapshot that undoes work no commit
+ * ever took puts a path back to what the branch already holds, so every commit from
+ * there on "holds what it left" — including commits made before that snapshot's work
+ * was done, and earliest would credit one of those. Which reads as the undo never
+ * having been recorded at all: it is filed under a commit older than itself instead
+ * of standing where it was taken.
  *
- * The bound is each snapshot's own `head`, the commit HEAD was on when it was
- * captured. Everything reachable from there is older than the snapshot, so
- * nothing at or before it in the walk may claim it. A snapshot from before that
- * field existed, or one whose HEAD a rebase took off the branch, is unbounded —
- * the same answer as always, rather than a guess.
+ * The bound is the `head` of the snapshot *before* it, the commit HEAD was on when
+ * this snapshot's work started. Everything reachable from there was on the branch
+ * already, so nothing at or before it in the walk may claim what came after. Not
+ * this snapshot's own head — a turn that commits and then snapshots records that
+ * commit as its head, and it is the very one that took the work. A snapshot with
+ * nothing before it, one from before the field existed, or one whose HEAD a rebase
+ * took off the branch is unbounded — the same answer as always, rather than a guess.
  *
  * Nothing is recorded: amending, rebasing or resetting simply changes the answer.
  *
@@ -670,14 +680,25 @@ export async function landedCommits(
   const changedBy = new Map(
     (await git.chain(head, snapshots[0].parent, false)).map((commit) => [commit.sha, commit.files]),
   );
-  // How far along the walk each snapshot was already standing when it was taken.
-  // A commit at or before that point predates it and cannot have taken it. Off
-  // the walk — the lane's base, or a HEAD a rebase stranded — reads as -1, which
-  // no step is below.
+  // The earliest point in the walk at which each snapshot's work could have
+  // existed: the HEAD the snapshot *before* it was standing on. Everything
+  // reachable from there was already on the branch before this snapshot's work
+  // began, so no commit at or before it can have taken that work.
+  //
+  // The snapshot's own HEAD is the wrong bound, and too strict by exactly one
+  // turn. Committing and then snapshotting is the ordinary shape of a turn — the
+  // agent commits, the hook fires afterwards — and that commit, which the snapshot
+  // records as its HEAD, is precisely the one that took the work. Bounding on it
+  // leaves every such snapshot in Open with nothing outstanding and nothing that
+  // could ever land it.
+  //
+  // Off the walk — the lane's base, or a HEAD a rebase stranded — and the first
+  // snapshot of a lane, which has nothing before it, read as -1: no step is below.
   const step = new Map(walk.map((commit, i) => [commit.sha, i]));
-  const takenAfter = snapshots.map((snapshot) =>
-    snapshot.head === undefined ? -1 : (step.get(snapshot.head) ?? -1),
-  );
+  const takenAfter = snapshots.map((_, i) => {
+    const began = snapshots[i - 1]?.head;
+    return began === undefined ? -1 : (step.get(began) ?? -1);
+  });
   const pending = new Set(snapshots.map((_, i) => i));
   const grouped: LandedCommit[] = [];
   for (const [now, commit] of walk.entries()) {
@@ -690,7 +711,8 @@ export async function landedCommits(
       break;
     }
     // Insertion order is ascending index, so the numbers come out in order.
-    const took = [...pending].filter((i) => now > takenAfter[i] && present(content, i, at));
+    const credits = (i: number): boolean => now > takenAfter[i];
+    const took = [...pending].filter((i) => credits(i) && present(content, i, at, credits));
     if (took.length === 0) {
       continue;
     }
