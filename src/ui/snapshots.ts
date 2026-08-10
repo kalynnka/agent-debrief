@@ -103,6 +103,30 @@ export class FileNode {
     /** The file on disk is what HEAD holds — this change is committed, and the
      * snapshot's remaining work is whatever is not. */
     readonly landed: boolean,
+    /** Why nothing of this row is outstanding, or undefined while something still
+     * is. Either way there is nothing here left to review and nothing left to stage,
+     * and the row is greyed out rather than dropped — the snapshot's account of what
+     * it did stays complete, and a row that vanishes leaves nothing to read it from.
+     * It offers no Revert either: see where the context value is built. A snapshot
+     * every one of whose rows is spent is the frozen one.
+     *
+     * Which of the three, because they are different things to say about the
+     * snapshot's change and only one of them is that it survived:
+     *
+     * - `reverted` — disk is back where this snapshot found it. The change is gone.
+     * - `committed` — the branch holds this file exactly as the snapshot left it.
+     *   The change survived, whether or not a commit was made for it. This is the
+     *   shape of staging and committing half a snapshot: the half that went in says
+     *   so, and the rest is still outstanding.
+     * - `recovered` — disk matches the branch, but the branch does not hold what the
+     *   snapshot left. So the change is gone and this content came back from the
+     *   branch rather than from the snapshot before it: somebody put the file back
+     *   by hand. Distinct from `committed`, which it would otherwise be read as, and
+     *   distinct from `reverted`, which points at a different revision.
+     *
+     * A file can answer to more than one at once, and they are asked in that order:
+     * what happened to *this* snapshot's change is the more specific fact. */
+    readonly spent: "reverted" | "committed" | "recovered" | undefined,
     /** It arrived with a HEAD move under this snapshot — a pull, a merge, a reset —
      * and the snapshot still holds it exactly as that move left it. In the diff it
      * is indistinguishable from the agent's work, which is the whole reason to say
@@ -205,17 +229,6 @@ function linked(root: string, text: string): string {
     out = `${out.slice(0, reference.start)}[${shown}](${target})${out.slice(reference.end)}`;
   }
   return out;
-}
-
-/** Strike a label through, character by character.
- *
- * A tree item's label takes no formatting — `strikeThrough` exists in the API
- * only for Source Control resource states, not for tree items — so the overlay
- * has to be in the text itself. It is a real string and costs what that implies:
- * type-to-filter no longer matches the row, and anything reading it aloud reads
- * the marks too. */
-function struckThrough(text: string): string {
-  return [...text].map((character) => `${character}̶`).join("");
 }
 
 /** The snapshots a lane's commits have taken between them — everything else is
@@ -544,13 +557,15 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       // this is. A long summary will still be cut off — a tree row is one line and
       // the sidebar is as wide as it is — so the hover carries it in full.
       const title = `${node.snapshot.n}. ${node.snapshot.label}`;
+      // Frozen and still expandable: every row under it is greyed out, and those
+      // rows are the whole account of what the snapshot did. A row that opens onto
+      // nothing says nothing. Folded shut, though, however new it is — there is no
+      // work under it to put in front of anyone.
       const item = new vscode.TreeItem(
-        frozen ? struckThrough(title) : title,
-        frozen
-          ? vscode.TreeItemCollapsibleState.None
-          : newest
-            ? vscode.TreeItemCollapsibleState.Expanded
-            : vscode.TreeItemCollapsibleState.Collapsed,
+        title,
+        newest && !frozen
+          ? vscode.TreeItemCollapsibleState.Expanded
+          : vscode.TreeItemCollapsibleState.Collapsed,
       );
       // An explicit identity, because the same snapshot is two rows once it is half
       // read — and because this is what decides whether VS Code treats a row as
@@ -602,8 +617,8 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       const droppable = node.droppable && node.part === "all";
       item.contextValue = `snapshot-${state}${droppable ? "-droppable" : ""}`;
       if (frozen) {
-        // The grey comes from the decoration provider; the strike is in the label
-        // itself. Neither is something a TreeItem can express on its own.
+        // The grey comes from the decoration provider — a TreeItem label carries no
+        // colour of its own.
         item.resourceUri = frozenSnapshotUri(node.repo.root, node.snapshot.n);
         hover.appendMarkdown(
           this.stashed.has(node.repo.root)
@@ -611,12 +626,14 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
                 `last snapshot, so the likeliest reason is that it is **stashed**, not ` +
                 `that it was undone. Pop the stash to bring it back. Dropping is ` +
                 `refused while this is true.`
-            : `Every change this snapshot made has been reverted, so there is nothing ` +
-                `left of it on disk.\n\n` +
+            : `Nothing of this snapshot is outstanding: every file it changed is ` +
+                `either back where it started or already on the branch — so there is ` +
+                `nothing left to read, and nothing left to commit. Open the row to ` +
+                `see what it did.\n\n` +
                 (node.droppable
                   ? `Drop it to take it out of the history.`
                   : `A later snapshot has written over files it changed — drop that one ` +
-                    `first.`),
+                    `first, or **Forget This Snapshot** to take the row alone.`),
         );
         return item;
       }
@@ -673,30 +690,66 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
 
     const abs = path.join(node.repo.root, node.file.path);
     const dir = path.dirname(node.file.path);
-    const item = new vscode.TreeItem(path.basename(abs), vscode.TreeItemCollapsibleState.None);
+    const name = path.basename(abs);
+    // Greyed, not struck through. A tree item's label takes no formatting —
+    // `strikeThrough` exists in the API only for Source Control resource states —
+    // so a strike would have to be a combining overlay per character, which reads
+    // as a smear at sidebar sizes rather than as a line. The colour comes from the
+    // decoration provider, and the word in the description says which kind of spent
+    // this is.
+    const spent = node.spent !== undefined;
+    const item = new vscode.TreeItem(name, vscode.TreeItemCollapsibleState.None);
     const notes = node.threadCount > 0 ? `  💬 ${node.threadCount}` : "";
     // The icon slot goes to the file-type icon, so "reviewed" has to say itself;
     // the letter stays in the text because the badge gives its slot up to the
     // problem count whenever there is one.
     const where = dir === "." ? "" : `  ${dir}`;
     // Committed and staged cannot both hold — staged means the index differs from
-    // HEAD — so one word covers where the change has got to.
-    const landing = node.landed ? " committed" : node.staged ? " staged" : "";
+    // HEAD — so one word covers where the change has got to, and a spent row has
+    // already worked out which word that is.
+    const landing =
+      node.spent !== undefined
+        ? ` ${node.spent}`
+        : node.landed
+          ? " committed"
+          : node.staged
+            ? " staged"
+            : "";
     // Louder than the landing mark and in front of it: whose change this is comes
     // before how far along it is.
     const origin = node.foreign ? "  ⇣ not the agent's" : "";
     const mark = node.reviewed ? "✓  " : "";
     item.description = `${mark}${node.file.status}${landing}${origin}${where}${notes}`;
-    item.resourceUri = snapshotFileUri(abs, node.file.status);
+    item.resourceUri = snapshotFileUri(abs, node.file.status, spent);
     item.tooltip = node.foreign
       ? new vscode.MarkdownString(
           `${node.file.path} — ${node.file.status}${landing}\n\n**Not the agent's change.** ` +
             `It arrived when HEAD moved under this snapshot, and the snapshot holds it ` +
             `exactly as that move left it.`,
         )
-      : `${node.file.path} — ${node.file.status}${landing}`;
+      : spent
+        ? new vscode.MarkdownString(
+            `${node.file.path} — ${node.file.status}${landing}\n\n**Nothing outstanding.** ` +
+              (node.spent === "committed"
+                ? `The branch holds this file as the snapshot left it, so there is ` +
+                  `nothing left to stage.`
+                : node.spent === "recovered"
+                  ? `Somebody put this file back by hand. What is on disk is what the ` +
+                    `branch holds — and it is *not* what the snapshot left, so this ` +
+                    `snapshot's change to it is gone rather than committed.`
+                  : `The file is back where this snapshot found it, so there is ` +
+                    `nothing left to read.`) +
+              ` The row stays as the record of what the snapshot did — open it to ` +
+              `see that change.`,
+          )
+        : `${node.file.path} — ${node.file.status}${landing}`;
+    // A spent row is never revertable, whatever the file's own state. Reverted, the
+    // button would do nothing; committed, it would do the wrong thing — writing the
+    // pre-snapshot content over a file whose current content is on the branch, which
+    // is not undoing the snapshot but opening an uncommitted diff against your own
+    // commit. A button that is a no-op at best is worse than no button.
     item.contextValue = `file-${node.reviewed ? "reviewed" : "unreviewed"}${
-      node.revertable ? "-revertable" : ""
+      node.revertable && !spent ? "-revertable" : ""
     }`;
     item.command = {
       command: "debrief.openDiff",
@@ -790,7 +843,8 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
     // with the other snapshot semantics, because the CLI reports the same answer.
     // The tree has usually worked this out already and hands it down; the commit
     // action calls in without one, and re-reads deliberately.
-    const commits = landedIn ?? (await landedCommits(repo.git, snapshots, await repo.git.head()));
+    const head = await repo.git.head();
+    const commits = landedIn ?? (await landedCommits(repo.git, snapshots, head));
     const landed = new Set(commits.flatMap((commit) => commit.snapshots));
     // Only the snapshots still on the worklist are measured.
     //
@@ -805,9 +859,14 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
     const changed = await Promise.all(
       open.map((snapshot) => repo.git.changedFiles(snapshot.parent, snapshot.sha)),
     );
-    const disk = await repo.git.blobsOnDisk([
-      ...new Set(changed.flat().map((file) => file.path)),
-    ]);
+    const touched = [...new Set(changed.flat().map((file) => file.path))];
+    const disk = await repo.git.blobsOnDisk(touched);
+    // What the branch already holds for those paths. A path where disk and the
+    // branch agree has nothing outstanding on it whatever any snapshot did — the
+    // shape a snapshot takes when it undoes work no commit ever took, and one
+    // no commit can ever take either, since there is nothing left to stage.
+    // Unborn HEAD holds nothing, so nothing is subtracted there.
+    const branch = head === undefined ? undefined : await repo.git.blobsAt(head, touched);
     const shape = await Promise.all(
       changed.map(async (files, i) => {
         const paths = files.map((file) => file.path);
@@ -815,11 +874,15 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
           repo.git.blobsAt(open[i].parent, paths),
           repo.git.blobsAt(open[i].sha, paths),
         ]);
-        // A file is the snapshot's doing while disk differs from where it started,
-        // and is still the snapshot's to give back while disk matches where it
-        // ended. Neither means a later snapshot wrote over it, and until that snapshot
-        // goes first this one cannot be put back.
-        const live = paths.filter((file) => disk.get(file) !== before.get(file));
+        // A file is the snapshot's doing while disk differs from where it started
+        // *and* from where the branch is, and is still the snapshot's to give back
+        // while disk matches where it ended. Neither means a later snapshot wrote
+        // over it, and until that snapshot goes first this one cannot be put back.
+        const live = paths.filter(
+          (file) =>
+            disk.get(file) !== before.get(file) &&
+            (branch === undefined || disk.get(file) !== branch.get(file)),
+        );
         const owned = live.filter((file) => disk.get(file) === after.get(file));
         return {
           live: live.length,
@@ -847,12 +910,13 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
     const paths = files.map((file) => file.path);
     const intact = await node.repo.git.unchangedSince(node.snapshot.sha, paths);
     // The mirror of `intact`: a file back at the snapshot's *starting* point has had
-    // this snapshot's change undone, so there is nothing left to review and the row
-    // goes. The snapshot still records the change — it remains a true statement
-    // about what the snapshot did — but the worklist should not still be asking.
+    // this snapshot's change undone, so there is nothing left to review.
     const undone = await node.repo.git.unchangedSince(node.snapshot.parent, paths);
     const head = await node.repo.git.head();
-    const landed =
+    // Paths disk and the branch agree on. Named for what it says rather than for
+    // "landed", which on a row means the snapshot: the two are different claims,
+    // and one of them is about to gate the other.
+    const onBranch =
       head === undefined ? new Set<string>() : await node.repo.git.unchangedSince(head, paths);
     const staged = this.gitWatch.stagedPaths(node.repo.root);
     const brought = await foreignPaths(
@@ -860,8 +924,32 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
       node.repo.store.data.snapshots,
       node.snapshot,
     );
+    // The two subtractions `shapeOf` makes for the count, read back as a per-row
+    // fact: a path put back where the snapshot found it, or one the branch already
+    // holds, has nothing left to read and nothing left to stage. The rows say so by
+    // going grey rather than by going — the count of what is outstanding is the
+    // rows that are not grey. Nothing is spent on a landed snapshot: every
+    // path of one matches the branch by definition, and its rows are the record of
+    // what it did rather than a worklist.
+    // `intact` is what separates the last two: it says the branch holds this file as
+    // the snapshot left it, so the change is on the branch rather than merely
+    // overwritten by it. No extra call — the revert check needs it anyway.
+    const spent = (file: string): "reverted" | "committed" | "recovered" | undefined =>
+      node.landed
+        ? undefined
+        : undone.has(file)
+          ? "reverted"
+          : !onBranch.has(file)
+            ? undefined
+            : intact.has(file)
+              ? "committed"
+              : "recovered";
     return files
-      .filter((file) => !undone.has(file.path) && node.shows(file.path))
+      .filter((file) =>
+        // Spent rows belong to the whole snapshot only. The read and unread halves
+        // divide the worklist between them, and these are not on it.
+        spent(file.path) !== undefined ? node.part === "all" : node.shows(file.path),
+      )
       .map(
         (file) =>
           new FileNode(
@@ -877,7 +965,8 @@ export class SnapshotsProvider implements vscode.TreeDataProvider<Node> {
               .filter((t) => t.state !== "resolved" && t.snapshot === node.snapshot.n).length,
             intact.has(file.path),
             staged.has(file.path),
-            landed.has(file.path),
+            onBranch.has(file.path),
+            spent(file.path),
             brought.has(file.path),
           ),
       );

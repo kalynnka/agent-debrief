@@ -7,14 +7,24 @@ import * as vscode from "vscode";
  * so the decoration provider needs no lookup table to answer. */
 export const SNAPSHOT_SCHEME = "debrief-snapshot";
 
-export function snapshotFileUri(absPath: string, status: string): vscode.Uri {
-  return vscode.Uri.from({ scheme: SNAPSHOT_SCHEME, path: absPath, query: status });
+export function snapshotFileUri(absPath: string, status: string, spent = false): vscode.Uri {
+  return vscode.Uri.from({
+    scheme: SNAPSHOT_SCHEME,
+    path: absPath,
+    query: status,
+    fragment: spent ? SPENT : "",
+  });
 }
 
 /** The queries that mark a snapshot row rather than a file row. A status letter is
  * never one of these words, so the two cannot collide. */
 const FROZEN = "frozen";
 const ABANDONED = "abandoned";
+
+/** A file row with nothing outstanding on it. In the fragment rather than the
+ * query, because it says nothing about *what* the snapshot did to the file — the
+ * status letter is still the answer to that, and still the badge. */
+const SPENT = "spent";
 
 /** A repo row holding lanes whose branches are gone. Warning-coloured and badged
  * with the count, because letting go of them is the one action in this view that
@@ -28,7 +38,9 @@ export function abandonedRepoUri(repoRoot: string, count: number): vscode.Uri {
   });
 }
 
-/** A reverted-away snapshot's row. Its path names no file — it only has to be unique
+/** The row of a snapshot every one of whose files is spent — put back, or already
+ * on the branch. The rows under it grey out one by one, and this greys when the last
+ * of them does. Its path names no file — it only has to be unique
  * per snapshot, so the decoration is cached per row. This is what greys the label:
  * `TreeItem.label` carries no colour of its own, and the row's icon slot belongs
  * to the agent. Being committed needs no such mark — those snapshots sit under their
@@ -69,8 +81,9 @@ export class SnapshotDecorations implements vscode.FileDecorationProvider, vscod
   readonly onDidChangeFileDecorations = this.changed.event;
   private readonly listener: vscode.Disposable;
   /** Snapshot URIs already asked about, by the file they point at, one per status
-   * letter. A row's URI carries that letter, so it is never the URI a diagnostics
-   * event names — this is the way back from the file to the rows showing it. */
+   * letter and spent state. A row's URI carries that letter, so it is never the URI
+   * a diagnostics event names — this is the way back from the file to the rows
+   * showing it. */
   private readonly rows = new Map<string, Map<string, vscode.Uri>>();
 
   constructor() {
@@ -96,11 +109,11 @@ export class SnapshotDecorations implements vscode.FileDecorationProvider, vscod
       return undefined;
     }
     if (uri.query === FROZEN) {
-      // Colour only. No badge: the row already says it twice over, struck through
-      // and greyed, and a badge would just cost width the label needs.
+      // Colour only. No badge: the greyed-out rows underneath already say what this
+      // is, and a badge would just cost width the label needs.
       return new vscode.FileDecoration(
         undefined,
-        "Reverted — nothing of this snapshot is left",
+        "Nothing of this snapshot is outstanding",
         new vscode.ThemeColor("disabledForeground"),
       );
     }
@@ -114,7 +127,7 @@ export class SnapshotDecorations implements vscode.FileDecorationProvider, vscod
     }
     const file = vscode.Uri.file(uri.path);
     const seen = this.rows.get(file.fsPath) ?? new Map<string, vscode.Uri>();
-    seen.set(uri.query, uri);
+    seen.set(`${uri.query}#${uri.fragment}`, uri);
     this.rows.set(file.fsPath, seen);
     const diagnostics = vscode.languages.getDiagnostics(file);
     const errors = diagnostics.filter(
@@ -131,10 +144,14 @@ export class SnapshotDecorations implements vscode.FileDecorationProvider, vscod
         new vscode.ThemeColor(errors > 0 ? "list.errorForeground" : "list.warningForeground"),
       );
     }
+    // A spent row keeps its letter and gives up its colour: what the snapshot did
+    // to the file is still true, and the grey — the same grey a frozen snapshot
+    // takes — is what says there is nothing left of it to act on.
+    const spent = uri.fragment === SPENT;
     return new vscode.FileDecoration(
       uri.query,
-      NAMES[uri.query],
-      new vscode.ThemeColor(COLORS[uri.query]),
+      spent ? `${NAMES[uri.query]}, nothing outstanding` : NAMES[uri.query],
+      new vscode.ThemeColor(spent ? "disabledForeground" : COLORS[uri.query]),
     );
   }
 }
