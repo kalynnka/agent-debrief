@@ -28,7 +28,7 @@ exist, and the `publish-vsix` job says so rather than failing blank.
 | registry | credential | where it comes from |
 |---|---|---|
 | Marketplace | `MARKETPLACE_PAT`, an Azure DevOps PAT scoped **Marketplace → Manage** | [2](#2-the-pat-that-publishes-it--marketplace_pat) |
-| npm | none — a trusted publisher, configured once on npmjs.com | [3](#3-npm-keeps-no-secret) |
+| npm | `NPM_TOKEN`, a granular access token | [3](#3-npm-publishes-on-a-token) |
 | — | `RELEASE_PLEASE_TOKEN`, optional, quality-of-life only | [4](#4-release_please_token-optional) |
 
 The PAT goes in **Settings → Secrets and variables → Actions**. `.env.example` carries the
@@ -84,59 +84,61 @@ Scopes        ( ) Full access
 > **This expires twice.** Once on the date you chose, and once for good: global PATs
 > retire **1 December 2026**. See [After the PAT](#after-the-pat) — but not yet.
 
-### 3. npm keeps no secret
+### 3. npm publishes on a token
 
-No Azure anywhere in this one, and no token either. `publish-npm` asks GitHub for an OIDC
-token, hands it to the registry, and gets back a credential that is good for this one
-package for a few minutes — **trusted publishing**. Nothing is stored, so there is nothing
-to rotate, leak or watch expire.
-
-It is configured per package, once, at **npmjs.com → Packages → agent-debrief → Settings →
-Trusted publishing**:
+No Azure anywhere in this one. `publish-npm` authenticates as `NPM_TOKEN`, a granular
+access token from **npmjs.com → your avatar → Access Tokens → Generate New Token →
+Granular Access Token**:
 
 | field | value |
 |---|---|
-| Publisher | GitHub Actions |
-| Organization or user | `kalynnka` |
-| Repository | `agent-debrief` |
-| Workflow filename | `release.yml` — the filename alone, no path |
-| Environment | leave empty |
-| Allowed actions | `npm publish` |
-
-**The workflow filename is matched exactly, and that is load-bearing.** The registry grants
-the exchange to that file and nothing else, which is what makes an OIDC identity narrower
-than any token: a publish from another workflow in this same repository is refused. It is
-also why there is no npm pre-flight — see [Cutting a release](#cutting-a-release).
+| Expiration | your call, but it is a real expiry and a release is where you find out |
+| Packages and scopes | **Read and write**, on `agent-debrief` |
+| Bypass two-factor authentication | ticked — a CI publish has nobody to prompt |
 
 Two things the workflow does for it, both easy to undo by accident:
 
-- **No `registry-url` on `actions/setup-node`.** It writes
-  `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into `.npmrc`, and with no token in
-  the environment that line expands to an empty credential. npm reads it as *auth is
-  already configured*, skips the exchange, and fails with `ENEEDAUTH`
-  ([actions/setup-node#1551][sn]). The default registry is registry.npmjs.org regardless.
-- **No `--provenance`.** Trusted publishing attests on its own; passing the flag is how you
-  get told so.
+- **`registry-url: https://registry.npmjs.org` on `actions/setup-node`.** It is what writes
+  `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into `.npmrc`, and that line is the
+  whole of the credential.
+- **`NODE_AUTH_TOKEN` in the environment of every step that reaches the registry.** The
+  `.npmrc` line expands against it. Unset, it expands to an empty string, npm reads that as
+  *auth is already configured*, and you get `ENEEDAUTH` ([actions/setup-node#1551][sn]) — a
+  message about `npm adduser` that has nothing to do with what went wrong.
 
-> **Why `0.1.0` went out on a token instead.** npm has no way to pre-register a trusted
-> publisher for a name that has never been published ([npm/cli#8544][oidc]) — the settings
-> page does not exist until the package does. So the first release used a granular token
-> with **Bypass two-factor authentication** ticked, which is a credential that publishes as
-> you with the one control that would stop a thief switched off. It was a bootstrap: one
-> release, then gone. If you ever have to do that again for a *new* package, note that the
-> token also needs **All packages** rather than "Only select packages" — a token scoped to
-> a list cannot create a package that is not on it yet — and that direct publishing from
-> bypass-2FA tokens is [due to stop in January 2027][gat] anyway.
+No `--provenance`: it needs `id-token: write` and an OIDC identity, which is the other path.
 
-**Retiring that token is three clicks and not optional**, because the workflow no longer
-reads it and an unused publish credential is the worst kind:
+#### The other path, when you want it
 
-1. Configure the trusted publisher above. Do it in the browser, signed in with 2FA —
-   since 31 July 2026 a bypass-2FA token may not change trusted-publishing config, so the
-   token cannot do this even if you wanted it to.
-2. Delete the `NPM_TOKEN` repository secret.
-3. **Revoke the token on npmjs.com.** Deleting the secret removes the pipeline's copy, not
-   the credential; it stays valid until you revoke it or its expiry catches up.
+**Trusted publishing** replaces the token with an OIDC exchange. `publish-npm` asks GitHub
+for a token, hands it to the registry, and gets back a credential good for this one package
+for a few minutes. Nothing is stored, so there is nothing to rotate, leak or watch expire —
+and it is narrower than any token, because the registry grants the exchange to one
+repository and one **workflow filename** and refuses everything else.
+
+It was tried for `0.1.1` and failed with `ENEEDAUTH`, for a reason worth writing down:
+**the exchange falls back to ordinary auth in silence when the package has no trusted
+publisher configured**, and the error names neither OIDC nor the missing config. Setting it
+up is a browser job at **npmjs.com → Packages → agent-debrief → Settings → Trusted
+publishing** — Publisher *GitHub Actions*, owner `kalynnka`, repository `agent-debrief`,
+workflow filename `release.yml` (the filename alone, no path), environment empty, allowed
+action `npm publish`. It has to be done signed in with 2FA: since 31 July 2026 a
+bypass-2FA token may not change trusted-publishing config, so the token cannot do it for
+you.
+
+Nor could it have been set up before the first release. npm has no way to pre-register a
+publisher for a name that has never been published ([npm/cli#8544][oidc]) — the settings
+page does not exist until the package does, which is why `0.1.0` went out on a token in the
+first place.
+
+Switching over is four edits to `publish-npm`: restore `id-token: write`, take
+`registry-url` off `setup-node`, drop every `NODE_AUTH_TOKEN`, and put `node-version` back
+to 24 — trusted publishing needs npm >= 11.5.1 and Node 20 ships npm 10. Then delete the
+`NPM_TOKEN` secret and **revoke the token on npmjs.com**: deleting the secret removes the
+pipeline's copy, not the credential.
+
+> Direct publishing from bypass-2FA tokens is [due to stop in January 2027][gat], so the
+> token path has an expiry date of its own whatever you set on the token.
 
 [gat]: https://github.blog/changelog/2026-07-31-restricting-npm-bypass-2fa-granular-access-tokens/
 [oidc]: https://github.com/npm/cli/issues/8544
@@ -240,7 +242,7 @@ Then, on the merge commit, `release.yml` in this order:
 | `release-please` | writes the tag and the GitHub release, and reports `release_created` |
 | `guard` | refuses unless the tag, `package.json` and `plugin.json` agree — before anything is built |
 | `build` | lint, types, tests, then the `.vsix`, attached to the release |
-| `publish-npm` | `npm publish`, on an OIDC identity minted for this run |
+| `publish-npm` | `npm publish`, authenticated as `NPM_TOKEN` |
 | `publish-vsix` | `vsce publish --packagePath`, the same file the release carries |
 
 Every job after the first checks out the **tag**, not `main`, so what is published is
@@ -250,11 +252,12 @@ release-please rather than being made redundant by it: the version reaching
 silently doing nothing, and the failure mode is plugin users never being offered the
 update.
 
-**npm goes first on purpose.** It is the credential with no pre-flight — the exchange only
-succeeds from `release.yml`, so the release is the only place it can be tested — while the
-PAT has step 0. Failing the untestable one before anything is public is what keeps a
-release from ending up on the Marketplace and not on npm, which is where `0.1.0` spent an
-afternoon. Both wait for `build`, so a failing suite publishes nothing at all.
+**npm goes first on purpose.** It is the credential with no pre-flight — the PAT has
+step 0 and `NPM_TOKEN` has nothing, so the release is where it is first exercised.
+Failing the unchecked one before anything is public is what keeps a release from ending
+up on the Marketplace and not on npm, which is where `0.1.0` spent an afternoon and where
+`0.1.1` stalled from the other side. Both wait for `build`, so a failing suite publishes
+nothing at all.
 
 That ordering is only safe because `publish-npm` checks the registry first and skips a
 version it already has, instead of failing on it. Re-running a release after a half-failure
@@ -273,8 +276,8 @@ therefore reaches `publish-vsix`.
 | `publish-vsix` fails asking for a credential | `MARKETPLACE_PAT` is unset. §2. |
 | 401 from the Marketplace | the PAT was scoped to one organization, not all. §2, step 3. |
 | 403 from the Marketplace | the PAT lacks **Marketplace → Manage**. §2, step 4. |
-| npm `ENEEDAUTH`, or a 404 on a package that plainly exists | the OIDC exchange was skipped. Almost always `registry-url` back on `actions/setup-node`, writing an empty `_authToken` into `.npmrc`. §3. |
-| npm **403** naming two-factor authentication | the trusted publisher does not match this run. Check the three fields it matches on — owner, repository, and **workflow filename**, which must still be `release.yml`. §3. |
+| npm `ENEEDAUTH`, or a 404 on a package that plainly exists | there is no credential. `.npmrc` says `_authToken=${NODE_AUTH_TOKEN}` and the variable is unset on that step, so it expands to nothing and npm reads it as auth already configured. §3. |
+| npm **403** naming two-factor authentication | the token does not have **Bypass two-factor authentication** ticked, or it has expired and npm is describing the wrong thing. §3. |
 | npm publishes but carries no provenance | provenance is not generated for private repositories, whatever the package's own visibility. |
 | `You cannot publish over the previously published versions` | that version is already on the registry, and `publish-npm` should have skipped it. Versions are permanent — bump and cut another. |
 
