@@ -628,6 +628,19 @@ function present(
  * work, not the exception. So a commit takes every snapshot whose changes it
  * completes, and a snapshot is credited to the earliest commit that completed it.
  *
+ * Earliest, but never earlier than the snapshot. A snapshot that undoes work no
+ * commit ever took puts a path back to what the branch already holds, so every
+ * commit from there on "holds what it left" — including commits made before the
+ * snapshot existed, and earliest would credit one of those. Which reads as the
+ * undo never having been recorded at all: it is filed under a commit older than
+ * itself instead of standing where it was taken.
+ *
+ * The bound is each snapshot's own `head`, the commit HEAD was on when it was
+ * captured. Everything reachable from there is older than the snapshot, so
+ * nothing at or before it in the walk may claim it. A snapshot from before that
+ * field existed, or one whose HEAD a rebase took off the branch, is unbounded —
+ * the same answer as always, rather than a guess.
+ *
  * Nothing is recorded: amending, rebasing or resetting simply changes the answer.
  *
  * The walk stops where the lane started — snapshot 1's parent — with a numeric
@@ -657,9 +670,17 @@ export async function landedCommits(
   const changedBy = new Map(
     (await git.chain(head, snapshots[0].parent, false)).map((commit) => [commit.sha, commit.files]),
   );
+  // How far along the walk each snapshot was already standing when it was taken.
+  // A commit at or before that point predates it and cannot have taken it. Off
+  // the walk — the lane's base, or a HEAD a rebase stranded — reads as -1, which
+  // no step is below.
+  const step = new Map(walk.map((commit, i) => [commit.sha, i]));
+  const takenAfter = snapshots.map((snapshot) =>
+    snapshot.head === undefined ? -1 : (step.get(snapshot.head) ?? -1),
+  );
   const pending = new Set(snapshots.map((_, i) => i));
   const grouped: LandedCommit[] = [];
-  for (const commit of walk) {
+  for (const [now, commit] of walk.entries()) {
     for (const file of changedBy.get(commit.sha) ?? []) {
       if (files.has(file.path)) {
         at.set(file.path, file.blob);
@@ -669,7 +690,7 @@ export async function landedCommits(
       break;
     }
     // Insertion order is ascending index, so the numbers come out in order.
-    const took = [...pending].filter((i) => present(content, i, at));
+    const took = [...pending].filter((i) => now > takenAfter[i] && present(content, i, at));
     if (took.length === 0) {
       continue;
     }

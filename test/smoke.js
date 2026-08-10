@@ -1054,6 +1054,50 @@ async function main() {
   fs.rmSync(fwdRoot, { recursive: true, force: true });
   console.log("a comment on an older snapshot lands   ok");
 
+  // 29. Belongs with 15–19: a snapshot that undoes work no commit ever took.
+  //     Putting a path back to what the branch already holds makes every commit
+  //     from there on hold "what the snapshot left", and crediting the earliest
+  //     files it under a commit made before it was taken — which reads as the
+  //     undo never having been snapshotted. Bounded by the HEAD each snapshot
+  //     records: a commit cannot take work that did not exist when it was made.
+  const undoRoot = fs.mkdtempSync(path.join(os.tmpdir(), "debrief-undo-"));
+  const ug = (args) => execFileSync("git", args, { cwd: undoRoot, encoding: "utf8" });
+  ug(["init", "-q", "-b", "main", "."]);
+  ug(["config", "user.email", "t@t"]);
+  ug(["config", "user.name", "t"]);
+  const wroteX = (text) => fs.writeFileSync(path.join(undoRoot, "x.txt"), text);
+  wroteX("0\n");
+  ug(["add", "."]);
+  ug(["commit", "-qm", "base"]);
+  const ugit = new Git(undoRoot);
+  const ustore = new Store(await resolveLane(undoRoot));
+  wroteX("1\n");
+  await takeSnapshot(ugit, ustore, { label: "sets x to 1", agent: "manual" });
+  ug(["add", "-A"]);
+  ug(["commit", "-qm", "land snapshot 1"]);
+  const undoLanded = async () =>
+    [...(await landedSnapshots(ugit, ustore.data.snapshots, await ugit.head()))].sort();
+  assert.deepStrictEqual(await undoLanded(), [1], "the commit takes the snapshot it covers");
+
+  // Then a change and its undo, neither committed. Snapshot 3 leaves x.txt at
+  // exactly the committed content, so nothing is outstanding for it — and no
+  // future commit can ever hold it either, since there is nothing left to stage.
+  wroteX("2\n");
+  await takeSnapshot(ugit, ustore, { label: "sets x to 2", agent: "manual" });
+  wroteX("1\n");
+  await takeSnapshot(ugit, ustore, { label: "puts x back", agent: "manual" });
+  assert.strictEqual(ug(["status", "--porcelain"]).trim(), "", "the undo must match the branch");
+  assert.deepStrictEqual(
+    await undoLanded(),
+    [1],
+    "a commit took a snapshot that did not exist when it was made",
+  );
+  const undoGroups = await landedCommits(ugit, ustore.data.snapshots, await ugit.head());
+  assert.strictEqual(undoGroups.length, 1, "one commit, one group");
+  assert.deepStrictEqual(undoGroups[0].snapshots, [1], "the group must not gain later snapshots");
+  fs.rmSync(undoRoot, { recursive: true, force: true });
+  console.log("a commit cannot land the future        ok");
+
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(other, { recursive: true, force: true });
   console.log("\nall checks passed");
