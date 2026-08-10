@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.2](https://github.com/kalynnka/agent-debrief/compare/0.1.1...0.1.2) (2026-08-10)
+
+
+### Bug Fixes
+
+* **release:** publish npm on the token, not on an identity that does not exist ([e0238e2](https://github.com/kalynnka/agent-debrief/commit/e0238e24400ec89355d58b20abd704ef24e0fd01))
+
+
+### Documentation
+
+* **releasing:** npm is a token again, and why the other path failed ([43128f1](https://github.com/kalynnka/agent-debrief/commit/43128f10ef62d3dc31aa3d7357d41dea0f6e7681))
+
 ## [0.1.1](https://github.com/kalynnka/agent-debrief/compare/0.1.0...0.1.1) (2026-08-10)
 
 
