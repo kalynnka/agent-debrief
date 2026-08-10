@@ -77,31 +77,58 @@ Install the skill and this needs no thought from you: the review is simply there
 agent stops talking.
 
 **A hook is how you make it a guarantee.** A skill is guidance, and a turn can end without
-following it. If you want *every* run that changed something snapshotted regardless, add
-the Stop hook to **that project's** `.claude/settings.json`:
+following it. If you want *every* run that changed something snapshotted regardless, wire
+one command into whatever your agent calls its stop event:
 
-```json
-"hooks": {
-  "Stop": [{ "hooks": [{ "type": "command",
-    "command": "/bin/sh -c 'debrief snapshot --from-stop-hook >/dev/null; exit 0'"
-  }]}]
-}
+```bash
+debrief snapshot --from-stop-hook --agent <name>
 ```
 
-It is a backstop rather than an author. On a tree the agent already snapshotted it takes
-nothing, so it cannot double up; when it does fire it names the snapshot from the turn's
-closing sentence, which reads less well than one written on purpose.
+It reads the host's payload as JSON on stdin and uses whatever is in it — `cwd`,
+`session_id`, `last_assistant_message`, `transcript_path`, every one optional — so a host
+that sends a subset still works. Pass `--agent`: unnamed, a stop-hook snapshot records as
+`claude`, and that name is the icon on its row.
 
-> **Not in `~/.claude/settings.json`.** A hook there fires in every repository you open,
-> writing snapshot refs into dozens you will never review. The cost is per-repo and so is
-> the benefit — install it where you are actually reviewing.
+What differs between hosts is only where the config goes, and it belongs to **the
+project**, never your home directory:
+
+| host | the file | what it holds |
+|---|---|---|
+| Claude Code | `<repo>/.claude/settings.json` | `"hooks": { "Stop": … }`, beside your other settings |
+| Codex | `<repo>/.codex/hooks.json` | `{ "hooks": { "Stop": … } }`, the whole file |
+| anything else | its own stop or post-run hook | the command; no JSON needed |
+
+Both of the first two take the same array under `Stop`:
+
+```json
+[{ "hooks": [{ "type": "command",
+  "command": "/bin/sh -c 'debrief snapshot --from-stop-hook --agent <name> >/dev/null; exit 0'"
+}] }]
+```
+
+The `sh -c … exit 0` wrapper is what keeps the hook from ever failing a turn. Snapshotting
+already exits 0 when there was nothing to take; this covers the rest — a directory that is
+not a repository, a payload that is not JSON.
+
+It is a backstop rather than an author. On a tree the agent already snapshotted it takes
+nothing, so it cannot double up. When it does fire it names the snapshot from the turn's
+closing sentence — from `last_assistant_message` where the host sends one, otherwise by
+reading the transcript, which debrief only knows how to do for Claude Code. With neither
+the row is `snapshot <n>`, and none of the three reads as well as a label written on
+purpose.
+
+> **Not in your home directory** — not `~/.claude/settings.json`, not `~/.codex/`. A hook
+> there fires in every repository you open, writing snapshot refs into dozens you will
+> never review. The cost is per-repo and so is the benefit — install it where you are
+> actually reviewing.
 
 **Take Snapshot is still yours**, and worth one press before you set an agent going: the
 first snapshot diffs against `HEAD`, so anything already sitting in the tree would
 otherwise turn up inside the agent's first row as though it wrote it.
 
-Optionally, a hook does that for you, keeping your **own** edits between turns in a
-snapshot of their own rather than inside the agent's next one:
+Optionally, a hook on the other end of the turn does that for you, keeping your **own**
+edits between turns in a snapshot of their own rather than inside the agent's next one.
+`UserPromptSubmit` is Claude Code's name for that event; use whatever yours calls it:
 
 ```json
 "UserPromptSubmit": [{ "hooks": [{ "type": "command",
@@ -111,19 +138,20 @@ snapshot of their own rather than inside the agent's next one:
 Snapshotting is idempotent — a turn that changed nothing takes no snapshot — so neither
 hook can pollute the numbering.
 
-**Codex** works the same way, same skills, same payload, same opt-in rule.
-`<repo>/.codex/hooks.json`:
+**Any other agent** needs the same two pieces, and neither one names a host.
 
-```json
-{ "hooks": { "Stop": [{ "hooks": [{ "type": "command",
-  "command": "debrief snapshot --from-stop-hook --agent codex" }] }] } }
-```
+- **The CLI**, from `npm i -g agent-debrief`. Anything that can run a command can record
+  its own work — `debrief snapshot --label "what it did" --agent <name>` — and pick the
+  review back up afterwards with `debrief review open` and `debrief review reply <id> -m`.
+  That is the whole contract; there is no other integration point.
+- **The skills**, which are two `SKILL.md` files that mention no host and call nothing but
+  the CLI. Copy or symlink `skills/*` into wherever yours reads skills from —
+  `<repo>/.agents/skills/` is the convention Codex follows, `~/.agents/skills/` if you want
+  them everywhere. Global is fine for skills in a way it is not for hooks: a skill is
+  model-invoked, so one that does not apply costs nothing.
 
-Its skills are the same files: copy or symlink `skills/*` into `<repo>/.agents/skills/`.
-
-**Any other agent** that can run a command can record its own snapshot —
-`debrief snapshot --label "what it did" --agent <name>` — and any agent at all can be
-reviewed by snapshotting yourself before and after it works.
+Failing both, any agent at all can still be reviewed by snapshotting yourself before and
+after it works — two presses of the camera, and what is between them is its turn.
 
 ## How a review goes
 

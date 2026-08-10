@@ -28,7 +28,7 @@ A Stop hook makes it a guarantee rather than an instruction, for a repo where yo
 that:
 
 ```bash
-debrief snapshot --from-stop-hook   # reads the hook payload on stdin
+debrief snapshot --from-stop-hook --agent <name>   # reads the hook payload on stdin
 ```
 
 It takes the repo and the session id from the payload, and a label from the turn's
@@ -566,42 +566,61 @@ anything else — because an agent this build has never heard of is still an age
 ### 6.5 Hooks, and where they belong
 
 A hook earns its place in a repository you are reviewing turn by turn and nowhere else.
-It goes in **that project's** `.claude/settings.json`:
+One command, wired into whatever your agent calls its stop event:
 
-```json
-"hooks": {
-  "Stop": [{ "hooks": [{ "type": "command",
-    "command": "/bin/sh -c 'debrief snapshot --from-stop-hook >/dev/null; exit 0'"
-  }]}]
-}
+```bash
+debrief snapshot --from-stop-hook --agent <name>
 ```
 
-**Not in `~/.claude/settings.json`.** A hook there fires in every repository you open, so
-every clone you touch starts accumulating snapshot refs and a badge for work nobody is
-going to read. The benefit is per-repo; so is the cost.
+It takes the payload as JSON on stdin and reads what is there — `session_id`, `cwd`,
+`transcript_path`, `last_assistant_message`, all optional, all fields both Claude Code and
+Codex send — so a host that carries a subset still works. `--agent` is worth passing:
+unnamed, a stop-hook snapshot records as `claude`.
+
+Only the config file is host-specific, and it belongs to **that project**:
+
+| host | the file | what it holds |
+|---|---|---|
+| Claude Code | `<repo>/.claude/settings.json` | `"hooks": { "Stop": … }`, beside your other settings |
+| Codex | `<repo>/.codex/hooks.json` | `{ "hooks": { "Stop": … } }`, the whole file |
+| anything else | its own stop or post-run hook | the command; no JSON needed |
+
+Both of the first two take the same array under `Stop`:
+
+```json
+[{ "hooks": [{ "type": "command",
+  "command": "/bin/sh -c 'debrief snapshot --from-stop-hook --agent <name> >/dev/null; exit 0'"
+}] }]
+```
+
+The `sh -c … exit 0` wrapper is what keeps the hook from failing a turn: snapshotting
+already exits 0 when there was nothing to take, and this covers a directory that is not a
+repository or a payload that is not JSON.
+
+**Not in your home directory.** A hook in `~/.claude/settings.json` or `~/.codex/` fires in
+every repository you open, so every clone you touch starts accumulating snapshot refs and a
+badge for work nobody is going to read. The benefit is per-repo; so is the cost.
 
 It is also why the Claude Code plugin ships **no hook**. A plugin installs globally, so a
 hook inside one is a global hook by construction. The plugin carries what is safe
 everywhere — the skills, and `debrief` on the Bash tool's PATH.
 
-**Codex** is the same shape. Its lifecycle hooks deliver a `Stop` payload with the fields
-debrief already reads — `session_id`, `cwd`, `transcript_path`, `last_assistant_message`,
-on stdin — so the command is unchanged but for the agent name. `<repo>/.codex/hooks.json`:
+**Any other agent** needs the CLI and the skills, and neither one names a host.
 
-```json
-{ "hooks": { "Stop": [{ "hooks": [{ "type": "command",
-  "command": "debrief snapshot --from-stop-hook --agent codex" }] }] } }
-```
-
-Its skills are the same `SKILL.md` files, copied or symlinked into
-`<repo>/.agents/skills/`. Skills are model-invoked and cost nothing when they do not
-apply, so `~/.agents/skills/` is fine for those — the global rule above is about hooks.
-
-**Any other agent** that can run a command can record its own:
+`npm i -g agent-debrief` puts `debrief` on the real PATH. Anything that can run a command
+can then record its own work and answer the review that comes back:
 
 ```bash
 debrief snapshot --label "what the snapshot did" --agent copilot
+debrief review open
+debrief review reply <id> -m "what I did about it"
 ```
+
+The skills are the same two `SKILL.md` files, which mention no host and call nothing but
+that CLI. Copy or symlink them into wherever your agent reads skills from —
+`<repo>/.agents/skills/` is the convention Codex follows. Skills are model-invoked and cost
+nothing when they do not apply, so `~/.agents/skills/` is fine for those; the global rule
+above is about hooks.
 
 And any agent at all can be reviewed by snapshotting manually before and after you let it
 work.
