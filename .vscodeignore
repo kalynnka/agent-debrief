@@ -39,6 +39,8 @@ eslint.config.mjs
 pnpm-lock.yaml
 pnpm-workspace.yaml
 .gitignore
+release-please-config.json
+.release-please-manifest.json
 
 # The activity-bar icon and the agent marks are used at runtime. The readme's
 # screenshot is not, and it is the largest file in the repository.

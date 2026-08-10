@@ -23,7 +23,8 @@ docs/
 .env
 .env.*
 
-# Tooling and editor state.
+# Tooling and editor state. The release-please pair describes how this repository
+# cuts a release; it says nothing to anyone installing what it cut.
 .github/
 .vscode/
 .claude/
@@ -31,6 +32,8 @@ docs/
 pnpm-lock.yaml
 pnpm-workspace.yaml
 *.vsix
+release-please-config.json
+.release-please-manifest.json
 
 # The activity-bar icon and the agent marks are used at runtime by the extension
 # half of out/. The readme's screenshot is served from GitHub, not from here.

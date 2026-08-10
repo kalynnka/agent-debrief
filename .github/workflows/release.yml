@@ -1,48 +1,100 @@
 name: Release
 
-# A release you published by hand, never a tag push. Pushing v0.1.0 on its own does
-# nothing; this starts when you click Publish release in GitHub's UI, which is the
-# only gate between a commit and two public registries.
+# release-please owns the version, the tag, the changelog and the release. Every
+# push to main is offered to it; it keeps one pull request open — "chore(main):
+# release x.y.z" — that accumulates every conventional commit since the last
+# release, and merging that pull request is the gate. Nothing reaches a registry
+# until you merge it, and the version is never typed by hand.
+#
+# Not `on: release: published` any more, and that is not a preference. A release
+# created with the default GITHUB_TOKEN does not start another workflow, so a
+# publish keyed off the release event would simply never run. The publish has to
+# live in the same run that creates the release, which is why the jobs below hang
+# off `release_created` rather than off an event.
+#
+# Cutting a release by hand in the UI therefore does nothing at all now — the same
+# as pushing a tag always did.
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  # The release tag and package.json are edited in different places, and a mismatch
-  # publishes a version nobody named. Cheapest possible check, first.
+  release-please:
+    name: open or land the release pull request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          # Events made with the default token never start another workflow, so a
+          # release pull request opened with it gets no CI run and sits there with
+          # no checks. RELEASE_PLEASE_TOKEN, a fine-grained PAT with contents and
+          # pull-requests write, fixes that; until the secret exists this falls
+          # back to the old behaviour, where the pull request needs a manual
+          # close/reopen to pick its checks up.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # release-please bumps package.json and, through extra-files, plugin.json — so
+  # the two cannot drift and neither can the tag. This is what says that is still
+  # true: it catches an extra-files entry that silently stopped matching, which is
+  # a config typo away and otherwise only shows up as plugin users never being
+  # offered the update. Everything downstream chains off this job, so a skip here
+  # skips the whole publish.
   guard:
-    name: the tag names the version being published
+    name: one version in every file that carries it
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: |
-          tag="${GITHUB_REF_NAME#v}"
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+      - env:
+          TAG: ${{ needs.release-please.outputs.tag }}
+        run: |
+          tag="${TAG#v}"
           pkg="$(node -p "require('./package.json').version")"
           if [ "$tag" != "$pkg" ]; then
-            echo "release tag $GITHUB_REF_NAME says $tag; package.json says $pkg" >&2
-            echo "bump one to match the other and re-run — nothing has been published" >&2
+            echo "release tag $TAG says $tag; package.json says $pkg" >&2
+            echo "release-please writes both — this means its config is wrong" >&2
             exit 1
           fi
           # The plugin's own version is what decides when an installed plugin is
-          # offered the update, and it lives in a second file nobody looks at while
-          # cutting a release. Drift here is silent: npm gets the new code and every
-          # plugin user stays where they are.
+          # offered the update, and it lives in a second file nobody looks at.
+          # Drift here is silent: npm gets the new code and every plugin user
+          # stays where they are.
           plugin="$(node -p "require('./.claude-plugin/plugin.json').version")"
           if [ "$plugin" != "$pkg" ]; then
             echo ".claude-plugin/plugin.json says $plugin; package.json says $pkg" >&2
-            echo "plugin users are offered an update only when that version changes" >&2
+            echo "the extra-files entry in release-please-config.json is not landing" >&2
             exit 1
           fi
           echo "publishing $pkg"
 
   build:
-    needs: guard
+    needs: [release-please, guard]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # attach the .vsix to the release
     steps:
+      # The tag, not the branch. main may already have moved on, and what gets
+      # published has to be what the release says it is.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -56,13 +108,66 @@ jobs:
       - run: pnpm run package
       # Attached to the release itself, so the .vsix somebody installs by hand is
       # the same file the registry got.
-      - run: gh release upload "$GITHUB_REF_NAME" ./*.vsix --clobber
+      - run: gh release upload "$TAG" ./*.vsix --clobber
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag }}
       - uses: actions/upload-artifact@v7
         with:
           name: vsix
           path: "*.vsix"
+
+  publish-npm:
+    needs: [release-please, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The entire npm credential. npm trades this OIDC identity for a short-lived
+      # token scoped to this one package, so there is nothing stored to leak, rotate
+      # or expire. It is granted by the trusted publisher configured on npmjs.com,
+      # which names this repository and this workflow file by name.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+      - uses: pnpm/action-setup@v6
+      # 24 rather than the 20 the rest of the workflow uses: trusted publishing
+      # needs npm >= 11.5.1 and Node 20 ships npm 10.
+      #
+      # And deliberately no registry-url. It writes
+      #   //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
+      # into .npmrc, which with no token in the environment expands to an empty
+      # credential; npm reads that as "auth is already configured", skips the OIDC
+      # exchange, and fails with ENEEDAUTH. actions/setup-node#1551, still open.
+      # registry.npmjs.org is the default anyway.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: npm --version
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run compile
+      # publish-vsix is downstream of this job, so a re-run after a half-failure
+      # has to get past here. npm refuses a version it already has, and that
+      # refusal would otherwise strand the Marketplace half for good.
+      - id: registry
+        name: has the registry got this version already
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          # On the version string rather than the exit status. npm 11 exits 1 for a
+          # version it does not have, but that has not always been true, and the way
+          # this step fails wrong is by skipping every publish in silence.
+          if [ -n "$(npm view "agent-debrief@$VERSION" version 2>/dev/null)" ]; then
+            echo "npm already has $VERSION — skipping the publish, not failing the release"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+      # npm, not pnpm: .npmignore is what carves this tarball, and npm is the tool
+      # that reads it the way the registry will. No --provenance either — trusted
+      # publishing attests on its own, and passing it is how you get told so.
+      - if: steps.registry.outputs.published != 'true'
+        run: npm publish --access public
 
   # After publish-npm rather than beside it. npm is the credential that cannot be
   # checked before a release — its OIDC exchange only happens at publish, and only
@@ -70,10 +175,12 @@ jobs:
   # the unverifiable one first means a broken npm identity stops the release before
   # anything is public, which is exactly the state 0.1.0 ended up in.
   publish-vsix:
-    needs: publish-npm
+    needs: [release-please, publish-npm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -99,52 +206,3 @@ jobs:
       - run: pnpm exec vsce publish --packagePath ./*.vsix
         env:
           VSCE_PAT: ${{ secrets.MARKETPLACE_PAT }}
-
-  publish-npm:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      # The entire npm credential. npm trades this OIDC identity for a short-lived
-      # token scoped to this one package, so there is nothing stored to leak, rotate
-      # or expire. It is granted by the trusted publisher configured on npmjs.com,
-      # which names this repository and this workflow file by name.
-      id-token: write
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      # 24 rather than the 20 the rest of the workflow uses: trusted publishing
-      # needs npm >= 11.5.1 and Node 20 ships npm 10.
-      #
-      # And deliberately no registry-url. It writes
-      #   //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
-      # into .npmrc, which with no token in the environment expands to an empty
-      # credential; npm reads that as "auth is already configured", skips the OIDC
-      # exchange, and fails with ENEEDAUTH. actions/setup-node#1551, still open.
-      # registry.npmjs.org is the default anyway.
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: npm --version
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run compile
-      # publish-vsix is downstream of this job now, so a release re-run after a
-      # half-failure has to get past here. npm refuses a version it already has,
-      # and that refusal would otherwise strand the Marketplace half for good.
-      - id: registry
-        name: has the registry got this version already
-        run: |
-          v="$(node -p "require('./package.json').version")"
-          # On the version string rather than the exit status. npm 11 exits 1 for a
-          # version it does not have, but that has not always been true, and the way
-          # this step fails wrong is by skipping every publish in silence.
-          if [ -n "$(npm view "agent-debrief@$v" version 2>/dev/null)" ]; then
-            echo "npm already has $v — skipping the publish, not failing the release"
-            echo "published=true" >> "$GITHUB_OUTPUT"
-          fi
-      # npm, not pnpm: .npmignore is what carves this tarball, and npm is the tool
-      # that reads it the way the registry will. No --provenance either — trusted
-      # publishing attests on its own, and passing it is how you get told so.
-      - if: steps.registry.outputs.published != 'true'
-        run: npm publish --access public
