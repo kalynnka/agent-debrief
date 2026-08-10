@@ -689,7 +689,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       return;
     }
-    const changed = await filesOf(node);
+    const shown = await filesOf(node);
+    // Files the branch already holds are not this snapshot's to give back. Putting
+    // one back would not undo the snapshot — what is on disk is committed — it would
+    // open an uncommitted diff against your own commit. The tree greys those rows and
+    // offers them no button of their own; the snapshot row above them has to make the
+    // same subtraction, or reverting the snapshot takes them along with the work that
+    // is still outstanding.
+    //
+    // A landed snapshot is exempt, and a file row carries the answer already: every
+    // file of a landed snapshot is on the branch, and reverting one of those on
+    // purpose stays yours to do.
+    const head = await node.repo.git.head();
+    const spent =
+      node.kind === "file"
+        ? // Both of the branch-holds-it words, and not `reverted`, which points at
+          // the snapshot's own starting point and stays a harmless no-op below.
+          new Set(node.spent === "committed" || node.spent === "recovered" ? [node.file.path] : [])
+        : node.landed || head === undefined
+          ? new Set<string>()
+          : await node.repo.git.unchangedSince(
+              head,
+              shown.map((file) => file.path),
+            );
+    const changed = shown.filter((file) => !spent.has(file.path));
+    // Only a file row stops here. A snapshot left with nothing to give back is the
+    // frozen one, and the bin on it still has a record to throw out — the wording
+    // below already says that no file moves.
+    if (node.kind === "file" && changed.length === 0) {
+      vscode.window.showInformationMessage(
+        `Debrief: nothing to revert — the branch already holds what is on disk here.`,
+      );
+      return;
+    }
     const paths = changed.map((file) => file.path);
     const intact = await node.repo.git.unchangedSince(node.snapshot.sha, paths);
     // Already back at the snapshot's starting point — reverting it again is a no-op,
@@ -744,13 +776,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const notes = node.repo.store.data.threads.filter(
       (thread) => thread.snapshot === node.snapshot.n,
     ).length;
-    // A snapshot whose work is already reverted has nothing left to put back, so
-    // saying files "go back" would be a lie: all that is left to do is forget it.
+    // A snapshot with nothing outstanding has nothing left to put back, so saying
+    // files "go back" would be a lie: all that is left to do is forget it. Either
+    // cause gets here — the work was reverted, or the branch already holds it and
+    // the subtraction above took those files out of `changed`.
     const restoring = changed.filter((file) => !undone.has(file.path)).length;
     const comments = notes > 0 ? ` ${notes} comment(s) on it go with it.` : "";
     const detail =
       restoring === 0
-        ? `Nothing on disk changes — this snapshot's work is already reverted. Only the ` +
+        ? `Nothing on disk changes — nothing of this snapshot is outstanding. Only the ` +
           `snapshot itself goes.${comments}`
         : `Its ${restoring} file(s) go back to how they were before it, and the snapshot ` +
           `itself is removed.${comments} The index is untouched.`;
