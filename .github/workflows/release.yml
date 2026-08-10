@@ -122,30 +122,36 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # The entire npm credential. npm trades this OIDC identity for a short-lived
-      # token scoped to this one package, so there is nothing stored to leak, rotate
-      # or expire. It is granted by the trusted publisher configured on npmjs.com,
-      # which names this repository and this workflow file by name.
-      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.tag }}
       - uses: pnpm/action-setup@v6
-      # 24 rather than the 20 the rest of the workflow uses: trusted publishing
-      # needs npm >= 11.5.1 and Node 20 ships npm 10.
-      #
-      # And deliberately no registry-url. It writes
+      # registry-url is what writes
       #   //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}
-      # into .npmrc, which with no token in the environment expands to an empty
-      # credential; npm reads that as "auth is already configured", skips the OIDC
-      # exchange, and fails with ENEEDAUTH. actions/setup-node#1551, still open.
-      # registry.npmjs.org is the default anyway.
+      # into .npmrc, and that line is the whole of the npm credential here. Every
+      # step that talks to the registry has to put NPM_TOKEN in the environment for
+      # it to expand to; unset, it expands to an empty string, npm reads that as
+      # "auth is configured", and the failure is ENEEDAUTH.
+      #
+      # Node 20 like the rest of the workflow. Trusted publishing needed 24 for
+      # npm >= 11.5.1; token auth has no such floor.
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 20
+          registry-url: https://registry.npmjs.org
           cache: pnpm
-      - run: npm --version
+      # Symmetry with publish-vsix: say which credential is missing rather than
+      # failing inside npm with a message about `npm adduser`.
+      - name: the credential has to exist before this means anything
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "no NPM_TOKEN secret — nothing was published to npm." >&2
+            echo "docs/RELEASING.md §3 is where this token comes from." >&2
+            exit 1
+          fi
       - run: pnpm install --frozen-lockfile
       - run: pnpm run compile
       # publish-vsix is downstream of this job, so a re-run after a half-failure
@@ -155,6 +161,7 @@ jobs:
         name: has the registry got this version already
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           # On the version string rather than the exit status. npm 11 exits 1 for a
           # version it does not have, but that has not always been true, and the way
@@ -164,16 +171,18 @@ jobs:
             echo "published=true" >> "$GITHUB_OUTPUT"
           fi
       # npm, not pnpm: .npmignore is what carves this tarball, and npm is the tool
-      # that reads it the way the registry will. No --provenance either — trusted
-      # publishing attests on its own, and passing it is how you get told so.
+      # that reads it the way the registry will. No --provenance: it needs
+      # id-token: write and an OIDC identity, which is the path this is not on.
       - if: steps.registry.outputs.published != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
 
-  # After publish-npm rather than beside it. npm is the credential that cannot be
-  # checked before a release — its OIDC exchange only happens at publish, and only
-  # from this workflow — while the Marketplace PAT has its own pre-flight. Putting
-  # the unverifiable one first means a broken npm identity stops the release before
-  # anything is public, which is exactly the state 0.1.0 ended up in.
+  # After publish-npm rather than beside it. The Marketplace PAT has a pre-flight
+  # workflow of its own and the npm token has none, so the credential nobody has
+  # exercised since the last release goes first: a broken one stops the release
+  # before anything is public. Half-published is the state 0.1.0 spent an afternoon
+  # in, and 0.1.1 hit again from the other side.
   publish-vsix:
     needs: [release-please, publish-npm]
     runs-on: ubuntu-latest
