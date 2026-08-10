@@ -15,7 +15,23 @@
     "vscode": "^1.90.0"
   },
   "categories": [
-    "SCM Providers"
+    "AI",
+    "SCM Providers",
+    "Other"
+  ],
+  "keywords": [
+    "code review",
+    "ai",
+    "agent",
+    "claude code",
+    "copilot",
+    "cursor",
+    "diff",
+    "git",
+    "snapshot",
+    "checkpoint",
+    "review comments",
+    "pair programming"
   ],
   "main": "./out/extension.js",
   "bin": {
