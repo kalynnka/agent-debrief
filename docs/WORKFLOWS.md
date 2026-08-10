@@ -462,12 +462,25 @@ snapshot rewrote it, since work written over still reached the branch through th
 work that replaced it.
 
 **A commit only ever takes work that existed when it was made.** Every snapshot
-records the HEAD it was captured at, and no commit at or before that one may claim
-it. Without the bound, a snapshot that puts a path back to what the branch already
-holds matches every commit from there on and gets credited to the oldest — filed
-under a commit older than itself, which reads as never having been snapshotted at
-all. Such a snapshot has nothing outstanding and no commit can ever take it, so it
-goes **frozen** (§4.5) rather than landed.
+records the HEAD it was captured at, and a snapshot's work began when the snapshot
+*before* it was taken — so no commit at or before that earlier HEAD may claim it.
+Without the bound, a snapshot that puts a path back to what the branch already holds
+matches every commit from there on and gets credited to the oldest: filed under a
+commit older than itself, which reads as never having been snapshotted at all. Such a
+snapshot has nothing outstanding and no commit can ever take it, so it goes **frozen**
+(§4.5) rather than landed.
+
+The bound is the *previous* snapshot's HEAD and not the snapshot's own, because
+committing and then snapshotting is the ordinary shape of a turn — the agent commits,
+the hook fires afterwards, and the snapshot records that commit as its HEAD. It is the
+very commit that took the work, so bounding on it would leave every such turn sitting
+in Open with nothing that could ever land it.
+
+The same bound governs how work written over is credited. A snapshot whose files a
+later one rewrote lands when the later content reaches the branch — but only when that
+later snapshot could itself have been taken by the commit in question. Otherwise a
+commit predating the whole episode satisfies a snapshot through an undo made long
+after it, and work that never left the working tree reads as landed.
 
 Your commits are the only commits, and they count without being told to. Stage the
 three files you have read, commit them, and the snapshot they belonged to lands the
