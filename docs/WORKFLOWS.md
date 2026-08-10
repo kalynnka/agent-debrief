@@ -129,6 +129,29 @@ that the frozen tab loses its live language server — it is history now.
 Marking a file as read is **switched off** — §5.2 says why, and what came off
 with it. Reviews open whole.
 
+A **greyed-out** file row has nothing outstanding on it, and its description says
+which of three things happened to that change:
+
+| mark | what is on disk | what became of the snapshot's change |
+|---|---|---|
+| `reverted` | where this snapshot found it | undone |
+| `committed` | the file as this snapshot left it | on the branch |
+| `recovered` | what the branch holds, which is *not* what the snapshot left | undone, by hand |
+
+`recovered` is the one worth knowing. Restore a file from HEAD yourself — `git
+restore`, Discard Changes, an editor undo back to the committed text — and disk now
+matches the branch, which reads exactly like the change having landed. It did the
+opposite: the snapshot's version is gone. Only `committed` means the work survived,
+and it is a per-file answer, so staging and committing half a snapshot marks that
+half and leaves the rest outstanding.
+
+None of the three offers **Revert**. On `reverted` it would do nothing; on the other
+two it would write the pre-snapshot content over a file whose current content is the
+branch's, which is not undoing the snapshot but opening an uncommitted diff against
+your own commit. The row is greyed rather than dropped because the snapshot's account
+of what it did has to stay whole; it still opens onto that change. The file count on
+the snapshot leaves these out, and so does reverting the snapshot as a whole.
+
 A row marked `⇣` is **not the agent's change**. It arrived when HEAD moved under
 that snapshot — a pull, a merge, a reset — and the snapshot holds it exactly as
 that move left it. A snapshot diffs against the snapshot before it and never
@@ -314,11 +337,20 @@ stashed state the new starting point.
 
 This is the one guess in the tool. Everything else it shows is derived from git.
 
-### 4.5 A snapshot you reverted piece by piece
+### 4.5 A snapshot with nothing left outstanding
 
-Once nothing of a snapshot is left on disk it goes **frozen** — struck through and
-greyed, holding its number rather than vanishing, so the snapshots around it keep
-their order. Drop it when you want it gone.
+Files go grey one at a time, for the three reasons §2 gives. When every one of a
+snapshot's files has, the snapshot itself is **frozen**: greyed, holding its number
+rather than vanishing, so the snapshots around it keep their order. It still opens —
+underneath is the full greyed-out list of what it did, which is the point of freezing
+a row instead of hiding it. Drop it when you want it gone, or **Forget** it (§4.6)
+when a later snapshot wrote over its files and Drop is refused. Dropping a frozen
+snapshot moves no file: there is nothing outstanding to put back, only the record to
+throw out.
+
+So a snapshot that only reverts an uncommitted change is frozen from the moment it is
+taken. That is the honest answer rather than a defect: it is a true record of what
+happened, and no part of it is waiting on you.
 
 ### 4.6 Forget a snapshot, keep the files
 
@@ -428,6 +460,14 @@ commit took — to nothing at all when it took the lot.
 once every path it changed is in a commit — as that snapshot left it, or as a later
 snapshot rewrote it, since work written over still reached the branch through the
 work that replaced it.
+
+**A commit only ever takes work that existed when it was made.** Every snapshot
+records the HEAD it was captured at, and no commit at or before that one may claim
+it. Without the bound, a snapshot that puts a path back to what the branch already
+holds matches every commit from there on and gets credited to the oldest — filed
+under a commit older than itself, which reads as never having been snapshotted at
+all. Such a snapshot has nothing outstanding and no commit can ever take it, so it
+goes **frozen** (§4.5) rather than landed.
 
 Your commits are the only commits, and they count without being told to. Stage the
 three files you have read, commit them, and the snapshot they belonged to lands the

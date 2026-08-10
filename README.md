@@ -192,15 +192,40 @@ diff two revisions and are read-only by nature.
 | the whole lane | the repo row |
 
 A row marked `⇣` is not the agent's change — it arrived when HEAD moved under that
-snapshot. A row struck through is **frozen**: nothing of it is left on disk.
+snapshot.
+
+Every other file row carries a word for how far its change has got.
+
+| mark | what is on disk | the snapshot's change |
+|---|---|---|
+| `staged` | the snapshot's version, in the index | waiting for your commit |
+| `committed` | the file as the snapshot left it | on the branch |
+| `reverted` | where the snapshot found it | undone |
+| `recovered` | what the branch holds, and *not* what the snapshot left | undone, by hand |
+
+In the **Open** area the last three mean nothing is outstanding — nothing left to
+read, nothing left to stage — so the row **greys out** and offers no **Revert**. Under
+a commit every row reads `committed`, which is what that area means.
+
+`recovered` is the one worth knowing. Put a file back from HEAD yourself — `git
+restore`, Discard Changes, an editor undo back to the committed text — and it now
+matches the branch, which reads exactly like the change having landed. It is the
+opposite: the snapshot's version is gone. Only `committed` means the work survived,
+and it is per file, so committing half a snapshot marks that half and leaves the rest
+outstanding.
+
+A snapshot whose every file is greyed out is **frozen**, and greys too. It still opens
+onto them.
 
 ### Rejecting work
 
 **Revert This Snapshot's Change** on a file row puts that one file back to how it was
 before the snapshot — working tree only. The same action on a snapshot row undoes the
 whole thing, takes its comments with it, and rewrites the later snapshots so they stop
-carrying the reverted content. **Drop This Snapshot** removes one from the middle when
-nothing of it is left.
+carrying the reverted content. Greyed rows are left alone either way: on a `committed`
+or `recovered` file, putting the old content back would not undo the snapshot, it
+would open an uncommitted diff against your own commit. **Drop This Snapshot** removes
+one from the middle when nothing of it is left.
 
 **Forget This Snapshot** is the other half on its own: the row goes and every file stays
 exactly where it is. For a turn you have decided not to review rather than not to keep —
