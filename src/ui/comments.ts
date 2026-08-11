@@ -120,20 +120,26 @@ export class Comments {
     return `${repo.root}\0${id}\0${uri.toString()}`;
   }
 
-  /** The one document a thread is drawn on, and where on it.
+  /** The documents a thread is drawn on, and where on each.
    *
-   * One, not two: a thread with two homes is a comment the Comments panel lists
-   * twice, which is the same complaint as being drawn on every revision, only
-   * quieter. Which home is decided by whether the lines survived.
+   * Two of them, and the second is the one that makes a review readable. **The
+   * revision it was written against**, at `origin`: those lines are what they
+   * always were and always will be, so the widget lands on exactly the diff row
+   * the reviewer was looking at. **The file on disk**, at `anchor`, while the
+   * lines are still there — `carryForward` keeps that position true, and the file
+   * is the copy you go and edit.
    *
-   * While they exist it is the file on disk, at `anchor` — `carryForward` keeps
-   * that true, and the file is the copy you go and edit. Once they are gone the
-   * file has no honest position left, so the thread falls back to the diff it was
-   * written against, at `origin`, where its lines are what they always were and
-   * always will be. That is where an outdated comment is actually readable, and
-   * GitHub keeps them off the current file for the same reason.
+   * The file alone was the rule, and it lost comments. Only the newest snapshot's
+   * review has the file on a side of it; every older one is a revision against a
+   * revision, so a comment written on it was drawn nowhere at all when the review
+   * was reopened — while the tree row went on counting it. The cost of the second
+   * home is a thread the Comments panel lists twice when both documents are open,
+   * which is a duplicate row set against a comment that could not be found.
    *
-   * A thread from before `origin` was recorded has only the file.
+   * An outdated thread keeps only the revision. Its lines are gone from the file,
+   * so there is no honest position left to draw it at, and GitHub keeps them off
+   * the current file for the same reason. One from before `origin` was recorded
+   * has only the file, which is all it has ever had.
    *
    * A resolved one has nowhere at all. It has been answered, and on a lane where
    * the snapshots and the file move this fast it would be a widget over lines that
@@ -144,14 +150,15 @@ export class Comments {
       return undefined;
     }
     const origin = thread.origin;
-    if (thread.outdated && origin !== undefined) {
-      return uri.scheme === SCHEME && uri.query === origin.rev
-        ? new vscode.Range(origin.startLine, 0, origin.endLine, 0)
-        : undefined;
+    if (uri.scheme === SCHEME) {
+      return origin === undefined || uri.query !== origin.rev
+        ? undefined
+        : new vscode.Range(origin.startLine, 0, origin.endLine, 0);
     }
-    return uri.scheme === "file"
-      ? new vscode.Range(thread.anchor.startLine, 0, thread.anchor.endLine, 0)
-      : undefined;
+    if (uri.scheme !== "file" || (thread.outdated && origin !== undefined)) {
+      return undefined;
+    }
+    return new vscode.Range(thread.anchor.startLine, 0, thread.anchor.endLine, 0);
   }
 
   /** Draw stored threads onto a document that has a home for them. */
@@ -238,6 +245,10 @@ export class Comments {
     if (updated === fresh) {
       this.live.set(this.key(repo, fresh.id, uri), { widget: reply.thread, repo, id: fresh.id });
     }
+    // A thread has a widget on the file and one on its origin revision, and this
+    // reply was typed into one of them. Without this the other goes on showing the
+    // conversation as it was before the reply.
+    this.refresh();
   }
 
   /** Let go of the widgets on a revision document that has closed. Reopening the
