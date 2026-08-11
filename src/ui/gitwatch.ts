@@ -88,9 +88,9 @@ interface Shape {
 }
 
 async function shapeOf(repository: GitRepository): Promise<Shape> {
-  // Read the state the event just reported before going to git, so the cheap half
-  // of the shape describes the moment that woke us rather than whenever the refs
-  // came back.
+  // Read the state git is reporting now, before going to git for the rest, so the
+  // cheap half of the shape describes one moment rather than being torn across the
+  // wait for the refs.
   const state = repository.state;
   const branch = state.HEAD?.name ?? "";
   const head = state.HEAD?.commit ?? "";
@@ -130,6 +130,10 @@ export class GitWatch implements vscode.Disposable {
    * waits on git, so two of them can be in flight at once and they can come back
    * in either order — see `resample`. */
   private readonly latest = new Map<GitRepository, number>();
+  /** Repositories that have reported an event and not yet been read. Named, not
+   * counted, because a workspace of several clones gets one event per clone and
+   * only the ones that spoke are worth a subprocess. */
+  private readonly dirty = new Set<GitRepository>();
   private timer: NodeJS.Timeout | undefined;
   private pending: GitMoved = { checkout: false, structure: false };
   private disposed = false;
@@ -146,6 +150,8 @@ export class GitWatch implements vscode.Disposable {
         // Dropping the ticket also settles any read still out on this repository:
         // it will find no ticket of its own and put nothing back.
         this.latest.delete(repository);
+        // And a repository that spoke and then closed is not one to go and read.
+        this.dirty.delete(repository);
         this.schedule({ checkout: true, structure: true });
       }),
     );
@@ -203,42 +209,91 @@ export class GitWatch implements vscode.Disposable {
     // Until one of them returns the repository is simply unseen, which already
     // reads as "everything moved".
     void this.resample(repository);
+    // Noting that the repository spoke is the whole of the work done here. What it
+    // now looks like is asked once the burst is over, in `settle`.
     this.listeners.push(
       repository.state.onDidChange(() => {
-        void (async () => {
-          const sampled = await this.resample(repository);
-          if (sampled === undefined || this.disposed) {
-            return;
-          }
-          const { before, now } = sampled;
-          // git re-runs status on any file event under the repo — a build writing
-          // to an ignored directory, a save, an editor opening — and reports the
-          // result whether or not it differs. Rebuilding the tree for an answer
-          // that did not change is exactly what makes the rows flicker.
-          const same =
-            before !== undefined &&
-            before.branch === now.branch &&
-            before.head === now.head &&
-            before.refs === now.refs &&
-            before.changes === now.changes;
-          if (same) {
-            return;
-          }
-          this.schedule({
-            checkout: before === undefined || before.branch !== now.branch,
-            structure:
-              before === undefined ||
-              before.branch !== now.branch ||
-              before.head !== now.head ||
-              before.refs !== now.refs,
-          });
-        })();
+        this.dirty.add(repository);
+        this.arm();
       }),
     );
   }
 
+  /** Read every repository that spoke, and fire once for all of them.
+   *
+   * git re-runs status on any file event under the repo — a build writing to an
+   * ignored directory, a save, an editor opening — and reports the result whether
+   * or not it differs, which is why a shape is compared before anything is
+   * redrawn. A repository whose shape did not move contributes nothing, and when
+   * none of them moved nothing fires at all. */
+  private async settle(): Promise<void> {
+    const spoke = [...this.dirty];
+    this.dirty.clear();
+    const moved = this.pending;
+    this.pending = { checkout: false, structure: false };
+    // An open or a close says its own answer without being asked, so it fires
+    // whatever the readings say.
+    let fire = moved.checkout || moved.structure;
+    // One repository failing its read — closed, or deleted under us mid-burst —
+    // says nothing about that one and must not take the others' event with it.
+    const readings = await Promise.all(
+      spoke.map((repository) => this.resample(repository).catch(() => undefined)),
+    );
+    if (this.disposed) {
+      return;
+    }
+    for (const reading of readings) {
+      if (reading === undefined) {
+        continue;
+      }
+      const { before, now } = reading;
+      if (
+        before !== undefined &&
+        before.branch === now.branch &&
+        before.head === now.head &&
+        before.refs === now.refs &&
+        before.changes === now.changes
+      ) {
+        continue;
+      }
+      // A working tree that moved on its own sets neither flag, and still fires:
+      // that is an agent mid-turn, and the file rows are drawn from disk.
+      fire = true;
+      moved.checkout ||= before === undefined || before.branch !== now.branch;
+      moved.structure ||=
+        before === undefined ||
+        before.branch !== now.branch ||
+        before.head !== now.head ||
+        before.refs !== now.refs;
+    }
+    if (fire) {
+      this.moved.fire(moved);
+    }
+  }
+
+  /** An answer this watch already has, without reading anything: a repository
+   * opening or closing is a different set of lanes either way. */
+  private schedule(moved: GitMoved): void {
+    this.pending = {
+      checkout: this.pending.checkout || moved.checkout,
+      structure: this.pending.structure || moved.structure,
+    };
+    this.arm();
+  }
+
   /** git reports every file an agent writes, one event each, so the burst becomes
-   * one event.
+   * one settle — and, now, one read of each repository rather than one per event.
+   *
+   * The reading used to happen in the listener, ahead of this timer, so the
+   * collapsing protected the redraw and nothing else: a shape costs a
+   * `for-each-ref` subprocess, and an agent writing forty files paid forty of them
+   * per window to conclude forty times that the refs had not moved. A window is
+   * cheap and people keep many open, so that multiplied by every window with the
+   * repo in it. Reading behind the timer costs one per repository per burst.
+   *
+   * What it costs is latency: the shape is now read after the quiet period rather
+   * than during it, so the event lands a subprocess later than it did — tens of
+   * milliseconds, against a 400ms wait nobody is watching.
    *
    * 400ms rather than 200. It was originally raised because a redraw cost about
    * as much as the interval — 27 subprocesses, ~200ms — so an agent mid-turn kept
@@ -247,19 +302,13 @@ export class GitWatch implements vscode.Disposable {
    * would be affordable again; it stays at 400 because collapsing more of a write
    * burst is free, and nothing in this view is what a reviewer watches while an
    * agent types. */
-  private schedule(moved: GitMoved): void {
-    this.pending = {
-      checkout: this.pending.checkout || moved.checkout,
-      structure: this.pending.structure || moved.structure,
-    };
+  private arm(): void {
     if (this.timer !== undefined) {
       clearTimeout(this.timer);
     }
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      const moved = this.pending;
-      this.pending = { checkout: false, structure: false };
-      this.moved.fire(moved);
+      void this.settle();
     }, 400);
   }
 }
