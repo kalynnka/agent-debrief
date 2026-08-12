@@ -937,8 +937,44 @@ async function main() {
     false,
     "the previous lane's baseline goes with the clearing that replaces it",
   );
+
+  // A baseline speaks for the revision it was taken at and for no other. The
+  // branch moving on puts everything the move brought between the base and the
+  // working tree, and the next snapshot recorded the lot as the agent's — seen on
+  // inky as a chat that edited nothing opening a snapshot of a whole merge.
+  fs.writeFileSync(path.join(clearRoot, "d.txt"), "mine, in progress\n");
+  assert.deepStrictEqual(
+    await clearLane(clgit, clstore),
+    { dropped: 0, based: true },
+    "the clearing records where the branch stood",
+  );
+  // The work leaves and comes back as a commit — a branch finished and merged,
+  // as this lane sees it.
+  fs.writeFileSync(path.join(clearRoot, "d.txt"), "mine, finished\n");
+  fs.writeFileSync(path.join(clearRoot, "e.txt"), "and this came back with it\n");
+  clg(["add", "."]);
+  clg(["commit", "-qm", "the branch lands"]);
+  assert.deepStrictEqual(
+    await takeSnapshot(clgit, clstore, { label: "a chat, no code", agent: "manual" }),
+    { created: false, reason: "unchanged" },
+    "a turn that touched nothing records nothing, whatever the passed-over base still holds",
+  );
+  fs.writeFileSync(path.join(clearRoot, "c.txt"), "four\n");
+  const c4 = await takeSnapshot(clgit, clstore, { label: "four", agent: "manual" });
+  assert.strictEqual(
+    c4.snapshot.parent,
+    clg(["rev-parse", "HEAD"]).trim(),
+    "a turn that did touch something starts from where the branch is now",
+  );
+  assert.deepStrictEqual(
+    c4.files.map((f) => f.path),
+    ["c.txt"],
+    "so it holds its own work, and not the commit the branch moved by",
+  );
+
   fs.rmSync(clearRoot, { recursive: true, force: true });
   console.log("a lane can be let go on purpose       ok");
+  console.log("a baseline expires with its revision  ok");
 
   // 26. The label is its own sentence, so a note shows it above the message. Every
   //     snapshot recorded before that — and every one the hook still scrapes, since
