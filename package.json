@@ -2,7 +2,7 @@
   "name": "agent-debrief",
   "displayName": "Agent Debrief",
   "description": "Snapshot-by-snapshot review of agent changes: snapshot each turn, diff snapshot-over-snapshot, batch line comments.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "kalynnka",
   "packageManager": "pnpm@10.32.1",
   "license": "MIT",

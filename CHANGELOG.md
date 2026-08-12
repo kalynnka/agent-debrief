@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.3](https://github.com/kalynnka/agent-debrief/compare/0.1.2...0.1.3) (2026-08-12)
+
+
+### Bug Fixes
+
+* **comments:** draw an open thread on the revision it was written against ([b2000ea](https://github.com/kalynnka/agent-debrief/commit/b2000ea943435f910afb0b53f0af2037bf332af5))
+* **comments:** draw an open thread on the revision it was written against ([2f330c3](https://github.com/kalynnka/agent-debrief/commit/2f330c323e2ff141ea973bd78c7fde65a7a7aa79))
+* **lane:** a cleared lane's baseline expires with its revision ([689d60a](https://github.com/kalynnka/agent-debrief/commit/689d60a2de06d05681cc7eeb3124a049c56adc23))
+* **lane:** a cleared lane's baseline expires with its revision ([501fbb5](https://github.com/kalynnka/agent-debrief/commit/501fbb50ff685b36c9265568f6cdd7e0bdf2606f))
+
+
+### Performance
+
+* **gitwatch:** read a repository's shape once per burst, not once per event ([61644e8](https://github.com/kalynnka/agent-debrief/commit/61644e80b81bae912abb1068263a6528312f14ed))
+* **gitwatch:** read a repository's shape once per burst, not once per event ([0073c53](https://github.com/kalynnka/agent-debrief/commit/0073c538a5ae2cf3dfc48df4eed59311f20eae38))
+
 ## [0.1.2](https://github.com/kalynnka/agent-debrief/compare/0.1.1...0.1.2) (2026-08-10)
 
 
