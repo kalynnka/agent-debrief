@@ -102,6 +102,29 @@ export async function anchorForward(
   };
 }
 
+/** Where a cleared lane starts, while the clearing still speaks for the branch.
+ *
+ * `clearLane` commits the cleared tree onto HEAD, so the base carries the
+ * revision it was taken at as its own parent — and describes that one only. Once
+ * the branch has moved on, everything the move brought sits between the base and
+ * the working tree, and the next snapshot opens by recording all of it as the
+ * agent's: a chat that edited nothing took a snapshot of a whole merge.
+ *
+ * So the base holds while HEAD is where the clearing left it, and no longer. Past
+ * that, what the move brought is committed, and committed work is nobody's turn.
+ * Passed over rather than cleared — a checkout away and home again leaves the
+ * clearing standing. */
+async function standingBase(
+  git: Git,
+  base: string | undefined,
+  head: string | undefined,
+): Promise<string | undefined> {
+  if (base === undefined) {
+    return undefined;
+  }
+  return (await git.parentOf(base)) === head ? base : undefined;
+}
+
 /** Capture one snapshot: allocate the lane's next number, write the working tree
  * through the lane's private index, record it, and carry open comment
  * threads forward into it. The whole read-modify-write runs under the lane's
@@ -125,8 +148,9 @@ export async function takeSnapshot(
     const head = await git.head();
     // A cleared lane starts from the tree the reviewer cleared at, not from HEAD:
     // otherwise the first snapshot afterwards claims every uncommitted change
-    // that was already sitting there.
-    const parent = previous?.sha ?? state.base ?? head ?? empty;
+    // that was already sitting there — for as long as that clearing still says
+    // where the branch is, which is `standingBase`.
+    const parent = previous?.sha ?? (await standingBase(git, state.base, head)) ?? head ?? empty;
     const seeded = parent === empty ? undefined : parent;
     const tree = await git.writeSnapshotTree(store.indexFile, seeded);
     const parentTree = seeded === undefined ? empty : await git.treeOf(seeded);

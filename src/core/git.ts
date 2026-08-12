@@ -196,6 +196,24 @@ export class Git {
     }
   }
 
+  /** The revision a commit was made on top of, or undefined when it has none.
+   *
+   * How a lane's base commit says where HEAD stood when it was written: nothing
+   * records that, because `clearLane` commits the cleared tree onto HEAD and git
+   * has kept it ever since. Undefined for a base taken on an unborn HEAD — a root
+   * commit — which is the same answer `head` gives there. */
+  async parentOf(rev: string): Promise<string | undefined> {
+    try {
+      return (await this.run(["rev-parse", "--verify", "-q", `${rev}^`])).trim();
+    } catch (error) {
+      // With -q, exit 1 is rev-parse's quiet answer for "no such revision".
+      if ((error as { code?: number }).code === 1) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
   /** The empty tree's id in this repo's hash algorithm — the diff base for a
    * snapshot taken on an unborn HEAD, which has no commit to diff against. */
   async emptyTree(): Promise<string> {

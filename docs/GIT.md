@@ -55,7 +55,7 @@ verified against the working repos rather than read off the PRD.
 | `git reset --soft`, `--mixed` | Index and HEAD move; the worktree does not, so snapshots still describe what is on disk. | Unchanged. |
 | `git reset --hard` | The worktree goes back; every snapshot's files stop differing from where they started, so the rows go frozen and struck through. Honest, and the snapshot refs are what makes the work recoverable. | Unchanged. Drop is now refused while git is mid-operation (D5); a plain `reset --hard` is not an operation git considers itself inside, so that case still relies on the frozen row reading as a fact rather than an instruction. |
 | `git revert <commit>` | A new commit; the worktree follows; affected snapshots go frozen. | Unchanged. |
-| `git cherry-pick`, `git merge`, `git pull`, `git pull --rebase` | HEAD is on the snapshot record; the note names the move and the rows it brought are marked `⇣`. | Unchanged. |
+| `git cherry-pick`, `git merge`, `git pull`, `git pull --rebase` | HEAD is on the snapshot record; the note names the move and the rows it brought are marked `⇣`. On a cleared lane the baseline expires with the move, so the next snapshot starts from HEAD rather than opening with the whole of it. | Unchanged. |
 | History rewrites — `filter-repo`, `filter-branch` | Snapshot parents dangle; landing answers change. | Out of scope; document it. |
 
 ### C. Commands that move the working tree
@@ -297,7 +297,7 @@ unchanged and took nothing — which is why the hole had never shown.
 
 So clearing writes the working tree as a commit, keeps it at
 `refs/debrief/base/<lane>`, and records its sha as the lane's `base` (schema 5);
-`takeSnapshot` reads `previous?.sha ?? state.base ?? head`. Clearing is the one
+`takeSnapshot` reads `previous?.sha ?? standingBase ?? head`. Clearing is the one
 moment debrief can be sure the tree is not the agent's, because a human is
 standing there pressing the button, and this is that knowledge kept. A clean tree
 records nothing — HEAD already says where the lane starts. The sweep claims the
@@ -322,6 +322,23 @@ This reverses HANDOFF §4's "leave the specimens be": those refs were kept as a
 before-and-after specimen of the virgin-index bug, which is now pinned by a
 regression test instead. `debrief gc` does not delete their objects either — the
 same hand-to-git rule applies.
+
+**The baseline expires with its revision.** ✅ **Done.** The first build read the
+base whatever HEAD had done since, and a baseline only describes the revision it
+was taken at — so everything the branch moved by afterwards sat between the base
+and the working tree, and the next snapshot opened by recording all of it. Found
+on inky: `main` cleared mid-branch, the branch's work merged back in twelve hours
+later, and a chat that edited no code took a snapshot of 40 files on a working
+tree identical to HEAD. `standingBase` reads the base commit's own parent — where
+HEAD stood when `clearLane` wrote it, no new field — and passes the base over
+once HEAD is elsewhere. Nothing is deleted: a checkout away and home again leaves
+the clearing standing. The cost is what the base was for, and only the part of it
+still uncommitted after the move — which is what an unwritten lane already
+accepts, and far less than the move.
+*Verified:* 55 checks pass (33 smoke + 22 cli). The new check clears a lane with
+work in progress, lands that work as a commit with a file of its own beside it,
+and asserts a turn that touches nothing is `unchanged` — the whole bug — while
+the turn after it starts from HEAD and holds its own file alone.
 
 **Phase 3a — Attribute honestly (fixes D5, half of D3).** ✅ **Done.**
 `Snapshot.head` (schema 3), the note's HEAD-moved line, `mid-operation` as a named
